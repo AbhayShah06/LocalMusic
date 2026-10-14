@@ -1,4 +1,4 @@
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:padding="16dp" android:background="#101214">
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/root" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:padding="16dp" android:background="#101214">
     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Local Music" android:textSize="26sp" android:textStyle="bold" android:textColor="#F4F4F4" />
     <EditText android:id="@+id/search" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Search songs, albums, artists" android:singleLine="true" android:inputType="text" android:textColor="#FFFFFF" android:textColorHint="#A8ADB2" android:backgroundTint="#91C7B1" />
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">

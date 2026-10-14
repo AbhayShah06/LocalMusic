@@ -1,0 +1,7 @@
+{
+  "versionCode": 2,
+  "versionName": "0.2.0",
+  "notes": "Adds persistent playback, queue restoration, sleep timer, and safe one-tap updates.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/latest/download/LocalMusic.apk",
+  "sha256": "20E86ADA6EC861C159F02767E618917445812188810EC271D3D85AA266C8CAB2"
+}
