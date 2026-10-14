@@ -1,25 +1,24 @@
 # Local Music
 
-A separate offline-first Android player for audio files already on the phone, inspired by the speed and ownership model of Musicolet/Phonograph—not a streaming service and not tied to Personal Stream.
+An audio-only, offline-first Android player for music already available on the device. The local library is the working source. A small `CatalogSource` boundary reserves a place for an authorized OpenSubsonic/Navidrome implementation; no server login or streaming protocol is claimed yet.
 
-## Starter included
+## MVP
 
-- Correct Android 13+ and legacy audio-library permissions
-- MediaStore scan limited to music files
-- Alphabetical native track list with title and artist
-- Tap-to-play and explicit Stop
-- Clear permission, empty-library, and unreadable-track states
-- No account, subscription, tracking, ads, or network permission
+- MediaStore songs with title, artist and album search; album and artist index views.
+- Catalog queries run off the UI thread and return pages of at most 200 rows. The UI requests 100 at a time. Artwork is not decoded or cached in memory.
+- One Media3/ExoPlayer queue, owned by `MediaSessionService`, with notification, lock-screen, headset and Bluetooth controls.
+- Play next, append, inspect/reorder/remove queue items, previous/next, seek, shuffle and repeat controls.
+- Local favorites and named playlists, a sleep timer, and a button that opens the Android system equalizer for the active audio session when installed.
+- Playback queue, position, shuffle and repeat persist across process/service recreation; restored playback starts paused.
+- No video, network permission, ads, analytics, tracking or third-party catalog scraping.
+- Android target SDK 35, minimum SDK 26.
 
-## Hard release plan
+The consolidation carries over PersonalStream's intended searchable library and queue/playback direction. Downloads, account login, synced playlists and remote streaming remain future work because that project had no selected catalog/server implementation. The OpenSubsonic adapter must use stable server IDs, bounded paging, authenticated audio streams, and bounded disk artwork/cache behavior; credentials should be stored with platform-backed encryption.
 
-1. **Playback core:** Media3 background service, notification controls, audio focus, headset/Bluetooth actions, seek, shuffle, repeat, gapless playback, and sleep timer.
-2. **Library:** albums, artists, genres, folders, search, multi-queue management, favorites, and editable playlists with import/export.
-3. **File behavior:** rescan on MediaStore changes, deleted/moved file recovery, embedded artwork, tag editing, ReplayGain, and format capability reporting.
-4. **UX:** dense one-handed layout, configurable tabs, persistent mini-player, no ornamental AI-dashboard design, full offline behavior.
-5. **Release gate:** 10k+ track library, corrupt files, missing SD card, permission revocation, calls/audio focus, process death, and Android 10–15 devices.
+## Build
 
-## Build status
+Use the Gradle wrapper and Android SDK 35. The project uses Android Gradle Plugin 8.7.3 and AndroidX Media3 1.11.1. No GPL source was copied.
 
-The source foundation is present. No APK was produced because Java and the Android SDK were not installed on this machine.
+## Known MVP limits
 
+Album/artist indexes currently show at most 200 entries, while song/search results page through the library. Selecting an album or artist narrows the song list by its displayed name; duplicate names can therefore mix results. Local playlists store media IDs, with up to 200 tracks restored into a playback queue. There is no artwork rendering, server adapter, offline-download manager, or automated MediaStore change observer yet. Spotify-style Jam remains a possible future local shared-queue feature; the MVP has no always-running server or accounts.

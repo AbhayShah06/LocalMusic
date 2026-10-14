@@ -1,10 +1,30 @@
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:padding="20dp" android:background="#E6E8EA">
-    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Local Music" android:textSize="28sp" android:textStyle="bold" android:textColor="#111111" />
-    <TextView android:id="@+id/status" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Scanning music already on this phone…" />
-    <ListView android:id="@+id/tracks" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginTop="14dp" android:divider="#B8BCC0" android:dividerHeight="1dp" />
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:padding="12dp" android:background="#D4D7DA">
-        <TextView android:id="@+id/nowPlaying" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Nothing playing" android:textStyle="bold" />
-        <Button android:id="@+id/stop" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Stop" />
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:padding="16dp" android:background="#101214">
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Local Music" android:textSize="26sp" android:textStyle="bold" android:textColor="#F4F4F4" />
+    <EditText android:id="@+id/search" android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="Search songs, albums, artists" android:singleLine="true" android:inputType="text" android:textColor="#FFFFFF" android:textColorHint="#A8ADB2" android:backgroundTint="#91C7B1" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+        <Button android:id="@+id/songs" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Songs" />
+        <Button android:id="@+id/albums" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Albums" />
+        <Button android:id="@+id/artists" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Artists" />
     </LinearLayout>
+    <TextView android:id="@+id/status" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Scanning music on this phone…" android:textColor="#C3C8CC" />
+    <ListView android:id="@+id/tracks" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginTop="8dp" android:divider="#34393D" android:dividerHeight="1dp" android:cacheColorHint="#101214" />
+    <SeekBar android:id="@+id/seek" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="1000" android:progressTint="#91C7B1" android:thumbTint="#91C7B1" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:padding="8dp" android:background="#202528">
+        <Button android:id="@+id/previous" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="|◀" />
+        <Button android:id="@+id/playPause" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Play / Pause" />
+        <Button android:id="@+id/next" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="▶|" />
+        <TextView android:id="@+id/nowPlaying" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp" android:text="Nothing playing" android:textColor="#F4F4F4" android:textStyle="bold" android:maxLines="2" />
+    </LinearLayout>
+    <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content" android:scrollbars="none">
+        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal">
+            <Button android:id="@+id/queue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Queue" />
+            <Button android:id="@+id/shuffle" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Shuffle" />
+            <Button android:id="@+id/repeat" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Repeat" />
+            <Button android:id="@+id/favorite" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="♥" />
+            <Button android:id="@+id/favorites" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Favorites" />
+            <Button android:id="@+id/playlists" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Playlists" />
+            <Button android:id="@+id/sleep" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Sleep" />
+            <Button android:id="@+id/equalizer" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="EQ" />
+        </LinearLayout>
+    </HorizontalScrollView>
 </LinearLayout>
-

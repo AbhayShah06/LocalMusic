@@ -9,5 +9,17 @@ android {
         versionCode 1
         versionName '0.1.0'
     }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // Media3 1.5.1 is the stable line built for compileSdk 35. Newer 1.11.x
+    // artifacts require compileSdk 36 and a newer Android Gradle plugin.
+    implementation 'androidx.media3:media3-exoplayer:1.5.1'
+    implementation 'androidx.media3:media3-session:1.5.1'
+    testImplementation 'junit:junit:4.13.2'
 }
 
