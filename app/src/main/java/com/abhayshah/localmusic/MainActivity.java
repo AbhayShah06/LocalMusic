@@ -45,6 +45,8 @@ public final class MainActivity extends Activity {
     private ListenableFuture<MediaController> controllerFuture;
     private int offset;
     private boolean loading, exhausted;
+    private boolean remoteMode;
+    private ServerSettings serverSettings;
     private String query = "";
     private String group = "";
     private final Handler ticker = new Handler(Looper.getMainLooper());
@@ -61,6 +63,8 @@ public final class MainActivity extends Activity {
         status = findViewById(R.id.status);
         nowPlaying = findViewById(R.id.nowPlaying);
         search = findViewById(R.id.search);
+        serverSettings = new ServerSettings(this);
+        findViewById(R.id.source).setOnClickListener(v -> chooseSource());
         ListView list = findViewById(R.id.tracks);
         adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, new ArrayList<>());
         list.setAdapter(adapter);
@@ -128,12 +132,15 @@ public final class MainActivity extends Activity {
     }
 
     private void loadNextPage() {
-        if (loading || exhausted || !group.isEmpty() || checkSelfPermission(Build.VERSION.SDK_INT >= 33 ? Manifest.permission.READ_MEDIA_AUDIO : Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) return;
+        if (loading || exhausted || !group.isEmpty()) return;
+        if (!remoteMode && checkSelfPermission(Build.VERSION.SDK_INT >= 33 ? Manifest.permission.READ_MEDIA_AUDIO : Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) return;
         loading = true;
         int pageOffset = offset;
         String pageQuery = query;
         io.execute(() -> {
-            List<Track> page = new MediaStoreCatalogSource(getContentResolver()).page(pageQuery, pageOffset, PAGE_SIZE);
+            List<Track> page;
+            try { page = remoteMode ? new OpenSubsonicClient(serverSettings).page(pageQuery, pageOffset, PAGE_SIZE) : new MediaStoreCatalogSource(getContentResolver()).page(pageQuery, pageOffset, PAGE_SIZE); }
+            catch (RuntimeException error) { main.post(() -> { loading = false; status.setText("Could not reach Navidrome. Check the server address and connection."); }); return; }
             main.post(() -> {
                 loading = false;
                 if (!pageQuery.equals(query)) return;
@@ -143,12 +150,13 @@ public final class MainActivity extends Activity {
                 }
                 tracks.addAll(page); offset += page.size(); exhausted = page.size() < PAGE_SIZE;
                 for (Track t : page) adapter.add(t.title + "\n" + t.artist + " · " + t.album);
-                status.setText(tracks.size() + (exhausted ? " songs" : "+ songs") + " on this phone");
+                status.setText(tracks.size() + (exhausted ? " songs" : "+ songs") + (remoteMode ? " from Navidrome" : " on this phone"));
             });
         });
     }
 
     private void showGroups(boolean artists) {
+        if (remoteMode) { Toast.makeText(this, "Use search to find remote albums and artists for now.", Toast.LENGTH_SHORT).show(); return; }
         group = artists ? "artist" : "album";
         tracks.clear(); adapter.clear();
         io.execute(() -> {
@@ -203,7 +211,8 @@ public final class MainActivity extends Activity {
     private void showTrackActions(int position) {
         if (!group.isEmpty() || position < 0 || position >= tracks.size()) return;
         Track track = tracks.get(position);
-        new AlertDialog.Builder(this).setTitle(track.title).setItems(new String[]{"Play now", "Play next", "Add to queue", "Add to favorites", "Add to playlist"}, (d, which) -> {
+        String[] actions = track.id < 0 ? new String[]{"Play now", "Play next", "Add to queue"} : new String[]{"Play now", "Play next", "Add to queue", "Add to favorites", "Add to playlist"};
+        new AlertDialog.Builder(this).setTitle(track.title).setItems(actions, (d, which) -> {
             if (controller == null) return;
             if (which == 0) playFrom(position);
             else if (which == 1 || which == 2) {
@@ -284,7 +293,7 @@ public final class MainActivity extends Activity {
     private void toggleCurrentFavorite() {
         if (controller == null || controller.getCurrentMediaItem() == null) return;
         String mediaId = controller.getCurrentMediaItem().mediaId;
-        if (!mediaId.startsWith("local:")) return;
+        if (!mediaId.startsWith("local:")) { Toast.makeText(this, "Remote favorites are managed by Navidrome.", Toast.LENGTH_SHORT).show(); return; }
         android.content.SharedPreferences prefs = getSharedPreferences("library", MODE_PRIVATE);
         java.util.Set<String> ids = new java.util.HashSet<>(prefs.getStringSet("favorites", new java.util.HashSet<>()));
         String id = mediaId.substring(6);
@@ -337,6 +346,31 @@ public final class MainActivity extends Activity {
                     .putExtra(PlaybackService.EXTRA_SLEEP_MINUTES, minutes[which]);
             startService(timer);
             Toast.makeText(this, minutes[which] == 0 ? "Sleep timer off" : "Playback will pause in " + minutes[which] + " minutes", Toast.LENGTH_SHORT).show();
+        }).show();
+    }
+
+    private void chooseSource() {
+        String[] options = serverSettings.configured() ? new String[]{"This phone", "Navidrome", "Configure Navidrome"} : new String[]{"This phone", "Set up Navidrome"};
+        new AlertDialog.Builder(this).setTitle("Music library").setItems(options, (dialog, which) -> {
+            if (which == 0) { remoteMode = false; ((android.widget.Button)findViewById(R.id.source)).setText("Library: This phone"); setGroup(""); }
+            else if (serverSettings.configured() && which == 1) { remoteMode = true; ((android.widget.Button)findViewById(R.id.source)).setText("Library: Navidrome"); setGroup(""); }
+            else configureServer();
+        }).show();
+    }
+
+    private void configureServer() {
+        android.widget.LinearLayout form = new android.widget.LinearLayout(this); form.setOrientation(android.widget.LinearLayout.VERTICAL); int pad = (int)(20 * getResources().getDisplayMetrics().density); form.setPadding(pad, 0, pad, 0);
+        EditText url = new EditText(this); url.setHint("HTTPS server URL"); url.setSingleLine(); url.setText(serverSettings.url()); form.addView(url);
+        EditText username = new EditText(this); username.setHint("Username"); username.setSingleLine(); username.setText(serverSettings.username()); form.addView(username);
+        EditText password = new EditText(this); password.setHint("Password"); password.setSingleLine(); password.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD); form.addView(password);
+        new AlertDialog.Builder(this).setTitle("Navidrome / OpenSubsonic").setView(form).setNegativeButton("Cancel", null).setPositiveButton("Connect", (dialog, which) -> {
+            String address = url.getText().toString().trim(); String user = username.getText().toString().trim(); String pass = password.getText().toString();
+            if (!address.startsWith("https://") || user.isEmpty() || pass.isEmpty()) { Toast.makeText(this, "Use an HTTPS address and enter your username and password.", Toast.LENGTH_LONG).show(); return; }
+            serverSettings.save(address, user, pass); status.setText("Connecting to Navidrome…");
+            io.execute(() -> { boolean ok = new OpenSubsonicClient(serverSettings).ping(); main.post(() -> {
+                if (ok) { remoteMode = true; ((android.widget.Button)findViewById(R.id.source)).setText("Library: Navidrome"); setGroup(""); }
+                else status.setText("Connection failed. Check the HTTPS address, login, and whether the server is running.");
+            }); });
         }).show();
     }
 

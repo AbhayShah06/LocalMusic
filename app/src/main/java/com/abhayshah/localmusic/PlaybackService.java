@@ -16,6 +16,8 @@ import androidx.media3.session.MediaSessionService;
 
 import java.util.ArrayList;
 import java.util.List;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 @androidx.media3.common.util.UnstableApi
 public final class PlaybackService extends MediaSessionService {
@@ -64,20 +66,22 @@ public final class PlaybackService extends MediaSessionService {
         if (saved.isEmpty()) return;
         List<MediaItem> items = new ArrayList<>();
         ContentResolver resolver = getContentResolver();
-        for (String raw : saved.split(",")) {
+        if (saved.startsWith("[")) {
             try {
-                long id = Long.parseLong(raw);
-                Uri uri = Uri.withAppendedPath(android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, Long.toString(id));
-                try (android.database.Cursor c = resolver.query(uri, new String[]{android.provider.MediaStore.Audio.Media.TITLE,
-                        android.provider.MediaStore.Audio.Media.ARTIST, android.provider.MediaStore.Audio.Media.ALBUM}, null, null, null)) {
-                    if (c != null && c.moveToFirst()) {
-                        items.add(new MediaItem.Builder().setMediaId("local:" + id).setUri(uri)
-                                .setMediaMetadata(new androidx.media3.common.MediaMetadata.Builder().setTitle(Track.clean(c.getString(0), "Unknown title"))
-                                        .setArtist(Track.clean(c.getString(1), "Unknown artist")).setAlbumTitle(Track.clean(c.getString(2), "Unknown album")).build()).build());
-                    }
+                JSONArray array = new JSONArray(saved);
+                for (int i = 0; i < array.length() && items.size() < 200; i++) {
+                    JSONObject item = array.getJSONObject(i); String id = item.getString("id");
+                    if (id.startsWith("remote:")) items.add(new MediaItem.Builder().setMediaId(id).setUri(item.getString("uri"))
+                            .setMediaMetadata(new androidx.media3.common.MediaMetadata.Builder().setTitle(item.optString("title"))
+                                    .setArtist(item.optString("artist")).setAlbumTitle(item.optString("album")).build()).build());
+                    else addLocalItem(items, resolver, Long.parseLong(id.substring(6)));
                 }
-            } catch (RuntimeException ignored) { }
+            } catch (Exception ignored) { items.clear(); }
+        } else {
+        for (String raw : saved.split(",")) {
+            try { addLocalItem(items, resolver, Long.parseLong(raw)); } catch (RuntimeException ignored) { }
             if (items.size() >= 200) break;
+        }
         }
         if (!items.isEmpty()) {
             int index = Math.min(Math.max(0, prefs.getInt("index", 0)), items.size() - 1);
@@ -89,18 +93,26 @@ public final class PlaybackService extends MediaSessionService {
         }
     }
 
+    private static void addLocalItem(List<MediaItem> items, ContentResolver resolver, long id) {
+        Uri uri = Uri.withAppendedPath(android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, Long.toString(id));
+        try (android.database.Cursor c = resolver.query(uri, new String[]{android.provider.MediaStore.Audio.Media.TITLE,
+                android.provider.MediaStore.Audio.Media.ARTIST, android.provider.MediaStore.Audio.Media.ALBUM}, null, null, null)) {
+            if (c != null && c.moveToFirst()) items.add(new MediaItem.Builder().setMediaId("local:" + id).setUri(uri)
+                    .setMediaMetadata(new androidx.media3.common.MediaMetadata.Builder().setTitle(Track.clean(c.getString(0), "Unknown title"))
+                            .setArtist(Track.clean(c.getString(1), "Unknown artist")).setAlbumTitle(Track.clean(c.getString(2), "Unknown album")).build()).build());
+        }
+    }
+
     private void saveState() {
         if (player == null || prefs == null) return;
-        StringBuilder ids = new StringBuilder();
+        JSONArray saved = new JSONArray();
         int count = Math.min(player.getMediaItemCount(), 200);
         for (int i = 0; i < count; i++) {
-            String id = player.getMediaItemAt(i).mediaId;
-            if (id.startsWith("local:")) {
-                if (ids.length() > 0) ids.append(',');
-                ids.append(id.substring(6));
-            }
+            MediaItem item = player.getMediaItemAt(i); JSONObject value = new JSONObject();
+            try { value.put("id", item.mediaId); value.put("uri", item.localConfiguration == null ? "" : item.localConfiguration.uri.toString());
+                value.put("title", String.valueOf(item.mediaMetadata.title)); value.put("artist", String.valueOf(item.mediaMetadata.artist)); value.put("album", String.valueOf(item.mediaMetadata.albumTitle)); saved.put(value); } catch (Exception ignored) { }
         }
-        prefs.edit().putString("queue", ids.toString()).putInt("index", Math.max(0, player.getCurrentMediaItemIndex()))
+        prefs.edit().putString("queue", saved.toString()).putInt("index", Math.max(0, player.getCurrentMediaItemIndex()))
                 .putLong("position", Math.max(0, player.getCurrentPosition())).putBoolean("shuffle", player.getShuffleModeEnabled())
                 .putInt("repeat", player.getRepeatMode()).apply();
     }

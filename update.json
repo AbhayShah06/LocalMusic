@@ -1,7 +1,7 @@
 {
-  "versionCode": 2,
-  "versionName": "0.2.0",
-  "notes": "Adds persistent playback, queue restoration, sleep timer, and safe one-tap updates.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/latest/download/LocalMusic.apk",
-  "sha256": "20E86ADA6EC861C159F02767E618917445812188810EC271D3D85AA266C8CAB2"
+  "versionCode": 3,
+  "versionName": "0.3.0",
+  "notes": "Adds encrypted Navidrome/OpenSubsonic setup, remote search and streaming, and remote queue restoration.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.3.0/LocalMusic-0.3.0.apk",
+  "sha256": "A5065F2DCA574FC91A38AEA53B404317F8043937C58182898B14BCBD6BB4B563"
 }
