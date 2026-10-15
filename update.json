@@ -1,7 +1,7 @@
 {
-  "versionCode": 13,
-  "versionName": "0.10.1",
-  "notes": "The full-screen player now uses Android immersive mode, hiding the system navigation buttons until they are temporarily revealed with an edge swipe.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.10.1/LocalMusic-0.10.1.apk",
-  "sha256": "FF25CAC718835407825220F3D479527C2F33A3CF47ECE5DDEA7E4C135BF39CA0"
+  "versionCode": 14,
+  "versionName": "0.10.2",
+  "notes": "The resolved track now supplies the highest-resolution available artwork to the full-screen player, and artwork decoding preserves up to 1600 pixels instead of 768.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.10.2/LocalMusic-0.10.2.apk",
+  "sha256": "787BBA62BDE9FF17B1F411EB95073969A2E684CA9CBB9557EC33FB976BB1C3BC"
 }

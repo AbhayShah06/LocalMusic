@@ -55,7 +55,7 @@ final class OnlineCatalogSource implements CatalogSource {
                 if (output.size() >= limit) break;
                 if (isUnwantedVersion(stream, query)) continue;
                 String encoded = Base64.encodeToString(stream.getUrl().getBytes(StandardCharsets.UTF_8), Base64.URL_SAFE | Base64.NO_WRAP);
-                Uri artwork = stream.getThumbnails().isEmpty() ? null : Uri.parse(stream.getThumbnails().get(stream.getThumbnails().size() - 1).getUrl());
+                Uri artwork = bestArtwork(stream.getThumbnails());
                 output.add(new Track("online:" + service.getServiceId() + ":" + encoded, Uri.parse(stream.getUrl()),
                         stream.getName(), artistFor(stream), service.getServiceInfo().getName(), artwork));
             }
@@ -131,7 +131,8 @@ final class OnlineCatalogSource implements CatalogSource {
                 for (Track candidate : fallback) { String identity = identity(candidate.title); if (!identity.isEmpty() && !tooSimilar(identity(track.title), identity) && identities.add(identity)) radio.add(candidate); if (radio.size() >= 12) break; }
             }
             Collections.shuffle(radio);
-            return new Resolution(new Track(track.stableId, Uri.parse(stream.getContent()), track.title, track.artist, track.album, track.artworkUri), radio);
+            Uri resolvedArtwork = bestArtwork(info.getThumbnails());
+            return new Resolution(new Track(track.stableId, Uri.parse(stream.getContent()), track.title, track.artist, track.album, resolvedArtwork == null ? track.artworkUri : resolvedArtwork), radio);
         } catch (Exception error) { throw new IllegalStateException("Could not start this stream", error); }
     }
 
@@ -152,7 +153,7 @@ final class OnlineCatalogSource implements CatalogSource {
 
     private static Track unresolved(StreamingService service, StreamInfoItem stream) {
         String encoded = Base64.encodeToString(stream.getUrl().getBytes(StandardCharsets.UTF_8), Base64.URL_SAFE | Base64.NO_WRAP);
-        Uri artwork = stream.getThumbnails().isEmpty() ? null : Uri.parse(stream.getThumbnails().get(stream.getThumbnails().size() - 1).getUrl());
+        Uri artwork = bestArtwork(stream.getThumbnails());
         return new Track("online:" + service.getServiceId() + ":" + encoded, Uri.parse(stream.getUrl()), stream.getName(), artistFor(stream), service.getServiceInfo().getName(), artwork);
     }
 
@@ -172,5 +173,14 @@ final class OnlineCatalogSource implements CatalogSource {
             normalized = normalized.replaceAll("(?i)\\s+(media|fan|channel)$", "").trim();
         }
         return normalized.isEmpty() ? uploader : normalized;
+    }
+
+    private static Uri bestArtwork(java.util.List<org.schabi.newpipe.extractor.Image> images) {
+        org.schabi.newpipe.extractor.Image best = null; long bestArea = -1;
+        for (org.schabi.newpipe.extractor.Image image : images) {
+            long width = Math.max(1, image.getWidth()), height = Math.max(1, image.getHeight()), area = width * height;
+            if (best == null || area > bestArea || area == bestArea && image.getEstimatedResolutionLevel().ordinal() > best.getEstimatedResolutionLevel().ordinal()) { best = image; bestArea = area; }
+        }
+        return best == null ? null : Uri.parse(best.getUrl());
     }
 }

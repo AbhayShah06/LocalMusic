@@ -57,7 +57,7 @@ final class ArtworkLoader {
     private static Bitmap decode(File file) {
         if (!file.isFile()) return null; file.setLastModified(System.currentTimeMillis());
         BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true; BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
-        int sample = 1; while (bounds.outWidth / sample > 768 || bounds.outHeight / sample > 768) sample *= 2;
+        int sample = 1; while (bounds.outWidth / sample > 1600 || bounds.outHeight / sample > 1600) sample *= 2;
         BitmapFactory.Options options = new BitmapFactory.Options(); options.inSampleSize = sample; return BitmapFactory.decodeFile(file.getAbsolutePath(), options);
     }
 
