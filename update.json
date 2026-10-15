@@ -1,7 +1,7 @@
 {
-  "versionCode": 12,
-  "versionName": "0.10.0",
-  "notes": "A redesigned artwork-led full-screen player, duplicate-resistant autoqueue, broader discovery fallback, improved lyrics with stream-caption fallback, and live Jam searches whose selections reach the host queue.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.10.0/LocalMusic-0.10.0.apk",
-  "sha256": "B75093C83F2702ABD3F4751FDBF3FB568DCD7DAAB75F83B66A0C3DA465FBB269"
+  "versionCode": 13,
+  "versionName": "0.10.1",
+  "notes": "The full-screen player now uses Android immersive mode, hiding the system navigation buttons until they are temporarily revealed with an edge swipe.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.10.1/LocalMusic-0.10.1.apk",
+  "sha256": "FF25CAC718835407825220F3D479527C2F33A3CF47ECE5DDEA7E4C135BF39CA0"
 }

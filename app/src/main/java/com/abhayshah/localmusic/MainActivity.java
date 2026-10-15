@@ -350,7 +350,23 @@ public final class MainActivity extends Activity {
         });
         Player.Listener dialogListener = new Player.Listener() { @Override public void onEvents(Player player, Player.Events events) { refresh.run(); } };
         controller.addListener(dialogListener); dialog.setOnDismissListener(ignored -> { if (controller != null) controller.removeListener(dialogListener); });
-        dialog.show(); if (dialog.getWindow() != null) dialog.getWindow().setLayout(-1, -1);
+        dialog.show(); if (dialog.getWindow() != null) { dialog.getWindow().setLayout(-1, -1); makeImmersive(dialog.getWindow()); }
+    }
+
+    private static void makeImmersive(android.view.Window window) {
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(false);
+            android.view.WindowInsetsController controller = window.getInsetsController();
+            if (controller != null) {
+                controller.hide(android.view.WindowInsets.Type.navigationBars());
+                controller.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            }
+        } else {
+            window.getDecorView().setSystemUiVisibility(android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    | android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        }
     }
 
     private static String formatTime(long milliseconds) {
