@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "localmusic-jam",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "vars": { "SITE_ORIGIN": "https://abhayshah06.github.io" },
+  "durable_objects": { "bindings": [{ "name": "JAM_ROOMS", "class_name": "JamRoom" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["JamRoom"] }],
+  "observability": { "enabled": true }
+}

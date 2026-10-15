@@ -58,6 +58,10 @@ public final class MainActivity extends Activity {
     private String group = "";
     private final Handler ticker = new Handler(Looper.getMainLooper());
     private Runnable seekTicker;
+    private final Handler jamTicker = new Handler(Looper.getMainLooper());
+    private JamClient.Room activeJam;
+    private final java.util.Map<String, Track> jamCatalog = new java.util.HashMap<>();
+    private final java.util.Set<String> seenJamEntries = new java.util.HashSet<>();
     private final Player.Listener uiPlayerListener = new Player.Listener() {
         @Override public void onMediaItemTransition(androidx.media3.common.MediaItem item, int reason) { updateNowPlaying(); }
         @Override public void onIsPlayingChanged(boolean isPlaying) { updateNowPlaying(); }
@@ -110,7 +114,10 @@ public final class MainActivity extends Activity {
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) { query = s.toString(); resetAndLoad(); }
             @Override public void afterTextChanged(Editable s) { }
         });
-        refreshPermissionState();
+        if (b2Settings.bundled()) {
+            remoteMode = true; b2Mode = true; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE);
+            ((TextView)findViewById(R.id.source)).setText("Backblaze  ▾"); resetAndLoad();
+        } else refreshPermissionState();
     }
 
     private void connect() {
@@ -275,17 +282,77 @@ public final class MainActivity extends Activity {
     }
 
     private void showMoreMenu() {
-        String[] actions = {"Music source", "Import playlist", "Favorites", "Playlists", "Sleep timer", "Equalizer", "Music permission"};
+        String[] actions = {"Start a Jam", "Music source", "Import playlist", "Favorites", "Playlists", "Sleep timer", "Equalizer", "Music permission"};
         new AlertDialog.Builder(this).setTitle("Local Music").setItems(actions, (d, which) -> {
-            if (which == 0) chooseSource();
-            else if (which == 1) choosePlaylistFile();
-            else if (which == 2) { selectTab(R.id.playlists); loadSavedTracks("favorites", "Favorites"); }
-            else if (which == 3) { selectTab(R.id.playlists); showPlaylists(); }
-            else if (which == 4) chooseSleepTimer();
-            else if (which == 5) openEqualizer();
+            if (which == 0) startJam();
+            else if (which == 1) chooseSource();
+            else if (which == 2) choosePlaylistFile();
+            else if (which == 3) { selectTab(R.id.playlists); loadSavedTracks("favorites", "Favorites"); }
+            else if (which == 4) { selectTab(R.id.playlists); showPlaylists(); }
+            else if (which == 5) chooseSleepTimer();
+            else if (which == 6) openEqualizer();
             else if (hasAudioPermission()) Toast.makeText(this, "Music access is allowed", Toast.LENGTH_SHORT).show();
             else requestAudioPermission();
         }).show();
+    }
+
+    private void startJam() {
+        if (activeJam != null) { showJam(activeJam); return; }
+        status.setText("PREPARING JAM");
+        io.execute(() -> {
+            try {
+                List<Track> catalog = loadJamCatalog();
+                if (catalog.isEmpty()) throw new IllegalStateException("Your selected library is empty");
+                JamClient.Room room = new JamClient().create(catalog);
+                jamCatalog.clear(); for (Track track : catalog) jamCatalog.put(track.stableId, track);
+                seenJamEntries.clear(); activeJam = room;
+                main.post(() -> { status.setText(catalog.size() + " SONGS READY FOR JAM"); showJam(room); pollJam(); });
+            } catch (Exception error) { main.post(() -> { status.setText("JAM COULD NOT START"); Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show(); }); }
+        });
+    }
+
+    private List<Track> loadJamCatalog() {
+        if (b2Mode) return new B2CatalogClient(b2Settings).page("", 0, 1200);
+        if (remoteMode) return new OpenSubsonicClient(serverSettings).page("", 0, 1200);
+        List<Track> all = new ArrayList<>(); MediaStoreCatalogSource source = new MediaStoreCatalogSource(getContentResolver());
+        for (int offset = 0; offset < 1200; offset += 200) { List<Track> page = source.page("", offset, 200); all.addAll(page); if (page.size() < 200) break; }
+        return all;
+    }
+
+    private void showJam(JamClient.Room room) {
+        float density = getResources().getDisplayMetrics().density;
+        android.widget.LinearLayout content = new android.widget.LinearLayout(this); content.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int)(22 * density); content.setPadding(pad, (int)(8 * density), pad, 0);
+        android.widget.ImageView qr = new android.widget.ImageView(this); int size = (int)Math.min(280 * density, getResources().getDisplayMetrics().widthPixels - 80 * density);
+        try { qr.setImageBitmap(JamClient.qr(room.joinUrl(), size)); } catch (Exception ignored) { }
+        content.addView(qr, new android.widget.LinearLayout.LayoutParams(-1, size));
+        TextView code = new TextView(this); code.setText(room.code); code.setGravity(android.view.Gravity.CENTER); code.setTextSize(26); code.setTextColor(android.graphics.Color.WHITE); code.setLetterSpacing(.18f); code.setPadding(0, (int)(14*density), 0, (int)(8*density)); content.addView(code);
+        TextView help = new TextView(this); help.setText("Friends scan this code, enter a name, search your library, and add songs. You can leave this window open or close it while the Jam keeps running."); help.setTextColor(android.graphics.Color.LTGRAY); help.setGravity(android.view.Gravity.CENTER); content.addView(help);
+        new AlertDialog.Builder(this).setTitle("Jam is live").setView(content).setNeutralButton("Share link", (d, w) -> {
+            Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, room.joinUrl()); startActivity(Intent.createChooser(share, "Share Jam"));
+        }).setNegativeButton("End Jam", (d, w) -> endJam()).setPositiveButton("Done", null).show();
+    }
+
+    private void pollJam() {
+        jamTicker.removeCallbacksAndMessages(null);
+        if (activeJam == null) return;
+        io.execute(() -> {
+            try {
+                List<JamClient.Entry> entries = new JamClient().queue(activeJam.code);
+                List<JamClient.Entry> fresh = new ArrayList<>();
+                for (JamClient.Entry entry : entries) if (seenJamEntries.add(entry.id)) fresh.add(entry);
+                main.post(() -> {
+                    if (controller != null) for (JamClient.Entry entry : fresh) { Track track = jamCatalog.get(entry.trackId); if (track != null) { controller.addMediaItem(track.toMediaItem()); Toast.makeText(this, entry.guest + " added " + track.title, Toast.LENGTH_SHORT).show(); } }
+                    if (activeJam != null) jamTicker.postDelayed(this::pollJam, 2000);
+                });
+            } catch (Exception error) { main.post(() -> { if (activeJam != null) jamTicker.postDelayed(this::pollJam, 4000); }); }
+        });
+    }
+
+    private void endJam() {
+        JamClient.Room room = activeJam; activeJam = null; jamTicker.removeCallbacksAndMessages(null);
+        if (room != null) io.execute(() -> { try { new JamClient().close(room); } catch (Exception ignored) { } });
+        Toast.makeText(this, "Jam ended", Toast.LENGTH_SHORT).show();
     }
 
     private void choosePlaylistFile() {
@@ -519,5 +586,5 @@ public final class MainActivity extends Activity {
         else Toast.makeText(this, "No system equalizer is available on this device", Toast.LENGTH_SHORT).show();
     }
 
-    @Override public void onDestroy() { io.shutdown(); super.onDestroy(); }
+    @Override public void onDestroy() { jamTicker.removeCallbacksAndMessages(null); io.shutdown(); super.onDestroy(); }
 }

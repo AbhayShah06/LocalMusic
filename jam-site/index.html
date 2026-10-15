@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0b0c">
+  <title>Join a LocalMusic Jam</title>
+  <link rel="icon" type="image/png" href="localmusic-logo.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <header>
+      <img class="brandmark" src="localmusic-logo.png" alt="LocalMusic">
+      <p class="eyebrow">LOCALMUSIC JAM</p>
+      <h1>Pick the next song.</h1>
+      <p class="lede">Search the host’s library and add directly to the room queue.</p>
+    </header>
+
+    <section id="setup" class="panel">
+      <label for="room">ROOM CODE</label>
+      <input id="room" maxlength="6" autocomplete="one-time-code" autocapitalize="characters" placeholder="ABC234">
+      <label for="guest">YOUR NAME</label>
+      <input id="guest" maxlength="28" autocomplete="name" placeholder="Name">
+      <button id="join">Join Jam</button>
+      <p id="setupError" class="error" role="alert"></p>
+    </section>
+
+    <section id="jam" hidden>
+      <div class="roomline"><span id="liveDot"></span><strong id="roomLabel"></strong><button id="share">Share</button></div>
+      <div class="searchbox"><input id="search" type="search" placeholder="Search songs and artists" autocomplete="off"><span id="resultCount"></span></div>
+      <div id="results" class="tracklist"></div>
+      <aside class="queue">
+        <div class="sectionTitle"><span>UP NEXT</span><span id="queueCount">0</span></div>
+        <div id="queueList"></div>
+      </aside>
+      <p id="toast" role="status"></p>
+    </section>
+  </main>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

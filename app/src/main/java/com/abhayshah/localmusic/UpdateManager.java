@@ -23,7 +23,13 @@ import java.security.MessageDigest;
 final class UpdateManager {
     private static final String MANIFEST = "https://raw.githubusercontent.com/AbhayShah06/LocalMusic/main/update.json";
     private UpdateManager() {}
-    static void attach(Activity a, ViewGroup parent) { cleanup(a); new Thread(() -> check(a, parent), "update-check").start(); }
+    static void attach(Activity a, ViewGroup parent) {
+        cleanup(a);
+        // The public release cannot replace a preconfigured personal build because
+        // doing so would remove its bundled, bucket-restricted credentials.
+        if (BuildConfig.IS_PERSONAL) return;
+        new Thread(() -> check(a, parent), "update-check").start();
+    }
     private static void check(Activity a, ViewGroup parent) {
         try { JSONObject j = new JSONObject(read(MANIFEST)); int current = a.getPackageManager().getPackageInfo(a.getPackageName(), 0).versionCode;
             if (j.getInt("versionCode") > current) a.runOnUiThread(() -> show(a, parent, j)); } catch (Exception ignored) { }

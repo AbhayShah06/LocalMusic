@@ -59,7 +59,7 @@ final class B2CatalogClient implements CatalogSource {
         c.setRequestProperty("Authorization", "Basic " + Base64.encodeToString(credentials.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP));
         JSONObject root = new JSONObject(read(c));
         JSONObject storage = root.getJSONObject("apiInfo").getJSONObject("storageApi");
-        JSONObject allowed = root.getJSONObject("allowed");
+        JSONObject allowed = storage.getJSONObject("allowed");
         String bucketId = "";
         JSONArray buckets = allowed.optJSONArray("buckets");
         if (buckets != null) for (int i = 0; i < buckets.length(); i++) {

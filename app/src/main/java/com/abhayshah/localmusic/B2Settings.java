@@ -20,9 +20,10 @@ final class B2Settings {
 
     boolean available() { return prefs != null; }
     boolean configured() { return !keyId().isEmpty() && !applicationKey().isEmpty() && !bucket().isEmpty(); }
-    String keyId() { return prefs == null ? "" : prefs.getString("key_id", ""); }
-    String applicationKey() { return prefs == null ? "" : prefs.getString("application_key", ""); }
-    String bucket() { return prefs == null ? "LocalMusic" : prefs.getString("bucket", "LocalMusic"); }
+    boolean bundled() { return !BuildConfig.B2_KEY_ID.isEmpty() && !BuildConfig.B2_APPLICATION_KEY.isEmpty(); }
+    String keyId() { return prefs == null ? BuildConfig.B2_KEY_ID : prefs.getString("key_id", BuildConfig.B2_KEY_ID); }
+    String applicationKey() { return prefs == null ? BuildConfig.B2_APPLICATION_KEY : prefs.getString("application_key", BuildConfig.B2_APPLICATION_KEY); }
+    String bucket() { return prefs == null ? BuildConfig.B2_BUCKET : prefs.getString("bucket", BuildConfig.B2_BUCKET); }
 
     void save(String keyId, String applicationKey, String bucket) {
         if (prefs == null) throw new IllegalStateException("Secure storage is unavailable");

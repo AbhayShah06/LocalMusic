@@ -1,7 +1,7 @@
 {
-  "versionCode": 5,
-  "versionName": "0.5.0",
-  "notes": "Direct private Backblaze B2 streaming, secure credential storage, refreshed responsive dark design, and tactile controls.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.5.0/LocalMusic-0.5.0.apk",
-  "sha256": "B02BD178B0D01D543594B400E60A401CE6B8A5DD465C5F2C404DD4433956F4DD"
+  "versionCode": 6,
+  "versionName": "0.6.0",
+  "notes": "Private preconfigured Backblaze playback, live Jam rooms with a no-login guest site, the new LocalMusic identity, and reliability fixes.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.6.0/LocalMusic-0.6.0.apk",
+  "sha256": "CD7CB112E5CDA100ECCE1455C0B71A0F2E798C3B6A8506270A0E86B9C841F90B"
 }

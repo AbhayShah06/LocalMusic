@@ -1,4 +1,8 @@
 plugins { id 'com.android.application' }
+def privateProps = new Properties()
+def privatePropsFile = rootProject.file('local.private.properties')
+if (privatePropsFile.exists()) privatePropsFile.withInputStream { privateProps.load(it) }
+def quoted = { value -> '"' + (value ?: '').toString().replace('\\', '\\\\').replace('"', '\\"') + '"' }
 android {
     namespace 'com.abhayshah.localmusic'
     compileSdk 35
@@ -6,12 +10,30 @@ android {
         applicationId 'com.abhayshah.localmusic'
         minSdk 26
         targetSdk 35
-        versionCode 5
-        versionName '0.5.0'
+        versionCode 6
+        versionName '0.6.0'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+    buildFeatures { buildConfig true }
+    flavorDimensions 'distribution'
+    productFlavors {
+        publicBuild {
+            dimension 'distribution'
+            buildConfigField 'boolean', 'IS_PERSONAL', 'false'
+            buildConfigField 'String', 'B2_KEY_ID', '""'
+            buildConfigField 'String', 'B2_APPLICATION_KEY', '""'
+            buildConfigField 'String', 'B2_BUCKET', '"LocalMusic"'
+        }
+        personal {
+            dimension 'distribution'
+            buildConfigField 'boolean', 'IS_PERSONAL', 'true'
+            buildConfigField 'String', 'B2_KEY_ID', quoted(privateProps.getProperty('B2_KEY_ID'))
+            buildConfigField 'String', 'B2_APPLICATION_KEY', quoted(privateProps.getProperty('B2_APPLICATION_KEY'))
+            buildConfigField 'String', 'B2_BUCKET', quoted(privateProps.getProperty('B2_BUCKET', 'LocalMusic'))
+        }
     }
 }
 
@@ -22,6 +44,7 @@ dependencies {
     implementation 'androidx.media3:media3-session:1.5.1'
     implementation 'androidx.core:core:1.15.0'
     implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+    implementation 'com.google.zxing:core:3.5.3'
     testImplementation 'junit:junit:4.13.2'
 }
 
