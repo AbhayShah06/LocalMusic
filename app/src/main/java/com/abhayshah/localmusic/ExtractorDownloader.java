@@ -21,8 +21,8 @@ final class ExtractorDownloader extends Downloader {
 
     @Override public Response execute(Request request) throws IOException, ReCaptchaException {
         HttpURLConnection connection = (HttpURLConnection) new URL(request.url()).openConnection();
-        connection.setConnectTimeout(15_000);
-        connection.setReadTimeout(30_000);
+        connection.setConnectTimeout(10_000);
+        connection.setReadTimeout(18_000);
         connection.setInstanceFollowRedirects(true);
         connection.setRequestMethod(request.httpMethod());
         connection.setRequestProperty("User-Agent", USER_AGENT);

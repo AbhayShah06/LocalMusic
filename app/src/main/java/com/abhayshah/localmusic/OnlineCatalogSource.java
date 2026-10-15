@@ -25,8 +25,10 @@ final class OnlineCatalogSource implements CatalogSource {
         Resolution(Track playable, List<Track> radio) { this.playable = playable; this.radio = radio; }
     }
     private static boolean initialized;
+    private final boolean avoidCleanVersions;
 
-    OnlineCatalogSource() { ensureInitialized(); }
+    OnlineCatalogSource() { this(true); }
+    OnlineCatalogSource(boolean avoidCleanVersions) { this.avoidCleanVersions = avoidCleanVersions; ensureInitialized(); }
 
     private static synchronized void ensureInitialized() {
         if (!initialized) { NewPipe.init(new ExtractorDownloader()); initialized = true; }
@@ -40,7 +42,7 @@ final class OnlineCatalogSource implements CatalogSource {
         return tracks;
     }
 
-    private static void search(StreamingService service, String query, List<Track> output, int limit) {
+    private void search(StreamingService service, String query, List<Track> output, int limit) {
         try {
             String request = service == ServiceList.YouTube ? query + " official audio" : query;
             SearchInfo result = SearchInfo.getInfo(service, service.getSearchQHFactory().fromQuery(request, Collections.emptyList(), ""));
@@ -53,7 +55,7 @@ final class OnlineCatalogSource implements CatalogSource {
                 String encoded = Base64.encodeToString(stream.getUrl().getBytes(StandardCharsets.UTF_8), Base64.URL_SAFE | Base64.NO_WRAP);
                 Uri artwork = stream.getThumbnails().isEmpty() ? null : Uri.parse(stream.getThumbnails().get(stream.getThumbnails().size() - 1).getUrl());
                 output.add(new Track("online:" + service.getServiceId() + ":" + encoded, Uri.parse(stream.getUrl()),
-                        stream.getName(), stream.getUploaderName(), service.getServiceInfo().getName(), artwork));
+                        stream.getName(), artistFor(stream), service.getServiceInfo().getName(), artwork));
             }
         } catch (Exception ignored) { }
     }
@@ -71,12 +73,13 @@ final class OnlineCatalogSource implements CatalogSource {
         return score;
     }
 
-    private static boolean isUnwantedVersion(StreamInfoItem item, String query) {
+    private boolean isUnwantedVersion(StreamInfoItem item, String query) {
         String title = item.getName().toLowerCase(java.util.Locale.ROOT);
         String wanted = query.toLowerCase(java.util.Locale.ROOT);
         if (item.getDuration() > 15 * 60 || (item.getDuration() > 0 && item.getDuration() < 45)) return true;
-        String[] variants = {"clean", "radio edit", "instrumental", "karaoke", "reaction", "nightcore", "slowed", "sped up", "live", "remix", "interview", "podcast", "documentary", "news", "trailer", "review", "explained"};
+        String[] variants = {"instrumental", "karaoke", "reaction", "nightcore", "slowed", "sped up", "live", "remix", "interview", "podcast", "documentary", "news", "trailer", "review", "explained"};
         for (String variant : variants) if (title.contains(variant) && !wanted.contains(variant)) return true;
+        if (avoidCleanVersions && (title.contains("clean") || title.contains("radio edit")) && !wanted.contains("clean") && !wanted.contains("radio edit")) return true;
         return title.contains("music video") && !title.contains("official audio");
     }
 
@@ -125,6 +128,24 @@ final class OnlineCatalogSource implements CatalogSource {
     private static Track unresolved(StreamingService service, StreamInfoItem stream) {
         String encoded = Base64.encodeToString(stream.getUrl().getBytes(StandardCharsets.UTF_8), Base64.URL_SAFE | Base64.NO_WRAP);
         Uri artwork = stream.getThumbnails().isEmpty() ? null : Uri.parse(stream.getThumbnails().get(stream.getThumbnails().size() - 1).getUrl());
-        return new Track("online:" + service.getServiceId() + ":" + encoded, Uri.parse(stream.getUrl()), stream.getName(), stream.getUploaderName(), service.getServiceInfo().getName(), artwork);
+        return new Track("online:" + service.getServiceId() + ":" + encoded, Uri.parse(stream.getUrl()), stream.getName(), artistFor(stream), service.getServiceInfo().getName(), artwork);
+    }
+
+    private static String artistFor(StreamInfoItem stream) {
+        String title = stream.getName().trim(), uploader = stream.getUploaderName().trim();
+        String[] separators = {" - ", " – ", " — "};
+        for (String separator : separators) {
+            int split = title.indexOf(separator);
+            if (split > 0 && split <= 60) {
+                String candidate = title.substring(0, split).replaceAll("(?i)^(official|audio)\\s+", "").trim();
+                if (candidate.length() >= 2 && candidate.length() <= 60) return candidate;
+            }
+        }
+        String normalized = uploader.replaceAll("(?i)\\s*-\\s*topic$", "").replaceAll("(?i)vevo$", "").trim();
+        String generic = normalized.toLowerCase(java.util.Locale.ROOT);
+        if (generic.endsWith(" media") || generic.endsWith(" fan") || generic.endsWith(" channel")) {
+            normalized = normalized.replaceAll("(?i)\\s+(media|fan|channel)$", "").trim();
+        }
+        return normalized.isEmpty() ? uploader : normalized;
     }
 }

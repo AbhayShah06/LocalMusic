@@ -213,7 +213,7 @@ public final class MainActivity extends Activity {
         String pageQuery = query;
         searchIo.execute(() -> {
             List<Track> page;
-            try { page = onlineMode ? new OnlineCatalogSource().page(pageQuery, pageOffset, PAGE_SIZE) : b2Mode ? new B2CatalogClient(b2Settings).page(pageQuery, pageOffset, PAGE_SIZE) : remoteMode ? new OpenSubsonicClient(serverSettings).page(pageQuery, pageOffset, PAGE_SIZE) : new MediaStoreCatalogSource(getContentResolver()).page(pageQuery, pageOffset, PAGE_SIZE); }
+            try { page = onlineMode ? onlineSource().page(pageQuery, pageOffset, PAGE_SIZE) : b2Mode ? new B2CatalogClient(b2Settings).page(pageQuery, pageOffset, PAGE_SIZE) : remoteMode ? new OpenSubsonicClient(serverSettings).page(pageQuery, pageOffset, PAGE_SIZE) : new MediaStoreCatalogSource(getContentResolver()).page(pageQuery, pageOffset, PAGE_SIZE); }
             catch (RuntimeException error) { main.post(() -> { loading = false; status.setText("Could not reach this music source. Check its connection settings."); }); return; }
             main.post(() -> {
                 loading = false;
@@ -272,35 +272,40 @@ public final class MainActivity extends Activity {
         int request = streamRequest.incrementAndGet();
         status.setText("Starting " + selected.title + "…");
         if (controller != null) { controller.pause(); controller.clearMediaItems(); updateNowPlaying(); }
+        Track offline = DownloadStore.offline(this, selected);
+        if (offline != null && controller != null) {
+            controller.setMediaItem(offline.toMediaItem()); controller.prepare(); controller.play(); status.setText("Playing downloaded copy"); updateNowPlaying();
+        }
         streamIo.execute(() -> {
-            OnlineCatalogSource source = new OnlineCatalogSource();
+            OnlineCatalogSource source = onlineSource();
             try {
                 OnlineCatalogSource.Resolution resolution = source.resolveWithRadio(selected);
                 Track first = resolution.playable;
                 main.post(() -> {
                     if (controller == null || streamRequest.get() != request) return;
-                    controller.setMediaItem(first.toMediaItem()); controller.prepare(); controller.play();
-                    status.setText("Streaming from " + first.album); updateNowPlaying();
+                    if (offline == null) { controller.setMediaItem(first.toMediaItem()); controller.prepare(); controller.play(); status.setText("Streaming from " + first.album); updateNowPlaying(); }
                 });
-                List<Track> upcoming = resolution.radio.isEmpty()
-                        ? new ArrayList<>(sourceTracks.subList(Math.min(position + 1, sourceTracks.size()), Math.min(sourceTracks.size(), position + 6)))
-                        : new ArrayList<>(resolution.radio.subList(0, Math.min(5, resolution.radio.size())));
-                List<java.util.concurrent.CompletableFuture<Track>> futures = new ArrayList<>();
-                for (Track item : upcoming) futures.add(java.util.concurrent.CompletableFuture.supplyAsync(() -> { try { return source.resolve(item); } catch (RuntimeException ignored) { return null; } }, streamIo));
-                java.util.concurrent.CompletableFuture.allOf(futures.toArray(new java.util.concurrent.CompletableFuture[0])).thenRun(() -> {
-                    List<Track> ready = new ArrayList<>(); for (java.util.concurrent.CompletableFuture<Track> future : futures) { Track item = future.join(); if (item != null) ready.add(item); }
-                    main.post(() -> { if (controller != null && streamRequest.get() == request) for (Track item : ready) controller.addMediaItem(item.toMediaItem()); });
-                });
+                appendRadio(source, sourceTracks, position, resolution.radio, request);
             } catch (RuntimeException error) {
-                main.post(() -> { if (streamRequest.get() == request) { status.setText("Could not start this song"); Toast.makeText(this, "Try another result or search again.", Toast.LENGTH_LONG).show(); } });
+                main.post(() -> { if (streamRequest.get() == request) { adapter.clearPending(); status.setText("Could not start this song"); Toast.makeText(this, "Try another result or search again.", Toast.LENGTH_LONG).show(); } });
             }
         });
+    }
+
+    private void appendRadio(OnlineCatalogSource source, List<Track> sourceTracks, int position, List<Track> radio, int request) {
+        if (!getSharedPreferences("settings", MODE_PRIVATE).getBoolean("autoplay", true)) return;
+        List<Track> upcoming = radio.isEmpty() ? new ArrayList<>(sourceTracks.subList(Math.min(position + 1, sourceTracks.size()), Math.min(sourceTracks.size(), position + 6)))
+                : new ArrayList<>(radio.subList(0, Math.min(5, radio.size())));
+        for (Track item : upcoming) java.util.concurrent.CompletableFuture
+                .supplyAsync(() -> { Track local = DownloadStore.offline(this, item); if (local != null) return local; try { return source.resolve(item); } catch (RuntimeException ignored) { return null; } }, streamIo)
+                .thenAccept(ready -> main.post(() -> { if (ready != null && controller != null && streamRequest.get() == request) controller.addMediaItem(ready.toMediaItem()); }));
     }
 
     private void updateNowPlaying() {
         if (controller == null || controller.getMediaMetadata().title == null) {
             nowPlaying.setText("Nothing playing"); nowPlayingArtist.setText("Choose a song");
         } else {
+            adapter.clearPending();
             nowPlaying.setText(controller.getMediaMetadata().title);
             nowPlayingArtist.setText(Track.clean(String.valueOf(controller.getMediaMetadata().artist), "Unknown artist"));
         }
@@ -373,26 +378,84 @@ public final class MainActivity extends Activity {
         List<Track> artistTracks = new ArrayList<>(); LibraryAdapter artistAdapter = new LibraryAdapter(this, artistTracks, position -> { dialog.dismiss(); resolveAndPlayOnline(artistTracks, position); }, position -> addTrackToPlaylist(artistTracks.get(position))); list.setAdapter(artistAdapter);
         list.setOnItemClickListener((parent, view, position, id) -> { dialog.dismiss(); resolveAndPlayOnline(artistTracks, position); });
         searchIo.execute(() -> {
-            List<Track> found = new OnlineCatalogSource().page(artistName, 0, 50);
+            List<Track> found = onlineSource().page(artistName, 0, 50);
             main.post(() -> { artistTracks.addAll(found); for (Track track : found) artistAdapter.add(track.title + "\n" + track.artist + " · " + track.album); artistStatus.setText(found.size() + " top songs"); });
         });
     }
 
     private void showMoreMenu() {
-        String[] actions = {"Your mix", "Recently played", "Start a Jam", "Music source", "Import playlist", "Favorites", "Playlists", "Sleep timer", "Equalizer", "Music permission"};
+        String[] actions = {"Your mix", "Recently played", "Downloads", "Start a Jam", "Favorites", "Playlists", "Sleep timer", "Settings"};
         new AlertDialog.Builder(this).setTitle("Local Music").setItems(actions, (d, which) -> {
             if (which == 0) loadListeningList(true);
             else if (which == 1) loadListeningList(false);
-            else if (which == 2) startJam();
-            else if (which == 3) chooseSource();
-            else if (which == 4) choosePlaylistFile();
-            else if (which == 5) { selectTab(R.id.playlists); loadSavedTracks("favorites", "Favorites"); }
-            else if (which == 6) { selectTab(R.id.playlists); showPlaylists(); }
-            else if (which == 7) chooseSleepTimer();
-            else if (which == 8) openEqualizer();
-            else if (hasAudioPermission()) Toast.makeText(this, "Music access is allowed", Toast.LENGTH_SHORT).show();
-            else requestAudioPermission();
+            else if (which == 2) loadDownloads();
+            else if (which == 3) startJam();
+            else if (which == 4) { selectTab(R.id.playlists); loadSavedTracks("favorites", "Favorites"); }
+            else if (which == 5) { selectTab(R.id.playlists); showPlaylists(); }
+            else if (which == 6) chooseSleepTimer();
+            else showSettings();
         }).show();
+    }
+
+    private OnlineCatalogSource onlineSource() {
+        boolean avoidClean = getSharedPreferences("settings", MODE_PRIVATE).getBoolean("avoid_clean", true);
+        return new OnlineCatalogSource(avoidClean);
+    }
+
+    private void showSettings() {
+        android.content.SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
+        int pad = (int)(20 * getResources().getDisplayMetrics().density);
+        android.widget.LinearLayout content = new android.widget.LinearLayout(this);
+        content.setOrientation(android.widget.LinearLayout.VERTICAL);
+        content.setPadding(pad, pad / 2, pad, pad);
+
+        TextView playback = settingsHeading("Playback"); content.addView(playback);
+        android.widget.Switch haptics = settingsSwitch("Touch feedback", "Vibrate briefly when a tap is registered", prefs.getBoolean("haptics", true));
+        haptics.setOnCheckedChangeListener((button, checked) -> prefs.edit().putBoolean("haptics", checked).apply()); content.addView(haptics);
+        android.widget.Switch autoplay = settingsSwitch("Autoplay recommendations", "Keep the queue moving with related music", prefs.getBoolean("autoplay", true));
+        autoplay.setOnCheckedChangeListener((button, checked) -> prefs.edit().putBoolean("autoplay", checked).apply()); content.addView(autoplay);
+        android.widget.Switch explicit = settingsSwitch("Avoid clean and radio edits", "Prefer original explicit versions when available", prefs.getBoolean("avoid_clean", true));
+        explicit.setOnCheckedChangeListener((button, checked) -> prefs.edit().putBoolean("avoid_clean", checked).apply()); content.addView(explicit);
+
+        content.addView(settingsHeading("Library"));
+        content.addView(settingsAction("Music source", "Choose online streaming, phone files, Backblaze, or Navidrome", this::chooseSource));
+        content.addView(settingsAction("Import playlists", "Import Spotify, Apple Music, Soundiiz, TuneMyMusic CSV, or M3U files", this::choosePlaylistFile));
+        content.addView(settingsAction("Equalizer", "Open your phone's audio effects", this::openEqualizer));
+        content.addView(settingsAction("Music permission", hasAudioPermission() ? "Allowed for on-device songs" : "Tap to allow on-device songs", () -> { if (hasAudioPermission()) openAppSettings(); else requestAudioPermission(); }));
+
+        long downloads = DownloadStore.bytes(this), streams = PlaybackCache.bytes(), artwork = ArtworkLoader.bytes(this);
+        content.addView(settingsHeading("Storage"));
+        content.addView(settingsAction("Offline downloads", formatBytes(downloads) + " saved permanently", this::loadDownloads));
+        content.addView(settingsAction("Clear temporary cache", formatBytes(streams + artwork) + " of streams and artwork. Downloads stay.", () -> {
+            PlaybackCache.clear(); ArtworkLoader.clear(this); LyricsClient.clear(this);
+            Toast.makeText(this, "Temporary cache cleared", Toast.LENGTH_SHORT).show();
+        }));
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this); scroll.addView(content);
+        new AlertDialog.Builder(this).setTitle("Settings").setView(scroll).setPositiveButton("Done", null).show();
+    }
+
+    private TextView settingsHeading(String label) {
+        TextView view = new TextView(this); view.setText(label.toUpperCase(java.util.Locale.ROOT));
+        view.setTextColor(android.graphics.Color.rgb(255, 128, 95)); view.setTextSize(13); view.setLetterSpacing(.12f);
+        view.setPadding(0, 26, 0, 8); return view;
+    }
+
+    private android.widget.Switch settingsSwitch(String title, String detail, boolean checked) {
+        android.widget.Switch view = new android.widget.Switch(this); view.setText(title + "\n" + detail); view.setChecked(checked);
+        view.setTextColor(android.graphics.Color.rgb(246, 241, 232)); view.setTextSize(16); view.setPadding(0, 12, 0, 12);
+        return view;
+    }
+
+    private View settingsAction(String title, String detail, Runnable action) {
+        TextView view = new TextView(this); view.setText(title + "\n" + detail); view.setTextColor(android.graphics.Color.rgb(246, 241, 232));
+        view.setTextSize(16); view.setPadding(0, 15, 0, 15); view.setBackgroundResource(android.R.drawable.list_selector_background);
+        view.setOnClickListener(v -> { v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); action.run(); }); return view;
+    }
+
+    private static String formatBytes(long value) {
+        if (value < 1024 * 1024) return Math.max(0, value / 1024) + " KB";
+        return String.format(java.util.Locale.US, "%.1f MB", value / 1048576d);
     }
 
     private void loadListeningList(boolean mix) {
@@ -400,6 +463,12 @@ public final class MainActivity extends Activity {
         group = ""; tracks.clear(); tracks.addAll(found); adapter.clear();
         for (Track track : found) adapter.add(track.title + "\n" + track.artist + " · " + track.album);
         status.setText(found.isEmpty() ? "Play a few songs first" : mix ? "Your daily mix · built on this phone" : "Recently played");
+    }
+
+    private void loadDownloads() {
+        List<Track> found = DownloadStore.all(this); group = ""; tracks.clear(); tracks.addAll(found); adapter.clear();
+        for (Track track : found) adapter.add(track.title + "\n" + track.artist + " · " + track.album);
+        status.setText(found.isEmpty() ? "No offline downloads yet" : found.size() + " downloads · " + Math.max(1, DownloadStore.bytes(this) / (1024 * 1024)) + " MB");
     }
 
     private void startJam() {
@@ -504,21 +573,23 @@ public final class MainActivity extends Activity {
         if (!group.isEmpty() || position < 0 || position >= tracks.size()) return;
         Track track = tracks.get(position);
         boolean online = track.stableId.startsWith("online:");
-        String[] actions = online ? new String[]{"Play now", "Play next", "Add to queue", "Add to playlist", "Open artist"} : new String[]{"Play now", "Play next", "Add to queue", "Add to favorites", "Add to playlist"};
+        String[] actions = online ? new String[]{"Play now", "Play next", "Add to queue", DownloadStore.contains(this, track.stableId) ? "Remove download" : "Download", "Add to playlist", "Open artist"} : new String[]{"Play now", "Play next", "Add to queue", "Add to favorites", "Add to playlist"};
         new AlertDialog.Builder(this).setTitle(track.title).setItems(actions, (d, which) -> {
             if (controller == null) return;
-            if (which == 0) playFrom(position);
-            else if ((which == 1 || which == 2) && online) {
-                enqueueOnline(track, which == 1);
-            } else if (which == 1 || which == 2) {
+            String action = actions[which];
+            if (action.equals("Play now")) playFrom(position);
+            else if ((action.equals("Play next") || action.equals("Add to queue")) && online) {
+                enqueueOnline(track, action.equals("Play next"));
+            } else if (action.equals("Play next") || action.equals("Add to queue")) {
                 androidx.media3.common.MediaItem item = track.toMediaItem();
-                if (which == 1 && controller.getMediaItemCount() > 0) controller.addMediaItem(Math.min(controller.getCurrentMediaItemIndex() + 1, controller.getMediaItemCount()), item);
+                if (action.equals("Play next") && controller.getMediaItemCount() > 0) controller.addMediaItem(Math.min(controller.getCurrentMediaItemIndex() + 1, controller.getMediaItemCount()), item);
                 else controller.addMediaItem(item);
-                Toast.makeText(this, which == 1 ? "Queued next" : "Added to queue", Toast.LENGTH_SHORT).show();
-            } else if (online && which == 3) addTrackToPlaylist(track);
-            else if (online && which == 4) showArtistPage(track.artist);
-            else if (which == 3) toggleFavorite(track.id);
-            else addTrackToPlaylist(track);
+                Toast.makeText(this, action.equals("Play next") ? "Queued next" : "Added to queue", Toast.LENGTH_SHORT).show();
+            } else if (action.equals("Download")) { OfflineDownloadService.enqueue(this, track); Toast.makeText(this, "Download started", Toast.LENGTH_SHORT).show(); }
+            else if (action.equals("Remove download")) new AlertDialog.Builder(this).setTitle("Remove download?").setMessage(track.title + " will remain available to stream.").setNegativeButton("Cancel", null).setPositiveButton("Remove", (dialog, button) -> { DownloadStore.remove(this, track.stableId); Toast.makeText(this, "Download removed", Toast.LENGTH_SHORT).show(); }).show();
+            else if (action.equals("Add to playlist")) addTrackToPlaylist(track);
+            else if (action.equals("Open artist")) showArtistPage(track.artist);
+            else if (action.equals("Add to favorites")) toggleFavorite(track.id);
         }).show();
     }
 
@@ -526,7 +597,7 @@ public final class MainActivity extends Activity {
         status.setText("Preparing " + track.title + "…");
         streamIo.execute(() -> {
             try {
-                Track resolved = new OnlineCatalogSource().resolve(track);
+                Track resolved = onlineSource().resolve(track);
                 main.post(() -> {
                     if (controller == null) return;
                     int target = Math.min(controller.getCurrentMediaItemIndex() + 1, controller.getMediaItemCount());

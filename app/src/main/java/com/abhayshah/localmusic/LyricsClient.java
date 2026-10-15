@@ -38,5 +38,6 @@ final class LyricsClient {
     private static String encode(String value) throws Exception { return URLEncoder.encode(value, StandardCharsets.UTF_8.name()); }
     private static String read(File file) { if (!file.isFile()) return ""; try (FileInputStream input = new FileInputStream(file); ByteArrayOutputStream output = new ByteArrayOutputStream()) { byte[] buffer = new byte[8192]; for (int n; (n = input.read(buffer)) > 0; ) output.write(buffer, 0, n); return output.toString(StandardCharsets.UTF_8.name()); } catch (Exception ignored) { return ""; } }
     private static String digest(String value) { try { byte[] bytes = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8)); StringBuilder out = new StringBuilder(); for (byte b : bytes) out.append(String.format(java.util.Locale.ROOT, "%02x", b)); return out.toString(); } catch (Exception ignored) { return Integer.toHexString(value.hashCode()); } }
+    static void clear(Context context) { File[] files = new File(context.getCacheDir(), "lyrics").listFiles(); if (files != null) for (File file : files) file.delete(); }
     private LyricsClient() { }
 }

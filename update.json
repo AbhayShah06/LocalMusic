@@ -1,7 +1,7 @@
 {
-  "versionCode": 10,
-  "versionName": "0.8.2",
-  "notes": "Faster repeat playback with a 512 MB stream cache, disk-cached artwork, on-demand lyrics, recently played history, an on-device daily mix, and lower background state-write overhead.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.8.2/LocalMusic-0.8.2.apk",
-  "sha256": "2596D723670D8CAD2D20EA3A5824014C203526A0503793A1DEF51406F9EDBACE"
+  "versionCode": 11,
+  "versionName": "0.9.0",
+  "notes": "Adds durable offline downloads and removal, faster non-blocking recommendation queues, better artist matching, immediate touch feedback, optional haptics, autoplay and version controls, and a consolidated Settings screen.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.9.0/LocalMusic-0.9.0.apk",
+  "sha256": "19151C9B9C576D80436014D3488828D0E7E118146D40181A421E1B81885177C2"
 }

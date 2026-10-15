@@ -17,6 +17,9 @@ An audio-only, dark Android music player for direct on-device streaming, local l
 - Playback queue, position, shuffle and repeat persist across process/service recreation; restored playback starts paused.
 - A bounded 512 MB playback cache reuses recently streamed audio for faster replay, seeking, and lower data use.
 - On-demand lyrics, recently played history, and a daily personal mix are cached and generated on the phone.
+- One-tap offline downloads continue in the background, appear in a dedicated Downloads library, and can be removed without affecting the source track.
+- Related songs resolve independently after playback starts, so one slow result cannot hold up the rest of the queue.
+- Settings centralizes haptics, autoplay, version preference, sources, playlist import, equalizer, permissions, downloads, and temporary-cache cleanup.
 - No video playback, ads, analytics, tracking, or LocalMusic account.
 - Android target SDK 35, minimum SDK 26.
 
@@ -38,4 +41,4 @@ LocalMusic is distributed under GPL-3.0-or-later because it links NewPipe Extrac
 
 ## Known limits
 
-Album/artist indexes currently show at most 200 entries, while song/search results page through the library. Selecting an album or artist narrows the song list by its displayed name; duplicate names can therefore mix results. Local playlists store media IDs, with up to 200 tracks restored into a playback queue. Backblaze labels currently come from object paths and filenames rather than embedded audio tags. There is no explicit offline-download manager yet; the playback cache is temporary and automatically evicted. Jam guests can request tracks, but only the Android host controls playback and its phone must remain connected while the room is active.
+Album/artist indexes currently show at most 200 entries, while song/search results page through the library. Selecting an album or artist narrows the song list by its displayed name; duplicate names can therefore mix results. Local playlists store media IDs, with up to 200 tracks restored into a playback queue. Backblaze labels currently come from object paths and filenames rather than embedded audio tags. Offline downloads use app-private storage and are removed when the app is uninstalled. Jam guests can request tracks, but only the Android host controls playback and its phone must remain connected while the room is active.

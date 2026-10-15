@@ -24,6 +24,11 @@ final class PlaybackCache {
         return new CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory(upstream)
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
     }
+    static synchronized long bytes() { return cache == null ? 0 : cache.getCacheSpace(); }
+    static synchronized void clear() {
+        if (cache == null) return;
+        for (String key : new java.util.HashSet<>(cache.getKeys())) try { cache.removeResource(key); } catch (Exception ignored) { }
+    }
 
     private PlaybackCache() { }
 }

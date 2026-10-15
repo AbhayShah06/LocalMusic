@@ -71,5 +71,7 @@ final class ArtworkLoader {
         java.util.Arrays.sort(files, java.util.Comparator.comparingLong(File::lastModified));
         for (File file : files) { if (total <= maxBytes) break; long size = file.length(); if (file.delete()) total -= size; }
     }
+    static long bytes(android.content.Context context) { long total = 0; File[] files = new File(context.getCacheDir(), "artwork").listFiles(); if (files != null) for (File file : files) total += file.length(); return total; }
+    static void clear(android.content.Context context) { CACHE.evictAll(); File[] files = new File(context.getCacheDir(), "artwork").listFiles(); if (files != null) for (File file : files) file.delete(); }
     private ArtworkLoader() { }
 }
