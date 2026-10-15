@@ -4,5 +4,5 @@
         <TextView android:id="@+id/title" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:textColor="#F6F1E8" android:textSize="15sp" android:textStyle="bold" />
         <TextView android:id="@+id/subtitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:ellipsize="end" android:maxLines="1" android:textColor="#8F8A83" android:textSize="12sp" />
     </LinearLayout>
-    <TextView android:layout_width="40dp" android:layout_height="match_parent" android:gravity="center" android:text="⋮" android:textColor="#78736D" android:textSize="22sp" />
+    <TextView android:id="@+id/trackMenu" android:layout_width="52dp" android:layout_height="match_parent" android:background="?android:attr/selectableItemBackgroundBorderless" android:clickable="true" android:focusable="true" android:gravity="center" android:text="⋮" android:textColor="#B8B2AA" android:textSize="26sp" android:contentDescription="Track options" />
 </LinearLayout>

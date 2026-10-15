@@ -24,7 +24,15 @@ Jam uses a static GitHub Pages guest interface and a small Cloudflare Worker bac
 
 ## Build
 
-Use the Gradle wrapper and Android SDK 35. The project uses Android Gradle Plugin 8.7.3 and AndroidX Media3 1.5.1. No GPL source was copied.
+Use the Gradle wrapper and Android SDK 35. The project uses Android Gradle Plugin 8.7.3, AndroidX Media3 1.5.1, and NewPipe Extractor for on-device catalogue search and stream resolution.
+
+## Online streaming
+
+Online search and playback are resolved directly on the phone through [NewPipe Extractor](https://github.com/TeamNewPipe/NewPipeExtractor). LocalMusic does not proxy or host the audio. Search favours official audio and Topic uploads, filters clean/radio edits and obvious video/live variants unless requested, and prepares a shuffled related-song queue after playback begins.
+
+## Licence
+
+LocalMusic is distributed under GPL-3.0-or-later because it links NewPipe Extractor. See `LICENSE`. Android, Media3, NewPipe, YouTube, SoundCloud, Backblaze, Navidrome, Spotify, Apple Music, and other names belong to their respective owners. LocalMusic is not affiliated with those services.
 
 ## Known MVP limits
 

@@ -68,11 +68,11 @@ public final class PlaybackService extends MediaSessionService {
     private void restoreQueue() {
         String saved = prefs.getString("queue", "");
         if (saved.isEmpty()) return;
-        if (saved.contains("\"id\":\"b2:")) {
+        if (saved.contains("\"id\":\"b2:") || saved.contains("\"id\":\"online:")) {
             new Thread(() -> {
                 List<MediaItem> restored = buildRestoredItems(saved);
                 stateHandler.post(() -> applyRestoredItems(restored));
-            }, "b2-queue-restore").start();
+            }, "remote-queue-restore").start();
             return;
         }
         applyRestoredItems(buildRestoredItems(saved));
@@ -91,6 +91,10 @@ public final class PlaybackService extends MediaSessionService {
                         if (!settings.configured()) continue;
                         Uri uri = new B2CatalogClient(settings).playbackUri(id.substring(3));
                         items.add(remoteItem(item, id, uri));
+                    } else if (id.startsWith("online:")) {
+                        Track unresolved = new Track(id, Uri.EMPTY, item.optString("title"), item.optString("artist"), item.optString("album"));
+                        Track resolved = new OnlineCatalogSource().resolve(unresolved);
+                        items.add(remoteItem(item, id, resolved.playbackUri));
                     } else if (!id.startsWith("local:")) items.add(remoteItem(item, id, Uri.parse(item.getString("uri"))));
                     else addLocalItem(items, resolver, Long.parseLong(id.substring(6)));
                 }

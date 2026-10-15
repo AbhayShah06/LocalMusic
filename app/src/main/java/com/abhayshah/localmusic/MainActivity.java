@@ -38,6 +38,11 @@ public final class MainActivity extends Activity {
     private static final int WINDOW_SIZE = 400;
     private final List<Track> tracks = new ArrayList<>();
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private final ExecutorService searchIo = Executors.newSingleThreadExecutor();
+    private final ExecutorService streamIo = Executors.newFixedThreadPool(5);
+    private final java.util.concurrent.atomic.AtomicInteger streamRequest = new java.util.concurrent.atomic.AtomicInteger();
+    private long lastTrackTapAt;
+    private String lastTrackTapId = "";
     private final Handler main = new Handler(Looper.getMainLooper());
     private LibraryAdapter adapter;
     private EditText search;
@@ -52,11 +57,13 @@ public final class MainActivity extends Activity {
     private boolean loading, exhausted;
     private boolean remoteMode;
     private boolean b2Mode;
+    private boolean onlineMode;
     private ServerSettings serverSettings;
     private B2Settings b2Settings;
     private String query = "";
     private String group = "";
     private final Handler ticker = new Handler(Looper.getMainLooper());
+    private final Handler searchHandler = new Handler(Looper.getMainLooper());
     private Runnable seekTicker;
     private final Handler jamTicker = new Handler(Looper.getMainLooper());
     private JamClient.Room activeJam;
@@ -80,7 +87,7 @@ public final class MainActivity extends Activity {
         b2Settings = new B2Settings(this);
         findViewById(R.id.source).setOnClickListener(v -> chooseSource());
         ListView list = findViewById(R.id.tracks);
-        adapter = new LibraryAdapter(this, tracks);
+        adapter = new LibraryAdapter(this, tracks, this::showTrackActions);
         list.setAdapter(adapter);
         list.setOnItemClickListener((parent, view, position, id) -> playFrom(position));
         list.setOnItemLongClickListener((parent, view, position, id) -> { showTrackActions(position); return true; });
@@ -111,13 +118,16 @@ public final class MainActivity extends Activity {
         selectTab(R.id.songs);
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { query = s.toString(); resetAndLoad(); }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                query = s.toString(); searchHandler.removeCallbacksAndMessages(null);
+                searchHandler.postDelayed(MainActivity.this::resetAndLoad, onlineMode ? 350 : 120);
+            }
             @Override public void afterTextChanged(Editable s) { }
         });
-        if (b2Settings.bundled()) {
-            remoteMode = true; b2Mode = true; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE);
-            ((TextView)findViewById(R.id.source)).setText("Backblaze  ▾"); resetAndLoad();
-        } else refreshPermissionState();
+        onlineMode = true; remoteMode = true; b2Mode = false;
+        permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE);
+        ((TextView)findViewById(R.id.source)).setText("Stream  ▾");
+        status.setText("Search for any song, artist, or album");
     }
 
     private void connect() {
@@ -201,9 +211,9 @@ public final class MainActivity extends Activity {
         loading = true;
         int pageOffset = offset;
         String pageQuery = query;
-        io.execute(() -> {
+        searchIo.execute(() -> {
             List<Track> page;
-            try { page = b2Mode ? new B2CatalogClient(b2Settings).page(pageQuery, pageOffset, PAGE_SIZE) : remoteMode ? new OpenSubsonicClient(serverSettings).page(pageQuery, pageOffset, PAGE_SIZE) : new MediaStoreCatalogSource(getContentResolver()).page(pageQuery, pageOffset, PAGE_SIZE); }
+            try { page = onlineMode ? new OnlineCatalogSource().page(pageQuery, pageOffset, PAGE_SIZE) : b2Mode ? new B2CatalogClient(b2Settings).page(pageQuery, pageOffset, PAGE_SIZE) : remoteMode ? new OpenSubsonicClient(serverSettings).page(pageQuery, pageOffset, PAGE_SIZE) : new MediaStoreCatalogSource(getContentResolver()).page(pageQuery, pageOffset, PAGE_SIZE); }
             catch (RuntimeException error) { main.post(() -> { loading = false; status.setText("Could not reach this music source. Check its connection settings."); }); return; }
             main.post(() -> {
                 loading = false;
@@ -214,7 +224,8 @@ public final class MainActivity extends Activity {
                 }
                 tracks.addAll(page); offset += page.size(); exhausted = page.size() < PAGE_SIZE;
                 for (Track t : page) adapter.add(t.title + "\n" + t.artist + " · " + t.album);
-                status.setText(tracks.size() + (exhausted ? " songs" : "+ songs") + (b2Mode ? " in Backblaze" : remoteMode ? " from Navidrome" : " on this phone"));
+                if (onlineMode && pageQuery.trim().isEmpty()) status.setText("Search for any song, artist, or album");
+                else status.setText(tracks.size() + (exhausted ? " songs" : "+ songs") + (onlineMode ? " found online" : b2Mode ? " in Backblaze" : remoteMode ? " from Navidrome" : " on this phone"));
             });
         });
     }
@@ -223,7 +234,7 @@ public final class MainActivity extends Activity {
         if (remoteMode) { Toast.makeText(this, "Use search to find remote albums and artists for now.", Toast.LENGTH_SHORT).show(); return; }
         group = artists ? "artist" : "album";
         tracks.clear(); adapter.clear();
-        io.execute(() -> {
+        streamIo.execute(() -> {
             List<String> labels = new ArrayList<>();
             String[] columns = artists ? new String[]{android.provider.MediaStore.Audio.Artists._ID, android.provider.MediaStore.Audio.Artists.ARTIST}
                     : new String[]{android.provider.MediaStore.Audio.Albums._ID, android.provider.MediaStore.Audio.Albums.ALBUM, android.provider.MediaStore.Audio.Albums.ARTIST};
@@ -238,6 +249,7 @@ public final class MainActivity extends Activity {
     private void playFrom(int position) {
         if (group.isEmpty()) {
             if (controller == null || tracks.isEmpty()) return;
+            if (tracks.get(position).stableId.startsWith("online:")) { resolveAndPlayOnline(new ArrayList<>(tracks), position); return; }
             List<androidx.media3.common.MediaItem> queue = new ArrayList<>();
             int end = Math.min(tracks.size(), position + 200);
             for (int i = position; i < end; i++) queue.add(tracks.get(i).toMediaItem());
@@ -252,6 +264,39 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private void resolveAndPlayOnline(List<Track> sourceTracks, int position) {
+        Track selected = sourceTracks.get(position);
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (selected.stableId.equals(lastTrackTapId) && now - lastTrackTapAt < 900) return;
+        lastTrackTapId = selected.stableId; lastTrackTapAt = now;
+        int request = streamRequest.incrementAndGet();
+        status.setText("Starting " + selected.title + "…");
+        if (controller != null) { controller.pause(); controller.clearMediaItems(); updateNowPlaying(); }
+        streamIo.execute(() -> {
+            OnlineCatalogSource source = new OnlineCatalogSource();
+            try {
+                OnlineCatalogSource.Resolution resolution = source.resolveWithRadio(selected);
+                Track first = resolution.playable;
+                main.post(() -> {
+                    if (controller == null || streamRequest.get() != request) return;
+                    controller.setMediaItem(first.toMediaItem()); controller.prepare(); controller.play();
+                    status.setText("Streaming from " + first.album); updateNowPlaying();
+                });
+                List<Track> upcoming = resolution.radio.isEmpty()
+                        ? new ArrayList<>(sourceTracks.subList(Math.min(position + 1, sourceTracks.size()), Math.min(sourceTracks.size(), position + 6)))
+                        : new ArrayList<>(resolution.radio.subList(0, Math.min(5, resolution.radio.size())));
+                List<java.util.concurrent.CompletableFuture<Track>> futures = new ArrayList<>();
+                for (Track item : upcoming) futures.add(java.util.concurrent.CompletableFuture.supplyAsync(() -> { try { return source.resolve(item); } catch (RuntimeException ignored) { return null; } }, streamIo));
+                java.util.concurrent.CompletableFuture.allOf(futures.toArray(new java.util.concurrent.CompletableFuture[0])).thenRun(() -> {
+                    List<Track> ready = new ArrayList<>(); for (java.util.concurrent.CompletableFuture<Track> future : futures) { Track item = future.join(); if (item != null) ready.add(item); }
+                    main.post(() -> { if (controller != null && streamRequest.get() == request) for (Track item : ready) controller.addMediaItem(item.toMediaItem()); });
+                });
+            } catch (RuntimeException error) {
+                main.post(() -> { if (streamRequest.get() == request) { status.setText("Could not start this song"); Toast.makeText(this, "Try another result or search again.", Toast.LENGTH_LONG).show(); } });
+            }
+        });
+    }
+
     private void updateNowPlaying() {
         if (controller == null || controller.getMediaMetadata().title == null) {
             nowPlaying.setText("Nothing playing"); nowPlayingArtist.setText("Choose a song");
@@ -259,26 +304,66 @@ public final class MainActivity extends Activity {
             nowPlaying.setText(controller.getMediaMetadata().title);
             nowPlayingArtist.setText(Track.clean(String.valueOf(controller.getMediaMetadata().artist), "Unknown artist"));
         }
+        ArtworkLoader.into(findViewById(R.id.miniArtwork), controller == null ? null : controller.getMediaMetadata().artworkUri, android.R.drawable.ic_media_play);
         ((TextView)findViewById(R.id.playPause)).setText(controller != null && controller.isPlaying() ? "Ⅱ" : "▶");
         refreshProgress();
     }
 
     private void showNowPlaying() {
         if (controller == null || controller.getCurrentMediaItem() == null) { Toast.makeText(this, "Choose a song first", Toast.LENGTH_SHORT).show(); return; }
-        String title = Track.clean(String.valueOf(controller.getMediaMetadata().title), "Now playing");
-        String artist = Track.clean(String.valueOf(controller.getMediaMetadata().artist), "Unknown artist");
-        String[] actions = {controller.isPlaying() ? "Pause" : "Play", "Previous", "Next", "Queue", "Shuffle", "Repeat", "Favorite", "Sleep timer", "Equalizer"};
-        new AlertDialog.Builder(this).setTitle(title).setMessage(artist).setItems(actions, (d, which) -> {
-            if (which == 0) { if (controller.isPlaying()) controller.pause(); else controller.play(); }
-            else if (which == 1) controller.seekToPreviousMediaItem();
-            else if (which == 2) controller.seekToNextMediaItem();
-            else if (which == 3) showQueue();
-            else if (which == 4) toggleShuffle();
-            else if (which == 5) toggleRepeat();
-            else if (which == 6) toggleCurrentFavorite();
-            else if (which == 7) chooseSleepTimer();
-            else openEqualizer();
-        }).show();
+        android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar);
+        dialog.setContentView(R.layout.dialog_now_playing);
+        if (dialog.getWindow() != null) { dialog.getWindow().setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT); dialog.getWindow().setStatusBarColor(android.graphics.Color.rgb(11, 11, 12)); dialog.getWindow().setNavigationBarColor(android.graphics.Color.rgb(11, 11, 12)); }
+        TextView title = dialog.findViewById(R.id.fullTitle), artist = dialog.findViewById(R.id.fullArtist), play = dialog.findViewById(R.id.fullPlayPause);
+        android.widget.ImageView artwork = dialog.findViewById(R.id.fullArtwork); SeekBar fullSeek = dialog.findViewById(R.id.fullSeek);
+        Runnable refresh = () -> {
+            if (controller == null || controller.getCurrentMediaItem() == null) return;
+            title.setText(Track.clean(String.valueOf(controller.getMediaMetadata().title), "Now playing"));
+            artist.setText(Track.clean(String.valueOf(controller.getMediaMetadata().artist), "Unknown artist"));
+            play.setText(controller.isPlaying() ? "Ⅱ" : "▶");
+            ArtworkLoader.into(artwork, controller.getMediaMetadata().artworkUri, android.R.drawable.ic_media_play);
+            long duration = controller.getDuration(); fullSeek.setProgress(duration > 0 ? (int)Math.min(1000, controller.getCurrentPosition() * 1000 / duration) : 0);
+        };
+        refresh.run();
+        dialog.findViewById(R.id.closeNowPlaying).setOnClickListener(v -> dialog.dismiss());
+        play.setOnClickListener(v -> { if (controller.isPlaying()) controller.pause(); else controller.play(); refresh.run(); });
+        dialog.findViewById(R.id.fullPrevious).setOnClickListener(v -> { controller.seekToPreviousMediaItem(); main.postDelayed(refresh, 150); });
+        dialog.findViewById(R.id.fullNext).setOnClickListener(v -> { controller.seekToNextMediaItem(); main.postDelayed(refresh, 150); });
+        dialog.findViewById(R.id.fullQueue).setOnClickListener(v -> showQueue());
+        dialog.findViewById(R.id.fullPlaylist).setOnClickListener(v -> { Track current = currentTrack(); if (current != null) addTrackToPlaylist(current); });
+        artist.setOnClickListener(v -> showArtistPage(artist.getText().toString()));
+        fullSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) { if (fromUser && controller.getDuration() > 0) controller.seekTo(controller.getDuration() * progress / 1000); }
+            @Override public void onStartTrackingTouch(SeekBar bar) { }
+            @Override public void onStopTrackingTouch(SeekBar bar) { }
+        });
+        Player.Listener dialogListener = new Player.Listener() { @Override public void onEvents(Player player, Player.Events events) { refresh.run(); } };
+        controller.addListener(dialogListener); dialog.setOnDismissListener(ignored -> { if (controller != null) controller.removeListener(dialogListener); });
+        dialog.show(); if (dialog.getWindow() != null) dialog.getWindow().setLayout(-1, -1);
+    }
+
+    private Track currentTrack() {
+        if (controller == null || controller.getCurrentMediaItem() == null) return null;
+        androidx.media3.common.MediaItem item = controller.getCurrentMediaItem(); androidx.media3.common.MediaMetadata metadata = item.mediaMetadata;
+        Uri uri = item.localConfiguration == null ? Uri.EMPTY : item.localConfiguration.uri;
+        return new Track(item.mediaId, uri, String.valueOf(metadata.title), String.valueOf(metadata.artist), String.valueOf(metadata.albumTitle), metadata.artworkUri);
+    }
+
+    private void showArtistPage(String rawArtist) {
+        String artistName = rawArtist.replaceAll("(?i)\\s*-\\s*topic$", "").trim();
+        android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar);
+        android.widget.LinearLayout root = new android.widget.LinearLayout(this); root.setOrientation(android.widget.LinearLayout.VERTICAL); root.setPadding(20, 26, 20, 20); root.setBackgroundColor(android.graphics.Color.rgb(11, 11, 12));
+        TextView close = new TextView(this); close.setText("‹  Back"); close.setTextColor(android.graphics.Color.rgb(255, 128, 95)); close.setTextSize(17); close.setGravity(android.view.Gravity.CENTER_VERTICAL); close.setPadding(12, 8, 12, 8); root.addView(close, new android.widget.LinearLayout.LayoutParams(-1, 56));
+        TextView heading = new TextView(this); heading.setText(artistName); heading.setTextColor(android.graphics.Color.rgb(246, 241, 232)); heading.setTextSize(32); heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); heading.setPadding(14, 22, 14, 10); root.addView(heading);
+        TextView artistStatus = new TextView(this); artistStatus.setText("Loading top songs…"); artistStatus.setTextColor(android.graphics.Color.rgb(143, 138, 131)); artistStatus.setPadding(14, 8, 14, 14); root.addView(artistStatus);
+        ListView list = new ListView(this); list.setDividerHeight(4); list.setDivider(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)); root.addView(list, new android.widget.LinearLayout.LayoutParams(-1, 0, 1));
+        dialog.setContentView(root); close.setOnClickListener(v -> dialog.dismiss()); dialog.show(); if (dialog.getWindow() != null) dialog.getWindow().setLayout(-1, -1);
+        List<Track> artistTracks = new ArrayList<>(); LibraryAdapter artistAdapter = new LibraryAdapter(this, artistTracks, position -> addTrackToPlaylist(artistTracks.get(position))); list.setAdapter(artistAdapter);
+        list.setOnItemClickListener((parent, view, position, id) -> { dialog.dismiss(); resolveAndPlayOnline(artistTracks, position); });
+        searchIo.execute(() -> {
+            List<Track> found = new OnlineCatalogSource().page(artistName, 0, 50);
+            main.post(() -> { artistTracks.addAll(found); for (Track track : found) artistAdapter.add(track.title + "\n" + track.artist + " · " + track.album); artistStatus.setText(found.size() + " top songs"); });
+        });
     }
 
     private void showMoreMenu() {
@@ -312,6 +397,11 @@ public final class MainActivity extends Activity {
     }
 
     private List<Track> loadJamCatalog() {
+        if (onlineMode) {
+            List<Track> visible = new ArrayList<>(tracks);
+            if (visible.isEmpty()) throw new IllegalStateException("Search for music first, then start the Jam");
+            return visible;
+        }
         if (b2Mode) return new B2CatalogClient(b2Settings).page("", 0, 1200);
         if (remoteMode) return new OpenSubsonicClient(serverSettings).page("", 0, 1200);
         List<Track> all = new ArrayList<>(); MediaStoreCatalogSource source = new MediaStoreCatalogSource(getContentResolver());
@@ -342,7 +432,7 @@ public final class MainActivity extends Activity {
                 List<JamClient.Entry> fresh = new ArrayList<>();
                 for (JamClient.Entry entry : entries) if (seenJamEntries.add(entry.id)) fresh.add(entry);
                 main.post(() -> {
-                    if (controller != null) for (JamClient.Entry entry : fresh) { Track track = jamCatalog.get(entry.trackId); if (track != null) { controller.addMediaItem(track.toMediaItem()); Toast.makeText(this, entry.guest + " added " + track.title, Toast.LENGTH_SHORT).show(); } }
+                    if (controller != null) for (JamClient.Entry entry : fresh) { Track track = jamCatalog.get(entry.trackId); if (track != null) { if (track.stableId.startsWith("online:")) enqueueOnline(track, false); else controller.addMediaItem(track.toMediaItem()); Toast.makeText(this, entry.guest + " added " + track.title, Toast.LENGTH_SHORT).show(); } }
                     if (activeJam != null) jamTicker.postDelayed(this::pollJam, 2000);
                 });
             } catch (Exception error) { main.post(() -> { if (activeJam != null) jamTicker.postDelayed(this::pollJam, 4000); }); }
@@ -392,18 +482,39 @@ public final class MainActivity extends Activity {
     private void showTrackActions(int position) {
         if (!group.isEmpty() || position < 0 || position >= tracks.size()) return;
         Track track = tracks.get(position);
-        String[] actions = track.id < 0 ? new String[]{"Play now", "Play next", "Add to queue"} : new String[]{"Play now", "Play next", "Add to queue", "Add to favorites", "Add to playlist"};
+        boolean online = track.stableId.startsWith("online:");
+        String[] actions = online ? new String[]{"Play now", "Play next", "Add to queue", "Add to playlist", "Open artist"} : new String[]{"Play now", "Play next", "Add to queue", "Add to favorites", "Add to playlist"};
         new AlertDialog.Builder(this).setTitle(track.title).setItems(actions, (d, which) -> {
             if (controller == null) return;
             if (which == 0) playFrom(position);
-            else if (which == 1 || which == 2) {
+            else if ((which == 1 || which == 2) && online) {
+                enqueueOnline(track, which == 1);
+            } else if (which == 1 || which == 2) {
                 androidx.media3.common.MediaItem item = track.toMediaItem();
                 if (which == 1 && controller.getMediaItemCount() > 0) controller.addMediaItem(Math.min(controller.getCurrentMediaItemIndex() + 1, controller.getMediaItemCount()), item);
                 else controller.addMediaItem(item);
                 Toast.makeText(this, which == 1 ? "Queued next" : "Added to queue", Toast.LENGTH_SHORT).show();
-            } else if (which == 3) { toggleFavorite(track.id); }
+            } else if (online && which == 3) addTrackToPlaylist(track);
+            else if (online && which == 4) showArtistPage(track.artist);
+            else if (which == 3) toggleFavorite(track.id);
             else addTrackToPlaylist(track);
         }).show();
+    }
+
+    private void enqueueOnline(Track track, boolean next) {
+        status.setText("Preparing " + track.title + "…");
+        streamIo.execute(() -> {
+            try {
+                Track resolved = new OnlineCatalogSource().resolve(track);
+                main.post(() -> {
+                    if (controller == null) return;
+                    int target = Math.min(controller.getCurrentMediaItemIndex() + 1, controller.getMediaItemCount());
+                    if (next && controller.getMediaItemCount() > 0) controller.addMediaItem(target, resolved.toMediaItem());
+                    else controller.addMediaItem(resolved.toMediaItem());
+                    status.setText(next ? "Queued next" : "Added to queue");
+                });
+            } catch (RuntimeException error) { main.post(() -> status.setText("Could not prepare this song")); }
+        });
     }
 
     private void showQueue() {
@@ -462,6 +573,17 @@ public final class MainActivity extends Activity {
             int loaded = 0;
             for (String id : ids) {
                 if (loaded++ >= 200) break;
+                if (id.startsWith("{")) {
+                    try {
+                        org.json.JSONObject saved = new org.json.JSONObject(id); String stableId = saved.getString("id");
+                        if (!stableId.startsWith("local:")) {
+                            String artwork = saved.optString("artwork");
+                            found.add(new Track(stableId, Uri.parse(saved.optString("uri")), saved.optString("title"), saved.optString("artist"), saved.optString("album"), artwork.isEmpty() ? null : Uri.parse(artwork)));
+                            continue;
+                        }
+                        id = stableId.substring(6);
+                    } catch (Exception ignored) { continue; }
+                }
                 try (android.database.Cursor c = getContentResolver().query(android.net.Uri.withAppendedPath(android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id),
                         new String[]{android.provider.MediaStore.Audio.Media._ID, android.provider.MediaStore.Audio.Media.TITLE, android.provider.MediaStore.Audio.Media.ARTIST, android.provider.MediaStore.Audio.Media.ALBUM, android.provider.MediaStore.Audio.Media.ALBUM_ID}, null, null, null)) {
                     if (c != null && c.moveToFirst()) found.add(new Track(c.getLong(0), c.getString(1), c.getString(2), c.getString(3), c.getLong(4)));
@@ -485,21 +607,37 @@ public final class MainActivity extends Activity {
 
     private void addTrackToPlaylist(Track track) {
         android.content.SharedPreferences prefs = getSharedPreferences("library", MODE_PRIVATE);
-        String name = prefs.getString("last_playlist", "");
-        EditText input = new EditText(this); input.setHint("Playlist name"); input.setText(name);
-        new AlertDialog.Builder(this).setTitle("Add to playlist").setView(input).setPositiveButton("Save", (d, w) -> {
-            String playlist = input.getText().toString().trim(); if (playlist.isEmpty()) return;
-            String key = "playlist:" + playlist;
-            java.util.Set<String> ids = new java.util.HashSet<>(prefs.getStringSet(key, new java.util.HashSet<>()));
-            ids.add(Long.toString(track.id)); prefs.edit().putStringSet(key, ids).putString("last_playlist", playlist).apply();
-            Toast.makeText(this, "Added to " + playlist, Toast.LENGTH_SHORT).show();
+        List<String> names = playlistNames(prefs); names.add("+ New playlist");
+        new AlertDialog.Builder(this).setTitle("Add to playlist").setItems(names.toArray(new String[0]), (dialog, which) -> {
+            String selected = names.get(which); if (selected.startsWith("+")) promptForPlaylist(track); else saveTrackToPlaylist(selected, track);
+        }).show();
+    }
+
+    private List<String> playlistNames(android.content.SharedPreferences prefs) {
+        List<String> names = new ArrayList<>(); for (String key : prefs.getAll().keySet()) if (key.startsWith("playlist:")) names.add(key.substring(9));
+        java.util.Collections.sort(names, String.CASE_INSENSITIVE_ORDER); return names;
+    }
+
+    private void promptForPlaylist(Track track) {
+        EditText input = new EditText(this); input.setHint("Playlist name");
+        new AlertDialog.Builder(this).setTitle("New playlist").setView(input).setPositiveButton("Create and add", (dialog, which) -> {
+            String name = input.getText().toString().trim(); if (!name.isEmpty()) saveTrackToPlaylist(name, track);
         }).setNegativeButton("Cancel", null).show();
+    }
+
+    private void saveTrackToPlaylist(String playlist, Track track) {
+        android.content.SharedPreferences prefs = getSharedPreferences("library", MODE_PRIVATE); String key = "playlist:" + playlist;
+        java.util.Set<String> entries = new java.util.LinkedHashSet<>(prefs.getStringSet(key, new java.util.LinkedHashSet<>()));
+        try {
+            org.json.JSONObject value = new org.json.JSONObject(); value.put("id", track.stableId); value.put("uri", track.playbackUri.toString()); value.put("title", track.title);
+            value.put("artist", track.artist); value.put("album", track.album); value.put("artwork", track.artworkUri == null ? "" : track.artworkUri.toString()); entries.add(value.toString());
+        } catch (Exception ignored) { return; }
+        prefs.edit().putStringSet(key, entries).putString("last_playlist", playlist).apply(); Toast.makeText(this, "Added to " + playlist, Toast.LENGTH_SHORT).show();
     }
 
     private void showPlaylists() {
         android.content.SharedPreferences prefs = getSharedPreferences("library", MODE_PRIVATE);
-        List<String> names = new ArrayList<>();
-        for (String key : prefs.getAll().keySet()) if (key.startsWith("playlist:")) names.add(key.substring(9));
+        List<String> names = playlistNames(prefs);
         names.add("+ Create playlist");
         new AlertDialog.Builder(this).setTitle("Playlists").setItems(names.toArray(new String[0]), (d, which) -> {
             String name = names.get(which);
@@ -531,13 +669,32 @@ public final class MainActivity extends Activity {
     }
 
     private void chooseSource() {
-        String[] options = new String[]{"This phone", b2Settings.configured() ? "Backblaze library" : "Set up Backblaze", serverSettings.configured() ? "Navidrome" : "Set up Navidrome", "Backblaze settings", "Navidrome settings"};
+        if (BuildConfig.IS_PERSONAL && b2Settings.bundled()) {
+            String[] options = new String[]{"Stream online", "Backblaze library", "This phone"};
+            new AlertDialog.Builder(this).setTitle("Music source").setItems(options, (dialog, which) -> {
+                if (which == 0) {
+                    onlineMode = true; remoteMode = true; b2Mode = false; permissionPanel.setVisibility(View.GONE);
+                    findViewById(R.id.tracks).setVisibility(View.VISIBLE);
+                    ((TextView)findViewById(R.id.source)).setText("Stream  ▾"); setGroup("");
+                } else if (which == 1) {
+                    onlineMode = false; remoteMode = true; b2Mode = true; permissionPanel.setVisibility(View.GONE);
+                    findViewById(R.id.tracks).setVisibility(View.VISIBLE);
+                    ((TextView)findViewById(R.id.source)).setText("Backblaze  ▾"); setGroup("");
+                } else {
+                    onlineMode = false; remoteMode = false; b2Mode = false;
+                    ((TextView)findViewById(R.id.source)).setText("This phone  ▾"); refreshPermissionState();
+                }
+            }).show();
+            return;
+        }
+        String[] options = new String[]{"Stream online", "This phone", b2Settings.configured() ? "Backblaze library" : "Set up Backblaze", serverSettings.configured() ? "Navidrome" : "Set up Navidrome", "Backblaze settings", "Navidrome settings"};
         new AlertDialog.Builder(this).setTitle("Music library").setItems(options, (dialog, which) -> {
-            if (which == 0) { remoteMode = false; b2Mode = false; ((TextView)findViewById(R.id.source)).setText("This phone  ▾"); refreshPermissionState(); setGroup(""); }
-            else if (which == 1 && b2Settings.configured()) { remoteMode = true; b2Mode = true; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Backblaze  ▾"); setGroup(""); }
-            else if (which == 1) configureBackblaze();
-            else if (which == 2 && serverSettings.configured()) { remoteMode = true; b2Mode = false; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Navidrome  ▾"); setGroup(""); }
-            else if (which == 2 || which == 4) configureServer();
+            if (which == 0) { onlineMode = true; remoteMode = true; b2Mode = false; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Stream  ▾"); setGroup(""); }
+            else if (which == 1) { onlineMode = false; remoteMode = false; b2Mode = false; ((TextView)findViewById(R.id.source)).setText("This phone  ▾"); refreshPermissionState(); setGroup(""); }
+            else if (which == 2 && b2Settings.configured()) { onlineMode = false; remoteMode = true; b2Mode = true; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Backblaze  ▾"); setGroup(""); }
+            else if (which == 2) configureBackblaze();
+            else if (which == 3 && serverSettings.configured()) { onlineMode = false; remoteMode = true; b2Mode = false; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Navidrome  ▾"); setGroup(""); }
+            else if (which == 3 || which == 5) configureServer();
             else configureBackblaze();
         }).show();
     }
@@ -551,7 +708,7 @@ public final class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("Backblaze music").setMessage("Use a read-only key restricted to this bucket. Credentials are encrypted on this phone and never included in the APK.").setView(form).setNegativeButton("Cancel", null).setPositiveButton("Connect", (d, w) -> {
             String id = keyId.getText().toString().trim(), secret = applicationKey.getText().toString().trim(), bucketName = bucket.getText().toString().trim();
             if (id.isEmpty() || secret.isEmpty() || bucketName.isEmpty()) { Toast.makeText(this, "Enter the key ID, application key, and bucket name.", Toast.LENGTH_LONG).show(); return; }
-            b2Settings.save(id, secret, bucketName); status.setText("Connecting to Backblaze…"); io.execute(() -> { boolean ok = new B2CatalogClient(b2Settings).ping(); main.post(() -> { if (ok) { reconnectPlaybackService(); remoteMode = true; b2Mode = true; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Backblaze  ▾"); setGroup(""); } else status.setText("Backblaze connection failed. Check the bucket-restricted key and bucket name."); }); });
+            b2Settings.save(id, secret, bucketName); status.setText("Connecting to Backblaze…"); io.execute(() -> { boolean ok = new B2CatalogClient(b2Settings).ping(); main.post(() -> { if (ok) { reconnectPlaybackService(); onlineMode = false; remoteMode = true; b2Mode = true; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Backblaze  ▾"); setGroup(""); } else status.setText("Backblaze connection failed. Check the bucket-restricted key and bucket name."); }); });
         }).show();
     }
 
@@ -566,7 +723,7 @@ public final class MainActivity extends Activity {
             if (!address.startsWith("https://") || user.isEmpty() || pass.isEmpty()) { Toast.makeText(this, "Use an HTTPS address and enter your username and password.", Toast.LENGTH_LONG).show(); return; }
             serverSettings.save(address, user, pass); status.setText("Connecting to Navidrome…");
             io.execute(() -> { boolean ok = new OpenSubsonicClient(serverSettings).ping(); main.post(() -> {
-                if (ok) { remoteMode = true; b2Mode = false; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Navidrome  ▾"); setGroup(""); }
+                if (ok) { onlineMode = false; remoteMode = true; b2Mode = false; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Navidrome  ▾"); setGroup(""); }
                 else status.setText("Connection failed. Check the HTTPS address, login, and whether the server is running.");
             }); });
         }).show();

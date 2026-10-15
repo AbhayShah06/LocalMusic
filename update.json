@@ -1,7 +1,7 @@
 {
-  "versionCode": 6,
-  "versionName": "0.6.0",
-  "notes": "Private preconfigured Backblaze playback, live Jam rooms with a no-login guest site, the new LocalMusic identity, and reliability fixes.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.6.0/LocalMusic-0.6.0.apk",
-  "sha256": "CD7CB112E5CDA100ECCE1455C0B71A0F2E798C3B6A8506270A0E86B9C841F90B"
+  "versionCode": 8,
+  "versionName": "0.8.0",
+  "notes": "On-device online music search and playback, official-audio ranking, artwork, radio queues, full-screen playback, artist pages, improved playlists, responsive controls, and Jam source fixes.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.8.0/LocalMusic-0.8.0.apk",
+  "sha256": "D0323AD6C9A5019E9957DD9711987E75D350D8C40279A762D9D577C29EF87C76"
 }

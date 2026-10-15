@@ -16,6 +16,11 @@ final class B2Settings {
                     EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM);
         } catch (Exception ignored) { }
         prefs = encrypted;
+        if (prefs != null && BuildConfig.IS_PERSONAL && bundled() && !prefs.contains("key_id")) {
+            prefs.edit().putString("key_id", BuildConfig.B2_KEY_ID)
+                    .putString("application_key", BuildConfig.B2_APPLICATION_KEY)
+                    .putString("bucket", BuildConfig.B2_BUCKET).apply();
+        }
     }
 
     boolean available() { return prefs != null; }
