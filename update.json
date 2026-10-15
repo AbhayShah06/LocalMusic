@@ -1,7 +1,7 @@
 {
-  "versionCode": 14,
-  "versionName": "0.10.2",
-  "notes": "The resolved track now supplies the highest-resolution available artwork to the full-screen player, and artwork decoding preserves up to 1600 pixels instead of 768.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.10.2/LocalMusic-0.10.2.apk",
-  "sha256": "787BBA62BDE9FF17B1F411EB95073969A2E684CA9CBB9557EC33FB976BB1C3BC"
+  "versionCode": 15,
+  "versionName": "0.10.3",
+  "notes": "The full-screen timer now updates twice per second, shows an unknown-duration state instead of a false 0:00, and keeps controls inside Android's safe content area across screen sizes.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.10.3/LocalMusic-0.10.3.apk",
+  "sha256": "1EFEC1B06E5D32C87AD4C30944FD3358E92D6A34D506D3AA3B8C6D5D68AC45E2"
 }

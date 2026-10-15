@@ -334,6 +334,15 @@ public final class MainActivity extends Activity {
             long duration = controller.getDuration(), position = controller.getCurrentPosition(); fullSeek.setProgress(duration > 0 ? (int)Math.min(1000, position * 1000 / duration) : 0);
             elapsed.setText(formatTime(position)); durationLabel.setText(formatTime(duration));
         };
+        Runnable progress = () -> {
+            if (controller == null || controller.getCurrentMediaItem() == null) return;
+            long duration = controller.getDuration(), position = controller.getCurrentPosition();
+            play.setImageResource(controller.isPlaying() ? R.drawable.ic_pause : R.drawable.ic_play);
+            fullSeek.setProgress(duration > 0 ? (int)Math.min(1000, position * 1000 / duration) : 0);
+            elapsed.setText(formatTime(position)); durationLabel.setText(duration > 0 ? formatTime(duration) : "–:––");
+        };
+        final Runnable[] progressTicker = new Runnable[1];
+        progressTicker[0] = () -> { progress.run(); if (dialog.isShowing()) main.postDelayed(progressTicker[0], 500); };
         refresh.run();
         dialog.findViewById(R.id.closeNowPlaying).setOnClickListener(v -> dialog.dismiss());
         play.setOnClickListener(v -> { if (controller.isPlaying()) controller.pause(); else controller.play(); refresh.run(); });
@@ -349,13 +358,12 @@ public final class MainActivity extends Activity {
             @Override public void onStopTrackingTouch(SeekBar bar) { }
         });
         Player.Listener dialogListener = new Player.Listener() { @Override public void onEvents(Player player, Player.Events events) { refresh.run(); } };
-        controller.addListener(dialogListener); dialog.setOnDismissListener(ignored -> { if (controller != null) controller.removeListener(dialogListener); });
-        dialog.show(); if (dialog.getWindow() != null) { dialog.getWindow().setLayout(-1, -1); makeImmersive(dialog.getWindow()); }
+        controller.addListener(dialogListener); dialog.setOnDismissListener(ignored -> { main.removeCallbacks(progressTicker[0]); if (controller != null) controller.removeListener(dialogListener); });
+        dialog.show(); main.post(progressTicker[0]); if (dialog.getWindow() != null) { dialog.getWindow().setLayout(-1, -1); makeImmersive(dialog.getWindow()); }
     }
 
     private static void makeImmersive(android.view.Window window) {
         if (Build.VERSION.SDK_INT >= 30) {
-            window.setDecorFitsSystemWindows(false);
             android.view.WindowInsetsController controller = window.getInsetsController();
             if (controller != null) {
                 controller.hide(android.view.WindowInsets.Type.navigationBars());
