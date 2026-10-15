@@ -1,7 +1,7 @@
 (() => {
   const $ = id => document.getElementById(id);
   const API = String(window.LOCALMUSIC_JAM_API || "").replace(/\/$/, "");
-  const state = { room: null, guest: localStorage.getItem("jamGuest") || "", data: null, socket: null };
+  const state = { room: null, guest: localStorage.getItem("jamGuest") || "", data: null, socket: null, searching: false, pendingAdds: new Set() };
   const params = new URLSearchParams(location.search);
   $("room").value = (params.get("room") || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
   $("guest").value = state.guest;
@@ -16,6 +16,7 @@
     if (navigator.share) await navigator.share({ title: "Join my LocalMusic Jam", url }).catch(() => {});
     else { await navigator.clipboard.writeText(url); toast("Join link copied"); }
   });
+  for (const action of ["previous", "toggle", "next"]) $(action).addEventListener("click", () => sendControl(action));
 
   async function join() {
     const room = $("room").value.trim(), guest = $("guest").value.trim();
@@ -45,16 +46,18 @@
     if (!state.data) return;
     const query = $("search").value.trim().toLowerCase();
     const matches = state.data.catalog.filter(t => !query || `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(query)).slice(0, 80);
-    $("resultCount").textContent = matches.length;
+    $("resultCount").textContent = matches.length ? matches.length : "";
     const pending = (state.data.searches || []).some(item => item.status === "pending" && item.query.toLowerCase() === query);
-    $("results").replaceChildren(...(matches.length ? matches.map(trackNode) : [empty(query ? (pending ? "Searching on the host phone…" : "Type to search all music") : "Search for a song") ]));
+    $("searchStatus").textContent = query && (pending || state.searching) ? "Searching the live catalogue…" : query && matches.length ? `${matches.length} results` : "";
+    $("results").replaceChildren(...(matches.length ? matches.map(trackNode) : [empty(query ? (pending || state.searching ? "Searching…" : "No results yet") : "Search for a song") ]));
   }
   async function requestSearch() {
     if (!state.data?.active) return; const query = $("search").value.trim(); if (query.length < 2) return;
     const local = state.data.catalog.filter(t => `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(query.toLowerCase()));
     if (local.length >= 8) return;
-    try { const response = await fetch(`${API}/api/rooms/${state.room}/search`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error || "Search failed"); renderTracks(); }
-    catch (error) { toast(error.message); }
+    state.searching = true; renderTracks();
+    try { const response = await fetch(`${API}/api/rooms/${state.room}/search`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error || "Search failed"); }
+    catch (error) { toast(error.message); } finally { state.searching = false; renderTracks(); }
   }
   function trackNode(track) {
     const row = document.createElement("div"); row.className = "track";
@@ -62,20 +65,28 @@
     const meta = document.createElement("div"); meta.className = "meta";
     const title = document.createElement("strong"); title.textContent = track.title;
     const sub = document.createElement("span"); sub.textContent = [track.artist, track.album].filter(Boolean).join(" · "); meta.append(title, sub);
-    const add = document.createElement("button"); add.textContent = "Add"; add.addEventListener("click", () => addTrack(track, add));
+    const queued = (state.data.queue || []).some(item => item.trackId === track.id && item.guest === state.guest), pending = state.pendingAdds.has(track.id);
+    const add = document.createElement("button"); add.textContent = queued ? "Queued" : pending ? "Adding…" : "Add"; add.disabled = queued || pending; add.addEventListener("click", () => addTrack(track, add));
     row.append(art, meta, add); return row;
   }
   async function addTrack(track, button) {
     if (!state.data.active) return toast("This Jam has ended");
-    button.disabled = true; button.textContent = "Added";
+    if (state.pendingAdds.has(track.id)) return; state.pendingAdds.add(track.id); button.disabled = true; button.textContent = "Adding…";
     try {
-      const response = await fetch(`${API}/api/rooms/${state.room}/queue`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ trackId: track.id, guest: state.guest }) });
-      const body = await response.json(); if (!response.ok) throw new Error(body.error || "Could not add song"); toast(`${track.title} added`);
-    } catch (error) { toast(error.message); button.textContent = "Add"; } finally { setTimeout(() => { button.disabled = false; button.textContent = "Add"; }, 900); }
+      const requestId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${track.id}`;
+      const response = await fetch(`${API}/api/rooms/${state.room}/queue`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ trackId: track.id, guest: state.guest, requestId }) });
+      const body = await response.json(); if (!response.ok) throw new Error(body.error || "Could not add song"); button.textContent = "Queued"; toast(`${track.title} is in the queue`);
+    } catch (error) { toast(error.message); button.disabled = false; button.textContent = "Add"; } finally { state.pendingAdds.delete(track.id); }
   }
   function renderQueue() {
-    const queue = state.data.queue || []; $("queueCount").textContent = queue.length;
-    $("queueList").replaceChildren(...(queue.length ? queue.slice(-12).map(item => { const row = document.createElement("div"); row.className = "queueItem"; const name = document.createElement("b"); name.textContent = `${item.title} · ${item.artist}`; const guest = document.createElement("small"); guest.textContent = item.guest; row.append(name, guest); return row; }) : [empty("The queue is open") ]));
+    const playback = state.data.playback || {}, queue = playback.upcoming || []; $("queueCount").textContent = queue.length;
+    $("nowTitle").textContent = playback.title || "Waiting for music"; $("nowArtist").textContent = playback.artist || "The host controls playback"; $("toggle").textContent = playback.playing ? "Pause" : "Play"; $("nowPulse").classList.toggle("playing", Boolean(playback.playing));
+    $("queueList").replaceChildren(...(queue.length ? queue.map((item, index) => { const row = document.createElement("div"); row.className = "queueItem"; const number = document.createElement("small"); number.textContent = String(index + 1).padStart(2, "0"); const name = document.createElement("div"); const title = document.createElement("b"); title.textContent = item.title; const artist = document.createElement("span"); artist.textContent = item.artist; name.append(title, artist); const moves = document.createElement("div"); moves.className = "queueMoves"; const up = document.createElement("button"); up.textContent = "Up"; up.disabled = index === 0; up.addEventListener("click", () => sendControl("move", index, -1)); const down = document.createElement("button"); down.textContent = "Down"; down.disabled = index === queue.length - 1; down.addEventListener("click", () => sendControl("move", index, 1)); moves.append(up, down); row.append(number, name, moves); return row; }) : [empty("Nothing queued yet") ]));
+  }
+  async function sendControl(action, index, direction) {
+    if (!state.data?.active) return; const button = $(action); if (button) button.disabled = true;
+    try { const requestId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${action}`; const response = await fetch(`${API}/api/rooms/${state.room}/control`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, guest: state.guest, requestId, index, direction }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error || "Control failed"); toast(action === "toggle" ? "Playback updated" : action === "next" ? "Skipping forward" : action === "previous" ? "Going back" : "Queue order updated"); }
+    catch (error) { toast(error.message); } finally { if (button) setTimeout(() => button.disabled = false, 500); }
   }
   function empty(text) { const node = document.createElement("div"); node.className = "empty"; node.textContent = text; return node; }
   function initials(value) { return String(value || "LM").split(/\s+/).slice(0, 2).map(x => x[0] || "").join("").toUpperCase(); }

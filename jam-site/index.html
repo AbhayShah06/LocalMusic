@@ -28,11 +28,17 @@
 
     <section id="jam" hidden>
       <div class="roomline"><span id="liveDot"></span><strong id="roomLabel"></strong><button id="share">Share</button></div>
-      <div class="searchbox"><input id="search" type="search" placeholder="Search songs and artists" autocomplete="off"><span id="resultCount"></span></div>
+      <div class="searchbox"><input id="search" type="search" placeholder="Search any song or artist" autocomplete="off"><span id="resultCount"></span></div>
+      <p id="searchStatus" class="searchStatus" aria-live="polite"></p>
       <div id="results" class="tracklist"></div>
-      <aside class="queue">
-        <div class="sectionTitle"><span>UP NEXT</span><span id="queueCount">0</span></div>
-        <div id="queueList"></div>
+      <aside class="playerDock">
+        <div class="nowRow"><div class="nowPulse" id="nowPulse"></div><div class="nowMeta"><small>NOW PLAYING</small><strong id="nowTitle">Waiting for music</strong><span id="nowArtist">The host controls playback</span></div></div>
+        <div class="remoteControls">
+          <button id="previous" aria-label="Previous song">Previous</button>
+          <button id="toggle" class="primaryControl" aria-label="Play or pause">Play</button>
+          <button id="next" aria-label="Next song">Next</button>
+        </div>
+        <details id="queueDetails"><summary><span>Up next</span><span id="queueCount">0</span></summary><div id="queueList"></div></details>
       </aside>
       <p id="toast" role="status"></p>
     </section>

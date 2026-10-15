@@ -40,6 +40,8 @@ public final class MainActivity extends Activity {
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final ExecutorService searchIo = Executors.newSingleThreadExecutor();
     private final ExecutorService streamIo = Executors.newFixedThreadPool(5);
+    private final ExecutorService jamSyncIo = Executors.newSingleThreadExecutor();
+    private final ExecutorService jamSearchIo = Executors.newFixedThreadPool(3);
     private final java.util.concurrent.atomic.AtomicInteger streamRequest = new java.util.concurrent.atomic.AtomicInteger();
     private long lastTrackTapAt;
     private String lastTrackTapId = "";
@@ -70,6 +72,8 @@ public final class MainActivity extends Activity {
     private final java.util.Map<String, Track> jamCatalog = new java.util.HashMap<>();
     private final java.util.Set<String> seenJamEntries = new java.util.HashSet<>();
     private final java.util.Set<String> seenJamSearches = new java.util.HashSet<>();
+    private final java.util.Set<String> seenJamControls = new java.util.HashSet<>();
+    private volatile String lastJamPlayback = "";
     private final Player.Listener uiPlayerListener = new Player.Listener() {
         @Override public void onMediaItemTransition(androidx.media3.common.MediaItem item, int reason) { updateNowPlaying(); }
         @Override public void onIsPlayingChanged(boolean isPlaying) { updateNowPlaying(); }
@@ -148,8 +152,8 @@ public final class MainActivity extends Activity {
         main.postDelayed(this::connect, 300);
     }
 
-    @Override public void onStart() { super.onStart(); connect(); }
-    @Override public void onStop() { ticker.removeCallbacksAndMessages(null); if (controller != null) controller.removeListener(uiPlayerListener); if (controllerFuture != null) MediaController.releaseFuture(controllerFuture); controller = null; super.onStop(); }
+    @Override public void onStart() { super.onStart(); if (controller == null) connect(); }
+    @Override public void onStop() { ticker.removeCallbacksAndMessages(null); if (activeJam == null) { if (controller != null) controller.removeListener(uiPlayerListener); if (controllerFuture != null) MediaController.releaseFuture(controllerFuture); controller = null; controllerFuture = null; } super.onStop(); }
 
     @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(request, permissions, results);
@@ -313,6 +317,7 @@ public final class MainActivity extends Activity {
         ArtworkLoader.into(findViewById(R.id.miniArtwork), controller == null ? null : controller.getMediaMetadata().artworkUri, android.R.drawable.ic_media_play);
         ((TextView)findViewById(R.id.playPause)).setText(controller != null && controller.isPlaying() ? "Ⅱ" : "▶");
         refreshProgress();
+        publishJamPlayback();
     }
 
     private void showNowPlaying() {
@@ -514,8 +519,11 @@ public final class MainActivity extends Activity {
                 if (catalog.isEmpty()) throw new IllegalStateException("Your selected library is empty");
                 JamClient.Room room = new JamClient().create(catalog);
                 jamCatalog.clear(); for (Track track : catalog) jamCatalog.put(track.stableId, track);
-                seenJamEntries.clear(); seenJamSearches.clear(); activeJam = room;
-                main.post(() -> { status.setText(catalog.size() + " SONGS READY FOR JAM"); showJam(room); pollJam(); });
+                seenJamEntries.clear(); seenJamSearches.clear(); seenJamControls.clear(); lastJamPlayback = ""; activeJam = room;
+                Intent jam = new Intent(this, PlaybackService.class).setAction(PlaybackService.ACTION_START_JAM)
+                        .putExtra(PlaybackService.EXTRA_JAM_CODE, room.code).putExtra(PlaybackService.EXTRA_JAM_TOKEN, room.hostToken);
+                startService(jam);
+                main.post(() -> { status.setText(catalog.size() + " SONGS READY FOR JAM"); showJam(room); });
             } catch (Exception error) { main.post(() -> { status.setText("JAM COULD NOT START"); Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show(); }); }
         });
     }
@@ -550,28 +558,53 @@ public final class MainActivity extends Activity {
     private void pollJam() {
         jamTicker.removeCallbacksAndMessages(null);
         if (activeJam == null) return;
-        io.execute(() -> {
+        jamSyncIo.execute(() -> {
             try {
-                JamClient.State state = new JamClient().state(activeJam);
+                JamClient.Room room = activeJam; if (room == null) return; JamClient.State state = new JamClient().state(room);
                 List<JamClient.Entry> entries = state.entries;
                 List<JamClient.Entry> fresh = new ArrayList<>();
-                for (JamClient.Entry entry : entries) if (seenJamEntries.add(entry.id)) fresh.add(entry);
+                for (JamClient.Entry entry : entries) if (!seenJamEntries.contains(entry.id)) fresh.add(entry);
+                List<JamClient.Control> controls = new ArrayList<>(); for (JamClient.Control control : state.controls) if (!seenJamControls.contains(control.id)) controls.add(control);
                 main.post(() -> {
-                    if (controller != null) for (JamClient.Entry entry : fresh) addJamEntry(entry);
-                    if (activeJam != null) jamTicker.postDelayed(this::pollJam, 2000);
+                    if (controller != null) for (JamClient.Entry entry : fresh) if (seenJamEntries.add(entry.id)) addJamEntry(entry);
+                    if (controller != null) for (JamClient.Control control : controls) if (seenJamControls.add(control.id)) applyJamControl(control);
+                    if (activeJam != null) jamTicker.postDelayed(this::pollJam, 650);
                 });
-                for (JamClient.Search search : state.searches) if (search.pending && seenJamSearches.add(search.id)) {
-                    List<Track> results = onlineSource().page(search.query, 0, 35);
-                    for (Track track : results) jamCatalog.put(track.stableId, track);
-                    new JamClient().publish(activeJam, search.id, results);
-                }
-            } catch (Exception error) { main.post(() -> { if (activeJam != null) jamTicker.postDelayed(this::pollJam, 4000); }); }
+                for (JamClient.Search search : state.searches) if (search.pending && seenJamSearches.add(search.id)) jamSearchIo.execute(() -> {
+                    try { List<Track> results = onlineSource().page(search.query, 0, 35); for (Track track : results) jamCatalog.put(track.stableId, track); JamClient.Room active = activeJam; if (active != null) new JamClient().publish(active, search.id, results); }
+                    catch (Exception error) { seenJamSearches.remove(search.id); }
+                });
+            } catch (Exception error) { main.post(() -> { if (activeJam != null) jamTicker.postDelayed(this::pollJam, 1500); }); }
         });
+    }
+
+    private void applyJamControl(JamClient.Control control) {
+        if (controller == null) return;
+        if ("previous".equals(control.action)) controller.seekToPreviousMediaItem();
+        else if ("next".equals(control.action)) controller.seekToNextMediaItem();
+        else if ("toggle".equals(control.action)) { if (controller.isPlaying()) controller.pause(); else controller.play(); }
+        else if ("move".equals(control.action) && control.index >= 0 && Math.abs(control.direction) == 1) {
+            int from = controller.getCurrentMediaItemIndex() + 1 + control.index, to = from + control.direction;
+            if (from >= 0 && from < controller.getMediaItemCount() && to > controller.getCurrentMediaItemIndex() && to < controller.getMediaItemCount()) controller.moveMediaItem(from, to);
+        }
+        Toast.makeText(this, control.guest + " used " + control.action, Toast.LENGTH_SHORT).show();
+        main.postDelayed(this::publishJamPlayback, 150);
+    }
+
+    private void publishJamPlayback() {
+        JamClient.Room room = activeJam; if (room == null || controller == null || controller.getCurrentMediaItem() == null) return;
+        androidx.media3.common.MediaMetadata current = controller.getMediaMetadata(); String title = Track.clean(String.valueOf(current.title), "Unknown title"), artist = Track.clean(String.valueOf(current.artist), "Unknown artist");
+        List<String[]> upcoming = new ArrayList<>(); int start = Math.max(0, controller.getCurrentMediaItemIndex() + 1);
+        for (int i = start; i < Math.min(controller.getMediaItemCount(), start + 20); i++) { androidx.media3.common.MediaMetadata item = controller.getMediaItemAt(i).mediaMetadata; upcoming.add(new String[]{Track.clean(String.valueOf(item.title), "Unknown title"), Track.clean(String.valueOf(item.artist), "Unknown artist")}); }
+        StringBuilder key = new StringBuilder(title).append('|').append(artist).append('|').append(controller.isPlaying()); for (String[] item : upcoming) key.append('|').append(item[0]).append('/').append(item[1]);
+        boolean playing = controller.isPlaying();
+        if (key.toString().equals(lastJamPlayback)) return; lastJamPlayback = key.toString();
+        jamSyncIo.execute(() -> { try { new JamClient().publishPlayback(room, title, artist, playing, upcoming); } catch (Exception ignored) { lastJamPlayback = ""; } });
     }
 
     private void addJamEntry(JamClient.Entry entry) {
         Track track = jamCatalog.get(entry.trackId);
-        if (track != null) { if (track.stableId.startsWith("online:")) enqueueOnline(track, false); else controller.addMediaItem(track.toMediaItem()); Toast.makeText(this, entry.guest + " added " + track.title, Toast.LENGTH_SHORT).show(); return; }
+        if (track != null) { if (track.stableId.startsWith("online:")) enqueueOnline(track, false); else { controller.addMediaItem(track.toMediaItem()); publishJamPlayback(); } Toast.makeText(this, entry.guest + " added " + track.title, Toast.LENGTH_SHORT).show(); return; }
         streamIo.execute(() -> {
             List<Track> matches = onlineSource().page(entry.title + " " + entry.artist, 0, 8);
             if (matches.isEmpty()) return; Track found = matches.get(0); jamCatalog.put(entry.trackId, found);
@@ -581,6 +614,7 @@ public final class MainActivity extends Activity {
 
     private void endJam() {
         JamClient.Room room = activeJam; activeJam = null; jamTicker.removeCallbacksAndMessages(null);
+        startService(new Intent(this, PlaybackService.class).setAction(PlaybackService.ACTION_STOP_JAM));
         if (room != null) io.execute(() -> { try { new JamClient().close(room); } catch (Exception ignored) { } });
         Toast.makeText(this, "Jam ended", Toast.LENGTH_SHORT).show();
     }
@@ -654,6 +688,7 @@ public final class MainActivity extends Activity {
                     if (next && controller.getMediaItemCount() > 0) controller.addMediaItem(target, resolved.toMediaItem());
                     else controller.addMediaItem(resolved.toMediaItem());
                     status.setText(next ? "Queued next" : "Added to queue");
+                    publishJamPlayback();
                 });
             } catch (RuntimeException error) { main.post(() -> status.setText("Could not prepare this song")); }
         });
@@ -885,5 +920,5 @@ public final class MainActivity extends Activity {
         else Toast.makeText(this, "No system equalizer is available on this device", Toast.LENGTH_SHORT).show();
     }
 
-    @Override public void onDestroy() { jamTicker.removeCallbacksAndMessages(null); io.shutdown(); super.onDestroy(); }
+    @Override public void onDestroy() { jamTicker.removeCallbacksAndMessages(null); io.shutdown(); jamSyncIo.shutdown(); jamSearchIo.shutdown(); super.onDestroy(); }
 }

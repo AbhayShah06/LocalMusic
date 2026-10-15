@@ -1,7 +1,7 @@
 {
-  "versionCode": 15,
-  "versionName": "0.10.3",
-  "notes": "The full-screen timer now updates twice per second, shows an unknown-duration state instead of a false 0:00, and keeps controls inside Android's safe content area across screen sizes.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.10.3/LocalMusic-0.10.3.apk",
-  "sha256": "1EFEC1B06E5D32C87AD4C30944FD3358E92D6A34D506D3AA3B8C6D5D68AC45E2"
+  "versionCode": 16,
+  "versionName": "0.11.0",
+  "notes": "Jam now searches in the cloud, keeps running with the host phone locked, blocks duplicate rapid taps, shows the real queue, and adds playback and queue-order controls to the guest site.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.11.0/LocalMusic-0.11.0.apk",
+  "sha256": "3C5E57EA3DC843D565BAC3398B79C5FE1DFDCF709E2697D5A7A1FCBFB50C08D6"
 }
