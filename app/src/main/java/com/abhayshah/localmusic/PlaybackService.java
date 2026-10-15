@@ -45,9 +45,7 @@ public final class PlaybackService extends MediaSessionService {
     @Override public void onCreate() {
         super.onCreate();
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setUserAgent("LocalMusic/0.4");
-        CloudSettings cloud = new CloudSettings(this);
-        if (cloud.configured()) http.setDefaultRequestProperties(java.util.Collections.singletonMap("Authorization", "Bearer " + cloud.token()));
+        DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setUserAgent("LocalMusic/0.5");
         player = new ExoPlayer.Builder(this).setMediaSourceFactory(new DefaultMediaSourceFactory(new DefaultDataSource.Factory(this, http))).build();
         prefs.edit().putInt("audio_session_id", player.getAudioSessionId()).apply();
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true);
@@ -70,6 +68,17 @@ public final class PlaybackService extends MediaSessionService {
     private void restoreQueue() {
         String saved = prefs.getString("queue", "");
         if (saved.isEmpty()) return;
+        if (saved.contains("\"id\":\"b2:")) {
+            new Thread(() -> {
+                List<MediaItem> restored = buildRestoredItems(saved);
+                stateHandler.post(() -> applyRestoredItems(restored));
+            }, "b2-queue-restore").start();
+            return;
+        }
+        applyRestoredItems(buildRestoredItems(saved));
+    }
+
+    private List<MediaItem> buildRestoredItems(String saved) {
         List<MediaItem> items = new ArrayList<>();
         ContentResolver resolver = getContentResolver();
         if (saved.startsWith("[")) {
@@ -77,9 +86,12 @@ public final class PlaybackService extends MediaSessionService {
                 JSONArray array = new JSONArray(saved);
                 for (int i = 0; i < array.length() && items.size() < 200; i++) {
                     JSONObject item = array.getJSONObject(i); String id = item.getString("id");
-                    if (!id.startsWith("local:")) items.add(new MediaItem.Builder().setMediaId(id).setUri(item.getString("uri"))
-                            .setMediaMetadata(new androidx.media3.common.MediaMetadata.Builder().setTitle(item.optString("title"))
-                                    .setArtist(item.optString("artist")).setAlbumTitle(item.optString("album")).build()).build());
+                    if (id.startsWith("b2:")) {
+                        B2Settings settings = new B2Settings(this);
+                        if (!settings.configured()) continue;
+                        Uri uri = new B2CatalogClient(settings).playbackUri(id.substring(3));
+                        items.add(remoteItem(item, id, uri));
+                    } else if (!id.startsWith("local:")) items.add(remoteItem(item, id, Uri.parse(item.getString("uri"))));
                     else addLocalItem(items, resolver, Long.parseLong(id.substring(6)));
                 }
             } catch (Exception ignored) { items.clear(); }
@@ -89,7 +101,17 @@ public final class PlaybackService extends MediaSessionService {
             if (items.size() >= 200) break;
         }
         }
-        if (!items.isEmpty()) {
+        return items;
+    }
+
+    private static MediaItem remoteItem(JSONObject item, String id, Uri uri) {
+        return new MediaItem.Builder().setMediaId(id).setUri(uri)
+                .setMediaMetadata(new androidx.media3.common.MediaMetadata.Builder().setTitle(item.optString("title"))
+                        .setArtist(item.optString("artist")).setAlbumTitle(item.optString("album")).build()).build();
+    }
+
+    private void applyRestoredItems(List<MediaItem> items) {
+        if (!items.isEmpty() && player != null) {
             int index = Math.min(Math.max(0, prefs.getInt("index", 0)), items.size() - 1);
             player.setMediaItems(items, index, Math.max(0, prefs.getLong("position", 0)));
             player.setShuffleModeEnabled(prefs.getBoolean("shuffle", false));
@@ -115,7 +137,7 @@ public final class PlaybackService extends MediaSessionService {
         int count = Math.min(player.getMediaItemCount(), 200);
         for (int i = 0; i < count; i++) {
             MediaItem item = player.getMediaItemAt(i); JSONObject value = new JSONObject();
-            try { value.put("id", item.mediaId); value.put("uri", item.localConfiguration == null ? "" : item.localConfiguration.uri.toString());
+            try { value.put("id", item.mediaId); value.put("uri", item.mediaId.startsWith("b2:") || item.localConfiguration == null ? "" : item.localConfiguration.uri.toString());
                 value.put("title", String.valueOf(item.mediaMetadata.title)); value.put("artist", String.valueOf(item.mediaMetadata.artist)); value.put("album", String.valueOf(item.mediaMetadata.albumTitle)); saved.put(value); } catch (Exception ignored) { }
         }
         prefs.edit().putString("queue", saved.toString()).putInt("index", Math.max(0, player.getCurrentMediaItemIndex()))

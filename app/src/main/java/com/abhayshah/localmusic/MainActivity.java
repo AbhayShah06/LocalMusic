@@ -51,9 +51,9 @@ public final class MainActivity extends Activity {
     private int offset;
     private boolean loading, exhausted;
     private boolean remoteMode;
-    private boolean cloudMode;
+    private boolean b2Mode;
     private ServerSettings serverSettings;
-    private CloudSettings cloudSettings;
+    private B2Settings b2Settings;
     private String query = "";
     private String group = "";
     private final Handler ticker = new Handler(Looper.getMainLooper());
@@ -73,7 +73,7 @@ public final class MainActivity extends Activity {
         permissionPanel = findViewById(R.id.permissionPanel);
         search = findViewById(R.id.search);
         serverSettings = new ServerSettings(this);
-        cloudSettings = new CloudSettings(this);
+        b2Settings = new B2Settings(this);
         findViewById(R.id.source).setOnClickListener(v -> chooseSource());
         ListView list = findViewById(R.id.tracks);
         adapter = new LibraryAdapter(this, tracks);
@@ -196,7 +196,7 @@ public final class MainActivity extends Activity {
         String pageQuery = query;
         io.execute(() -> {
             List<Track> page;
-            try { page = cloudMode ? new CloudCatalogClient(cloudSettings).page(pageQuery, pageOffset, PAGE_SIZE) : remoteMode ? new OpenSubsonicClient(serverSettings).page(pageQuery, pageOffset, PAGE_SIZE) : new MediaStoreCatalogSource(getContentResolver()).page(pageQuery, pageOffset, PAGE_SIZE); }
+            try { page = b2Mode ? new B2CatalogClient(b2Settings).page(pageQuery, pageOffset, PAGE_SIZE) : remoteMode ? new OpenSubsonicClient(serverSettings).page(pageQuery, pageOffset, PAGE_SIZE) : new MediaStoreCatalogSource(getContentResolver()).page(pageQuery, pageOffset, PAGE_SIZE); }
             catch (RuntimeException error) { main.post(() -> { loading = false; status.setText("Could not reach this music source. Check its connection settings."); }); return; }
             main.post(() -> {
                 loading = false;
@@ -207,7 +207,7 @@ public final class MainActivity extends Activity {
                 }
                 tracks.addAll(page); offset += page.size(); exhausted = page.size() < PAGE_SIZE;
                 for (Track t : page) adapter.add(t.title + "\n" + t.artist + " · " + t.album);
-                status.setText(tracks.size() + (exhausted ? " songs" : "+ songs") + (cloudMode ? " in your cloud" : remoteMode ? " from Navidrome" : " on this phone"));
+                status.setText(tracks.size() + (exhausted ? " songs" : "+ songs") + (b2Mode ? " in Backblaze" : remoteMode ? " from Navidrome" : " on this phone"));
             });
         });
     }
@@ -464,25 +464,27 @@ public final class MainActivity extends Activity {
     }
 
     private void chooseSource() {
-        String[] options = new String[]{"This phone", cloudSettings.configured() ? "Private cloud" : "Set up private cloud", serverSettings.configured() ? "Navidrome" : "Set up Navidrome", "Cloud settings", "Navidrome settings"};
+        String[] options = new String[]{"This phone", b2Settings.configured() ? "Backblaze library" : "Set up Backblaze", serverSettings.configured() ? "Navidrome" : "Set up Navidrome", "Backblaze settings", "Navidrome settings"};
         new AlertDialog.Builder(this).setTitle("Music library").setItems(options, (dialog, which) -> {
-            if (which == 0) { remoteMode = false; cloudMode = false; ((TextView)findViewById(R.id.source)).setText("This phone  ▾"); refreshPermissionState(); setGroup(""); }
-            else if (which == 1 && cloudSettings.configured()) { remoteMode = true; cloudMode = true; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Private cloud  ▾"); setGroup(""); }
-            else if (which == 1) configureCloud();
-            else if (which == 2 && serverSettings.configured()) { remoteMode = true; cloudMode = false; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Navidrome  ▾"); setGroup(""); }
+            if (which == 0) { remoteMode = false; b2Mode = false; ((TextView)findViewById(R.id.source)).setText("This phone  ▾"); refreshPermissionState(); setGroup(""); }
+            else if (which == 1 && b2Settings.configured()) { remoteMode = true; b2Mode = true; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Backblaze  ▾"); setGroup(""); }
+            else if (which == 1) configureBackblaze();
+            else if (which == 2 && serverSettings.configured()) { remoteMode = true; b2Mode = false; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Navidrome  ▾"); setGroup(""); }
             else if (which == 2 || which == 4) configureServer();
-            else configureCloud();
+            else configureBackblaze();
         }).show();
     }
 
-    private void configureCloud() {
-        if (!cloudSettings.available()) { Toast.makeText(this, "Android secure storage is unavailable. Restart the phone and try again.", Toast.LENGTH_LONG).show(); return; }
+    private void configureBackblaze() {
+        if (!b2Settings.available()) { Toast.makeText(this, "Android secure storage is unavailable. Restart the phone and try again.", Toast.LENGTH_LONG).show(); return; }
         android.widget.LinearLayout form = new android.widget.LinearLayout(this); form.setOrientation(android.widget.LinearLayout.VERTICAL); int pad = (int)(20 * getResources().getDisplayMetrics().density); form.setPadding(pad, 0, pad, 0);
-        EditText url = new EditText(this); url.setHint("HTTPS Worker URL"); url.setSingleLine(); url.setText(cloudSettings.url()); form.addView(url);
-        EditText token = new EditText(this); token.setHint("Read-only access token"); token.setSingleLine(); token.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD); form.addView(token);
-        new AlertDialog.Builder(this).setTitle("Private cloud music").setMessage("The token is encrypted on this phone. R2 credentials are never stored in the app.").setView(form).setNegativeButton("Cancel", null).setPositiveButton("Connect", (d, w) -> {
-            String address = url.getText().toString().trim(), key = token.getText().toString().trim(); if (!address.startsWith("https://") || key.isEmpty()) { Toast.makeText(this, "Enter the HTTPS Worker URL and access token.", Toast.LENGTH_LONG).show(); return; }
-            cloudSettings.save(address, key); status.setText("Connecting to private cloud…"); io.execute(() -> { boolean ok = new CloudCatalogClient(cloudSettings).ping(); main.post(() -> { if (ok) { reconnectPlaybackService(); remoteMode = true; cloudMode = true; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Private cloud  ▾"); setGroup(""); } else status.setText("Cloud connection failed. Check the Worker URL and access token."); }); });
+        EditText keyId = new EditText(this); keyId.setHint("Application key ID"); keyId.setSingleLine(); keyId.setText(b2Settings.keyId()); form.addView(keyId);
+        EditText applicationKey = new EditText(this); applicationKey.setHint("Application key"); applicationKey.setSingleLine(); applicationKey.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD); form.addView(applicationKey);
+        EditText bucket = new EditText(this); bucket.setHint("Bucket name"); bucket.setSingleLine(); bucket.setText(b2Settings.bucket()); form.addView(bucket);
+        new AlertDialog.Builder(this).setTitle("Backblaze music").setMessage("Use a read-only key restricted to this bucket. Credentials are encrypted on this phone and never included in the APK.").setView(form).setNegativeButton("Cancel", null).setPositiveButton("Connect", (d, w) -> {
+            String id = keyId.getText().toString().trim(), secret = applicationKey.getText().toString().trim(), bucketName = bucket.getText().toString().trim();
+            if (id.isEmpty() || secret.isEmpty() || bucketName.isEmpty()) { Toast.makeText(this, "Enter the key ID, application key, and bucket name.", Toast.LENGTH_LONG).show(); return; }
+            b2Settings.save(id, secret, bucketName); status.setText("Connecting to Backblaze…"); io.execute(() -> { boolean ok = new B2CatalogClient(b2Settings).ping(); main.post(() -> { if (ok) { reconnectPlaybackService(); remoteMode = true; b2Mode = true; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Backblaze  ▾"); setGroup(""); } else status.setText("Backblaze connection failed. Check the bucket-restricted key and bucket name."); }); });
         }).show();
     }
 
@@ -497,7 +499,7 @@ public final class MainActivity extends Activity {
             if (!address.startsWith("https://") || user.isEmpty() || pass.isEmpty()) { Toast.makeText(this, "Use an HTTPS address and enter your username and password.", Toast.LENGTH_LONG).show(); return; }
             serverSettings.save(address, user, pass); status.setText("Connecting to Navidrome…");
             io.execute(() -> { boolean ok = new OpenSubsonicClient(serverSettings).ping(); main.post(() -> {
-                if (ok) { remoteMode = true; cloudMode = false; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Navidrome  ▾"); setGroup(""); }
+                if (ok) { remoteMode = true; b2Mode = false; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Navidrome  ▾"); setGroup(""); }
                 else status.setText("Connection failed. Check the HTTPS address, login, and whether the server is running.");
             }); });
         }).show();

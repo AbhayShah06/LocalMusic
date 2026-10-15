@@ -1,7 +1,7 @@
 {
-  "versionCode": 4,
-  "versionName": "0.4.0",
-  "notes": "Modern dark library UI, reliable permission onboarding, playlist imports, and private Cloudflare R2 source support.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.4.0/LocalMusic-0.4.0.apk",
-  "sha256": "3B32F2BDED6E5E9FA27579EBF4487433408192E6C6DEF71C9DA49511BF71742D"
+  "versionCode": 5,
+  "versionName": "0.5.0",
+  "notes": "Direct private Backblaze B2 streaming, secure credential storage, refreshed responsive dark design, and tactile controls.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.5.0/LocalMusic-0.5.0.apk",
+  "sha256": "B02BD178B0D01D543594B400E60A401CE6B8A5DD465C5F2C404DD4433956F4DD"
 }

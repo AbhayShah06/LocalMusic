@@ -1,8 +1,8 @@
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="72dp" android:background="?android:attr/selectableItemBackground" android:gravity="center_vertical" android:paddingStart="8dp" android:paddingEnd="8dp">
-    <ImageView android:id="@+id/artwork" android:layout_width="56dp" android:layout_height="56dp" android:background="@drawable/bg_art_placeholder" android:contentDescription="Album artwork" android:scaleType="centerCrop" android:src="@android:drawable/ic_media_play" />
-    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="14dp" android:layout_weight="1" android:orientation="vertical">
-        <TextView android:id="@+id/title" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:textColor="#F4F5F6" android:textSize="16sp" android:textStyle="bold" />
-        <TextView android:id="@+id/subtitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:ellipsize="end" android:maxLines="1" android:textColor="#92969C" android:textSize="13sp" />
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="68dp" android:background="@drawable/bg_track_row" android:gravity="center_vertical" android:paddingStart="8dp" android:paddingEnd="6dp">
+    <ImageView android:id="@+id/artwork" android:layout_width="52dp" android:layout_height="52dp" android:background="@drawable/bg_art_placeholder" android:contentDescription="Album artwork" android:scaleType="centerCrop" android:src="@android:drawable/ic_media_play" />
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="13dp" android:layout_weight="1" android:orientation="vertical">
+        <TextView android:id="@+id/title" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:textColor="#F6F1E8" android:textSize="15sp" android:textStyle="bold" />
+        <TextView android:id="@+id/subtitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:ellipsize="end" android:maxLines="1" android:textColor="#8F8A83" android:textSize="12sp" />
     </LinearLayout>
-    <TextView android:layout_width="40dp" android:layout_height="match_parent" android:gravity="center" android:text="⋮" android:textColor="#8E9298" android:textSize="24sp" />
+    <TextView android:layout_width="40dp" android:layout_height="match_parent" android:gravity="center" android:text="⋮" android:textColor="#78736D" android:textSize="22sp" />
 </LinearLayout>
