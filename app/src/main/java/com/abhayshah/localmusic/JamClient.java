@@ -15,7 +15,7 @@ import java.util.List;
 
 final class JamClient {
     static final String API_BASE = "https://localmusic-jam.localmusic-jam-worker.workers.dev";
-    static final String SITE_BASE = "https://abhayshah06.github.io/LocalMusic/";
+    static final String SITE_BASE = "https://localmusic-jam.vercel.app/";
 
     Room create(List<Track> catalog) throws Exception {
         JSONArray values = new JSONArray();
