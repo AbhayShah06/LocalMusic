@@ -2,7 +2,10 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "cleanUrls": true,
   "functions": {
-    "api/search.py": { "maxDuration": 20 }
+    "api/search.py": {
+      "maxDuration": 20,
+      "includeFiles": "{index.html,styles.css,app.js,config.js,localmusic-logo.png}"
+    }
   },
   "headers": [
     {
