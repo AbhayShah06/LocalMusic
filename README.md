@@ -1,6 +1,6 @@
 # Local Music
 
-An audio-only, offline-first Android player for music already available on the device. The local library is the working source. A small `CatalogSource` boundary reserves a place for an authorized OpenSubsonic/Navidrome implementation; no server login or streaming protocol is claimed yet.
+An audio-only, dark Android music player for on-device libraries, OpenSubsonic/Navidrome, and a private Cloudflare R2 library exposed through the included read-only Worker.
 
 ## MVP
 
@@ -9,11 +9,14 @@ An audio-only, offline-first Android player for music already available on the d
 - One Media3/ExoPlayer queue, owned by `MediaSessionService`, with notification, lock-screen, headset and Bluetooth controls.
 - Play next, append, inspect/reorder/remove queue items, previous/next, seek, shuffle and repeat controls.
 - Local favorites and named playlists, a sleep timer, and a button that opens the Android system equalizer for the active audio session when installed.
+- A clear first-run music permission screen with denial recovery and a shortcut to Android app settings.
+- Local CSV/M3U playlist import for Spotify, Apple Music, Soundiiz, TuneMyMusic, and similar exports. Tracks are matched locally; encrypted service audio is not copied.
+- Private cloud settings keep the Worker token in Android encrypted preferences. R2 credentials are never shipped in the APK.
 - Playback queue, position, shuffle and repeat persist across process/service recreation; restored playback starts paused.
 - No video, network permission, ads, analytics, tracking or third-party catalog scraping.
 - Android target SDK 35, minimum SDK 26.
 
-The consolidation carries over PersonalStream's intended searchable library and queue/playback direction. Downloads, account login, synced playlists and remote streaming remain future work because that project had no selected catalog/server implementation. The OpenSubsonic adapter must use stable server IDs, bounded paging, authenticated audio streams, and bounded disk artwork/cache behavior; credentials should be stored with platform-backed encryption.
+Cloud deployment files live in `cloudflare/`. The R2 bucket stays private, the Worker provides catalog/search and range streaming, and the app stores a read-only token with platform-backed encryption.
 
 ## Build
 

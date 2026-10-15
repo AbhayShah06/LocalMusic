@@ -9,19 +9,23 @@ final class ServerSettings {
     private final android.content.SharedPreferences prefs;
 
     ServerSettings(Context context) {
+        android.content.SharedPreferences encrypted = null;
         try {
             MasterKey key = new MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build();
-            prefs = EncryptedSharedPreferences.create(context, PREFS, key,
+            encrypted = EncryptedSharedPreferences.create(context, PREFS, key,
                     EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                     EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM);
-        } catch (Exception error) { throw new IllegalStateException("Secure credential storage is unavailable", error); }
+        } catch (Exception ignored) { }
+        prefs = encrypted;
     }
 
     boolean configured() { return !url().isEmpty() && !username().isEmpty() && !password().isEmpty(); }
-    String url() { return prefs.getString("url", ""); }
-    String username() { return prefs.getString("username", ""); }
-    String password() { return prefs.getString("password", ""); }
+    boolean available() { return prefs != null; }
+    String url() { return prefs == null ? "" : prefs.getString("url", ""); }
+    String username() { return prefs == null ? "" : prefs.getString("username", ""); }
+    String password() { return prefs == null ? "" : prefs.getString("password", ""); }
     void save(String url, String username, String password) {
+        if (prefs == null) throw new IllegalStateException("Secure storage is unavailable");
         String clean = url.trim(); while (clean.endsWith("/")) clean = clean.substring(0, clean.length() - 1);
         prefs.edit().putString("url", clean).putString("username", username.trim()).putString("password", password).apply();
     }

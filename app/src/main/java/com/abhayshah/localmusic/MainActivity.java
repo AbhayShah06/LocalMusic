@@ -6,18 +6,19 @@ import android.app.AlertDialog;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
 import android.text.TextWatcher;
-import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.view.View;
 
 import androidx.media3.session.MediaController;
 import androidx.media3.session.SessionToken;
@@ -38,15 +39,21 @@ public final class MainActivity extends Activity {
     private final List<Track> tracks = new ArrayList<>();
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
-    private ArrayAdapter<String> adapter;
+    private LibraryAdapter adapter;
     private EditText search;
-    private TextView status, nowPlaying;
+    private TextView status, nowPlaying, nowPlayingArtist;
+    private View permissionPanel;
+    private static final int AUDIO_PERMISSION_REQUEST = 12;
+    private static final int NOTIFICATION_PERMISSION_REQUEST = 13;
+    private static final int IMPORT_PLAYLIST_REQUEST = 14;
     private MediaController controller;
     private ListenableFuture<MediaController> controllerFuture;
     private int offset;
     private boolean loading, exhausted;
     private boolean remoteMode;
+    private boolean cloudMode;
     private ServerSettings serverSettings;
+    private CloudSettings cloudSettings;
     private String query = "";
     private String group = "";
     private final Handler ticker = new Handler(Looper.getMainLooper());
@@ -62,11 +69,14 @@ public final class MainActivity extends Activity {
         UpdateManager.attach(this, findViewById(R.id.root));
         status = findViewById(R.id.status);
         nowPlaying = findViewById(R.id.nowPlaying);
+        nowPlayingArtist = findViewById(R.id.nowPlayingArtist);
+        permissionPanel = findViewById(R.id.permissionPanel);
         search = findViewById(R.id.search);
         serverSettings = new ServerSettings(this);
+        cloudSettings = new CloudSettings(this);
         findViewById(R.id.source).setOnClickListener(v -> chooseSource());
         ListView list = findViewById(R.id.tracks);
-        adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, new ArrayList<>());
+        adapter = new LibraryAdapter(this, tracks);
         list.setAdapter(adapter);
         list.setOnItemClickListener((parent, view, position, id) -> playFrom(position));
         list.setOnItemLongClickListener((parent, view, position, id) -> { showTrackActions(position); return true; });
@@ -79,31 +89,28 @@ public final class MainActivity extends Activity {
         findViewById(R.id.playPause).setOnClickListener(v -> { if (controller != null) { if (controller.isPlaying()) controller.pause(); else controller.play(); } });
         findViewById(R.id.previous).setOnClickListener(v -> { if (controller != null) controller.seekToPreviousMediaItem(); });
         findViewById(R.id.next).setOnClickListener(v -> { if (controller != null) controller.seekToNextMediaItem(); });
-        findViewById(R.id.queue).setOnClickListener(v -> showQueue());
-        findViewById(R.id.shuffle).setOnClickListener(v -> toggleShuffle());
-        findViewById(R.id.repeat).setOnClickListener(v -> toggleRepeat());
-        findViewById(R.id.favorite).setOnClickListener(v -> toggleCurrentFavorite());
-        findViewById(R.id.favorites).setOnClickListener(v -> loadSavedTracks("favorites", "Favorites"));
         findViewById(R.id.playlists).setOnClickListener(v -> showPlaylists());
-        findViewById(R.id.sleep).setOnClickListener(v -> chooseSleepTimer());
-        findViewById(R.id.equalizer).setOnClickListener(v -> openEqualizer());
+        findViewById(R.id.more).setOnClickListener(v -> showMoreMenu());
+        findViewById(R.id.miniPlayer).setOnClickListener(v -> showNowPlaying());
+        findViewById(R.id.grantPermission).setOnClickListener(v -> requestAudioPermission());
+        findViewById(R.id.permissionSettings).setOnClickListener(v -> openAppSettings());
         SeekBar seek = findViewById(R.id.seek);
         seek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) { if (fromUser && controller != null && controller.getDuration() > 0) controller.seekTo((controller.getDuration() * progress) / 1000); }
             @Override public void onStartTrackingTouch(SeekBar bar) { }
             @Override public void onStopTrackingTouch(SeekBar bar) { }
         });
-        findViewById(R.id.songs).setOnClickListener(v -> setGroup(""));
-        findViewById(R.id.albums).setOnClickListener(v -> showGroups(false));
-        findViewById(R.id.artists).setOnClickListener(v -> showGroups(true));
+        findViewById(R.id.songs).setOnClickListener(v -> { selectTab(R.id.songs); setGroup(""); });
+        findViewById(R.id.albums).setOnClickListener(v -> { selectTab(R.id.albums); showGroups(false); });
+        findViewById(R.id.artists).setOnClickListener(v -> { selectTab(R.id.artists); showGroups(true); });
+        findViewById(R.id.playlists).setOnClickListener(v -> { selectTab(R.id.playlists); showPlaylists(); });
+        selectTab(R.id.songs);
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) { query = s.toString(); resetAndLoad(); }
             @Override public void afterTextChanged(Editable s) { }
         });
-        String permission = Build.VERSION.SDK_INT >= 33 ? Manifest.permission.READ_MEDIA_AUDIO : Manifest.permission.READ_EXTERNAL_STORAGE;
-        if (checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) resetAndLoad();
-        else requestPermissions(new String[]{permission}, 12);
+        refreshPermissionState();
     }
 
     private void connect() {
@@ -115,13 +122,63 @@ public final class MainActivity extends Activity {
         }, command -> main.post(command));
     }
 
+    private void reconnectPlaybackService() {
+        if (controller != null) controller.removeListener(uiPlayerListener);
+        if (controllerFuture != null) MediaController.releaseFuture(controllerFuture);
+        controller = null; controllerFuture = null;
+        stopService(new Intent(this, PlaybackService.class));
+        main.postDelayed(this::connect, 300);
+    }
+
     @Override public void onStart() { super.onStart(); connect(); }
     @Override public void onStop() { ticker.removeCallbacksAndMessages(null); if (controller != null) controller.removeListener(uiPlayerListener); if (controllerFuture != null) MediaController.releaseFuture(controllerFuture); controller = null; super.onStop(); }
 
     @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(request, permissions, results);
-        if (request == 12 && results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) resetAndLoad();
-        else status.setText("Music permission denied. Nothing was scanned.");
+        if (request == AUDIO_PERMISSION_REQUEST) {
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) {
+                refreshPermissionState();
+                requestNotificationPermissionIfNeeded();
+            } else showPermissionPanel(true);
+        }
+    }
+
+    @Override protected void onResume() { super.onResume(); refreshPermissionState(); }
+
+    private String audioPermission() { return Build.VERSION.SDK_INT >= 33 ? Manifest.permission.READ_MEDIA_AUDIO : Manifest.permission.READ_EXTERNAL_STORAGE; }
+
+    private boolean hasAudioPermission() { return checkSelfPermission(audioPermission()) == PackageManager.PERMISSION_GRANTED; }
+
+    private void requestAudioPermission() { requestPermissions(new String[]{audioPermission()}, AUDIO_PERMISSION_REQUEST); }
+
+    private void refreshPermissionState() {
+        if (permissionPanel == null || remoteMode) return;
+        if (hasAudioPermission()) {
+            permissionPanel.setVisibility(View.GONE);
+            findViewById(R.id.tracks).setVisibility(View.VISIBLE);
+            if (tracks.isEmpty() && !loading) resetAndLoad();
+        } else showPermissionPanel(!shouldShowRequestPermissionRationale(audioPermission()));
+    }
+
+    private void showPermissionPanel(boolean showSettings) {
+        permissionPanel.setVisibility(View.VISIBLE);
+        findViewById(R.id.tracks).setVisibility(View.GONE);
+        findViewById(R.id.permissionSettings).setVisibility(showSettings ? View.VISIBLE : View.GONE);
+        status.setText("Music access is needed for your on-device library");
+    }
+
+    private void openAppSettings() {
+        startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
+    }
+
+    private void requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_PERMISSION_REQUEST);
+    }
+
+    private void selectTab(int selectedId) {
+        int[] ids = {R.id.songs, R.id.albums, R.id.artists, R.id.playlists};
+        for (int id : ids) findViewById(id).setSelected(id == selectedId);
     }
 
     private void setGroup(String value) { group = value; query = ""; search.setText(""); resetAndLoad(); }
@@ -139,8 +196,8 @@ public final class MainActivity extends Activity {
         String pageQuery = query;
         io.execute(() -> {
             List<Track> page;
-            try { page = remoteMode ? new OpenSubsonicClient(serverSettings).page(pageQuery, pageOffset, PAGE_SIZE) : new MediaStoreCatalogSource(getContentResolver()).page(pageQuery, pageOffset, PAGE_SIZE); }
-            catch (RuntimeException error) { main.post(() -> { loading = false; status.setText("Could not reach Navidrome. Check the server address and connection."); }); return; }
+            try { page = cloudMode ? new CloudCatalogClient(cloudSettings).page(pageQuery, pageOffset, PAGE_SIZE) : remoteMode ? new OpenSubsonicClient(serverSettings).page(pageQuery, pageOffset, PAGE_SIZE) : new MediaStoreCatalogSource(getContentResolver()).page(pageQuery, pageOffset, PAGE_SIZE); }
+            catch (RuntimeException error) { main.post(() -> { loading = false; status.setText("Could not reach this music source. Check its connection settings."); }); return; }
             main.post(() -> {
                 loading = false;
                 if (!pageQuery.equals(query)) return;
@@ -150,7 +207,7 @@ public final class MainActivity extends Activity {
                 }
                 tracks.addAll(page); offset += page.size(); exhausted = page.size() < PAGE_SIZE;
                 for (Track t : page) adapter.add(t.title + "\n" + t.artist + " · " + t.album);
-                status.setText(tracks.size() + (exhausted ? " songs" : "+ songs") + (remoteMode ? " from Navidrome" : " on this phone"));
+                status.setText(tracks.size() + (exhausted ? " songs" : "+ songs") + (cloudMode ? " in your cloud" : remoteMode ? " from Navidrome" : " on this phone"));
             });
         });
     }
@@ -189,9 +246,66 @@ public final class MainActivity extends Activity {
     }
 
     private void updateNowPlaying() {
-        if (controller == null || controller.getMediaMetadata().title == null) nowPlaying.setText("Nothing playing");
-        else nowPlaying.setText(controller.getMediaMetadata().title + " — " + Track.clean(String.valueOf(controller.getMediaMetadata().artist), "Unknown artist"));
+        if (controller == null || controller.getMediaMetadata().title == null) {
+            nowPlaying.setText("Nothing playing"); nowPlayingArtist.setText("Choose a song");
+        } else {
+            nowPlaying.setText(controller.getMediaMetadata().title);
+            nowPlayingArtist.setText(Track.clean(String.valueOf(controller.getMediaMetadata().artist), "Unknown artist"));
+        }
+        ((TextView)findViewById(R.id.playPause)).setText(controller != null && controller.isPlaying() ? "Ⅱ" : "▶");
         refreshProgress();
+    }
+
+    private void showNowPlaying() {
+        if (controller == null || controller.getCurrentMediaItem() == null) { Toast.makeText(this, "Choose a song first", Toast.LENGTH_SHORT).show(); return; }
+        String title = Track.clean(String.valueOf(controller.getMediaMetadata().title), "Now playing");
+        String artist = Track.clean(String.valueOf(controller.getMediaMetadata().artist), "Unknown artist");
+        String[] actions = {controller.isPlaying() ? "Pause" : "Play", "Previous", "Next", "Queue", "Shuffle", "Repeat", "Favorite", "Sleep timer", "Equalizer"};
+        new AlertDialog.Builder(this).setTitle(title).setMessage(artist).setItems(actions, (d, which) -> {
+            if (which == 0) { if (controller.isPlaying()) controller.pause(); else controller.play(); }
+            else if (which == 1) controller.seekToPreviousMediaItem();
+            else if (which == 2) controller.seekToNextMediaItem();
+            else if (which == 3) showQueue();
+            else if (which == 4) toggleShuffle();
+            else if (which == 5) toggleRepeat();
+            else if (which == 6) toggleCurrentFavorite();
+            else if (which == 7) chooseSleepTimer();
+            else openEqualizer();
+        }).show();
+    }
+
+    private void showMoreMenu() {
+        String[] actions = {"Music source", "Import playlist", "Favorites", "Playlists", "Sleep timer", "Equalizer", "Music permission"};
+        new AlertDialog.Builder(this).setTitle("Local Music").setItems(actions, (d, which) -> {
+            if (which == 0) chooseSource();
+            else if (which == 1) choosePlaylistFile();
+            else if (which == 2) { selectTab(R.id.playlists); loadSavedTracks("favorites", "Favorites"); }
+            else if (which == 3) { selectTab(R.id.playlists); showPlaylists(); }
+            else if (which == 4) chooseSleepTimer();
+            else if (which == 5) openEqualizer();
+            else if (hasAudioPermission()) Toast.makeText(this, "Music access is allowed", Toast.LENGTH_SHORT).show();
+            else requestAudioPermission();
+        }).show();
+    }
+
+    private void choosePlaylistFile() {
+        Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE)
+                .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"text/csv", "text/comma-separated-values", "audio/x-mpegurl", "application/vnd.apple.mpegurl", "text/plain"});
+        startActivityForResult(pick, IMPORT_PLAYLIST_REQUEST);
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != IMPORT_PLAYLIST_REQUEST || resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        Uri file = data.getData(); status.setText("Importing playlist…");
+        io.execute(() -> {
+            try {
+                PlaylistImporter.Result result = new PlaylistImporter(getContentResolver()).importFile(file);
+                android.content.SharedPreferences prefs = getSharedPreferences("library", MODE_PRIVATE);
+                prefs.edit().putStringSet("playlist:" + result.name, new java.util.LinkedHashSet<>(result.localIds)).putString("last_playlist", result.name).apply();
+                main.post(() -> { status.setText(result.matched + " matched · " + result.missed + " not found"); Toast.makeText(this, "Imported " + result.name, Toast.LENGTH_LONG).show(); });
+            } catch (Exception error) { main.post(() -> { status.setText("Import failed"); Toast.makeText(this, "Use a Spotify, Apple Music, Soundiiz, TuneMyMusic CSV, or M3U playlist.", Toast.LENGTH_LONG).show(); }); }
+        });
     }
 
     private void refreshProgress() {
@@ -350,15 +464,30 @@ public final class MainActivity extends Activity {
     }
 
     private void chooseSource() {
-        String[] options = serverSettings.configured() ? new String[]{"This phone", "Navidrome", "Configure Navidrome"} : new String[]{"This phone", "Set up Navidrome"};
+        String[] options = new String[]{"This phone", cloudSettings.configured() ? "Private cloud" : "Set up private cloud", serverSettings.configured() ? "Navidrome" : "Set up Navidrome", "Cloud settings", "Navidrome settings"};
         new AlertDialog.Builder(this).setTitle("Music library").setItems(options, (dialog, which) -> {
-            if (which == 0) { remoteMode = false; ((android.widget.Button)findViewById(R.id.source)).setText("Library: This phone"); setGroup(""); }
-            else if (serverSettings.configured() && which == 1) { remoteMode = true; ((android.widget.Button)findViewById(R.id.source)).setText("Library: Navidrome"); setGroup(""); }
-            else configureServer();
+            if (which == 0) { remoteMode = false; cloudMode = false; ((TextView)findViewById(R.id.source)).setText("This phone  ▾"); refreshPermissionState(); setGroup(""); }
+            else if (which == 1 && cloudSettings.configured()) { remoteMode = true; cloudMode = true; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Private cloud  ▾"); setGroup(""); }
+            else if (which == 1) configureCloud();
+            else if (which == 2 && serverSettings.configured()) { remoteMode = true; cloudMode = false; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Navidrome  ▾"); setGroup(""); }
+            else if (which == 2 || which == 4) configureServer();
+            else configureCloud();
+        }).show();
+    }
+
+    private void configureCloud() {
+        if (!cloudSettings.available()) { Toast.makeText(this, "Android secure storage is unavailable. Restart the phone and try again.", Toast.LENGTH_LONG).show(); return; }
+        android.widget.LinearLayout form = new android.widget.LinearLayout(this); form.setOrientation(android.widget.LinearLayout.VERTICAL); int pad = (int)(20 * getResources().getDisplayMetrics().density); form.setPadding(pad, 0, pad, 0);
+        EditText url = new EditText(this); url.setHint("HTTPS Worker URL"); url.setSingleLine(); url.setText(cloudSettings.url()); form.addView(url);
+        EditText token = new EditText(this); token.setHint("Read-only access token"); token.setSingleLine(); token.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD); form.addView(token);
+        new AlertDialog.Builder(this).setTitle("Private cloud music").setMessage("The token is encrypted on this phone. R2 credentials are never stored in the app.").setView(form).setNegativeButton("Cancel", null).setPositiveButton("Connect", (d, w) -> {
+            String address = url.getText().toString().trim(), key = token.getText().toString().trim(); if (!address.startsWith("https://") || key.isEmpty()) { Toast.makeText(this, "Enter the HTTPS Worker URL and access token.", Toast.LENGTH_LONG).show(); return; }
+            cloudSettings.save(address, key); status.setText("Connecting to private cloud…"); io.execute(() -> { boolean ok = new CloudCatalogClient(cloudSettings).ping(); main.post(() -> { if (ok) { reconnectPlaybackService(); remoteMode = true; cloudMode = true; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Private cloud  ▾"); setGroup(""); } else status.setText("Cloud connection failed. Check the Worker URL and access token."); }); });
         }).show();
     }
 
     private void configureServer() {
+        if (!serverSettings.available()) { Toast.makeText(this, "Android secure storage is unavailable. Restart the phone and try again.", Toast.LENGTH_LONG).show(); return; }
         android.widget.LinearLayout form = new android.widget.LinearLayout(this); form.setOrientation(android.widget.LinearLayout.VERTICAL); int pad = (int)(20 * getResources().getDisplayMetrics().density); form.setPadding(pad, 0, pad, 0);
         EditText url = new EditText(this); url.setHint("HTTPS server URL"); url.setSingleLine(); url.setText(serverSettings.url()); form.addView(url);
         EditText username = new EditText(this); username.setHint("Username"); username.setSingleLine(); username.setText(serverSettings.username()); form.addView(username);
@@ -368,7 +497,7 @@ public final class MainActivity extends Activity {
             if (!address.startsWith("https://") || user.isEmpty() || pass.isEmpty()) { Toast.makeText(this, "Use an HTTPS address and enter your username and password.", Toast.LENGTH_LONG).show(); return; }
             serverSettings.save(address, user, pass); status.setText("Connecting to Navidrome…");
             io.execute(() -> { boolean ok = new OpenSubsonicClient(serverSettings).ping(); main.post(() -> {
-                if (ok) { remoteMode = true; ((android.widget.Button)findViewById(R.id.source)).setText("Library: Navidrome"); setGroup(""); }
+                if (ok) { remoteMode = true; cloudMode = false; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Navidrome  ▾"); setGroup(""); }
                 else status.setText("Connection failed. Check the HTTPS address, login, and whether the server is running.");
             }); });
         }).show();

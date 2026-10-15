@@ -1,0 +1,7 @@
+name = "local-music-cloud"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+[[r2_buckets]]
+binding = "MUSIC"
+bucket_name = "local-music-private"

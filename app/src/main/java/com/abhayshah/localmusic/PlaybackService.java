@@ -11,6 +11,9 @@ import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.datasource.DefaultDataSource;
+import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
 
@@ -42,7 +45,10 @@ public final class PlaybackService extends MediaSessionService {
     @Override public void onCreate() {
         super.onCreate();
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-        player = new ExoPlayer.Builder(this).build();
+        DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setUserAgent("LocalMusic/0.4");
+        CloudSettings cloud = new CloudSettings(this);
+        if (cloud.configured()) http.setDefaultRequestProperties(java.util.Collections.singletonMap("Authorization", "Bearer " + cloud.token()));
+        player = new ExoPlayer.Builder(this).setMediaSourceFactory(new DefaultMediaSourceFactory(new DefaultDataSource.Factory(this, http))).build();
         prefs.edit().putInt("audio_session_id", player.getAudioSessionId()).apply();
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true);
         session = new MediaSession.Builder(this, player).build();
@@ -71,7 +77,7 @@ public final class PlaybackService extends MediaSessionService {
                 JSONArray array = new JSONArray(saved);
                 for (int i = 0; i < array.length() && items.size() < 200; i++) {
                     JSONObject item = array.getJSONObject(i); String id = item.getString("id");
-                    if (id.startsWith("remote:")) items.add(new MediaItem.Builder().setMediaId(id).setUri(item.getString("uri"))
+                    if (!id.startsWith("local:")) items.add(new MediaItem.Builder().setMediaId(id).setUri(item.getString("uri"))
                             .setMediaMetadata(new androidx.media3.common.MediaMetadata.Builder().setTitle(item.optString("title"))
                                     .setArtist(item.optString("artist")).setAlbumTitle(item.optString("album")).build()).build());
                     else addLocalItem(items, resolver, Long.parseLong(id.substring(6)));
