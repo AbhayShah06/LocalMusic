@@ -9,7 +9,8 @@
   $("join").addEventListener("click", join);
   $("room").addEventListener("input", event => event.target.value = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6));
   $("guest").addEventListener("keydown", event => { if (event.key === "Enter") join(); });
-  $("search").addEventListener("input", renderTracks);
+  let searchTimer;
+  $("search").addEventListener("input", () => { renderTracks(); clearTimeout(searchTimer); searchTimer = setTimeout(requestSearch, 550); });
   $("share").addEventListener("click", async () => {
     const url = `${location.origin}${location.pathname}?room=${state.room}`;
     if (navigator.share) await navigator.share({ title: "Join my LocalMusic Jam", url }).catch(() => {});
@@ -45,7 +46,15 @@
     const query = $("search").value.trim().toLowerCase();
     const matches = state.data.catalog.filter(t => !query || `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(query)).slice(0, 80);
     $("resultCount").textContent = matches.length;
-    $("results").replaceChildren(...(matches.length ? matches.map(trackNode) : [empty("No songs found") ]));
+    const pending = (state.data.searches || []).some(item => item.status === "pending" && item.query.toLowerCase() === query);
+    $("results").replaceChildren(...(matches.length ? matches.map(trackNode) : [empty(query ? (pending ? "Searching on the host phone…" : "Type to search all music") : "Search for a song") ]));
+  }
+  async function requestSearch() {
+    if (!state.data?.active) return; const query = $("search").value.trim(); if (query.length < 2) return;
+    const local = state.data.catalog.filter(t => `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(query.toLowerCase()));
+    if (local.length >= 8) return;
+    try { const response = await fetch(`${API}/api/rooms/${state.room}/search`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error || "Search failed"); renderTracks(); }
+    catch (error) { toast(error.message); }
   }
   function trackNode(track) {
     const row = document.createElement("div"); row.className = "track";

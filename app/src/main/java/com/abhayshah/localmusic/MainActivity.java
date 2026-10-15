@@ -69,6 +69,7 @@ public final class MainActivity extends Activity {
     private JamClient.Room activeJam;
     private final java.util.Map<String, Track> jamCatalog = new java.util.HashMap<>();
     private final java.util.Set<String> seenJamEntries = new java.util.HashSet<>();
+    private final java.util.Set<String> seenJamSearches = new java.util.HashSet<>();
     private final Player.Listener uiPlayerListener = new Player.Listener() {
         @Override public void onMediaItemTransition(androidx.media3.common.MediaItem item, int reason) { updateNowPlaying(); }
         @Override public void onIsPlayingChanged(boolean isPlaying) { updateNowPlaying(); }
@@ -319,15 +320,19 @@ public final class MainActivity extends Activity {
         android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar);
         dialog.setContentView(R.layout.dialog_now_playing);
         if (dialog.getWindow() != null) { dialog.getWindow().setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT); dialog.getWindow().setStatusBarColor(android.graphics.Color.rgb(11, 11, 12)); dialog.getWindow().setNavigationBarColor(android.graphics.Color.rgb(11, 11, 12)); }
-        TextView title = dialog.findViewById(R.id.fullTitle), artist = dialog.findViewById(R.id.fullArtist), play = dialog.findViewById(R.id.fullPlayPause);
-        android.widget.ImageView artwork = dialog.findViewById(R.id.fullArtwork); SeekBar fullSeek = dialog.findViewById(R.id.fullSeek);
+        TextView title = dialog.findViewById(R.id.fullTitle), artist = dialog.findViewById(R.id.fullArtist), elapsed = dialog.findViewById(R.id.fullElapsed), durationLabel = dialog.findViewById(R.id.fullDuration);
+        android.widget.ImageButton play = dialog.findViewById(R.id.fullPlayPause);
+        android.widget.ImageView artwork = dialog.findViewById(R.id.fullArtwork), backgroundArtwork = dialog.findViewById(R.id.fullBackgroundArtwork); SeekBar fullSeek = dialog.findViewById(R.id.fullSeek);
+        if (Build.VERSION.SDK_INT >= 31) backgroundArtwork.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(44f, 44f, android.graphics.Shader.TileMode.CLAMP));
         Runnable refresh = () -> {
             if (controller == null || controller.getCurrentMediaItem() == null) return;
             title.setText(Track.clean(String.valueOf(controller.getMediaMetadata().title), "Now playing"));
             artist.setText(Track.clean(String.valueOf(controller.getMediaMetadata().artist), "Unknown artist"));
-            play.setText(controller.isPlaying() ? "Ⅱ" : "▶");
+            play.setImageResource(controller.isPlaying() ? R.drawable.ic_pause : R.drawable.ic_play);
             ArtworkLoader.into(artwork, controller.getMediaMetadata().artworkUri, android.R.drawable.ic_media_play);
-            long duration = controller.getDuration(); fullSeek.setProgress(duration > 0 ? (int)Math.min(1000, controller.getCurrentPosition() * 1000 / duration) : 0);
+            ArtworkLoader.into(backgroundArtwork, controller.getMediaMetadata().artworkUri, android.R.drawable.ic_media_play);
+            long duration = controller.getDuration(), position = controller.getCurrentPosition(); fullSeek.setProgress(duration > 0 ? (int)Math.min(1000, position * 1000 / duration) : 0);
+            elapsed.setText(formatTime(position)); durationLabel.setText(formatTime(duration));
         };
         refresh.run();
         dialog.findViewById(R.id.closeNowPlaying).setOnClickListener(v -> dialog.dismiss());
@@ -346,6 +351,11 @@ public final class MainActivity extends Activity {
         Player.Listener dialogListener = new Player.Listener() { @Override public void onEvents(Player player, Player.Events events) { refresh.run(); } };
         controller.addListener(dialogListener); dialog.setOnDismissListener(ignored -> { if (controller != null) controller.removeListener(dialogListener); });
         dialog.show(); if (dialog.getWindow() != null) dialog.getWindow().setLayout(-1, -1);
+    }
+
+    private static String formatTime(long milliseconds) {
+        if (milliseconds < 0) milliseconds = 0; long seconds = milliseconds / 1000;
+        return String.format(java.util.Locale.US, "%d:%02d", seconds / 60, seconds % 60);
     }
 
     private Track currentTrack() {
@@ -480,7 +490,7 @@ public final class MainActivity extends Activity {
                 if (catalog.isEmpty()) throw new IllegalStateException("Your selected library is empty");
                 JamClient.Room room = new JamClient().create(catalog);
                 jamCatalog.clear(); for (Track track : catalog) jamCatalog.put(track.stableId, track);
-                seenJamEntries.clear(); activeJam = room;
+                seenJamEntries.clear(); seenJamSearches.clear(); activeJam = room;
                 main.post(() -> { status.setText(catalog.size() + " SONGS READY FOR JAM"); showJam(room); pollJam(); });
             } catch (Exception error) { main.post(() -> { status.setText("JAM COULD NOT START"); Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show(); }); }
         });
@@ -518,14 +528,30 @@ public final class MainActivity extends Activity {
         if (activeJam == null) return;
         io.execute(() -> {
             try {
-                List<JamClient.Entry> entries = new JamClient().queue(activeJam.code);
+                JamClient.State state = new JamClient().state(activeJam);
+                List<JamClient.Entry> entries = state.entries;
                 List<JamClient.Entry> fresh = new ArrayList<>();
                 for (JamClient.Entry entry : entries) if (seenJamEntries.add(entry.id)) fresh.add(entry);
                 main.post(() -> {
-                    if (controller != null) for (JamClient.Entry entry : fresh) { Track track = jamCatalog.get(entry.trackId); if (track != null) { if (track.stableId.startsWith("online:")) enqueueOnline(track, false); else controller.addMediaItem(track.toMediaItem()); Toast.makeText(this, entry.guest + " added " + track.title, Toast.LENGTH_SHORT).show(); } }
+                    if (controller != null) for (JamClient.Entry entry : fresh) addJamEntry(entry);
                     if (activeJam != null) jamTicker.postDelayed(this::pollJam, 2000);
                 });
+                for (JamClient.Search search : state.searches) if (search.pending && seenJamSearches.add(search.id)) {
+                    List<Track> results = onlineSource().page(search.query, 0, 35);
+                    for (Track track : results) jamCatalog.put(track.stableId, track);
+                    new JamClient().publish(activeJam, search.id, results);
+                }
             } catch (Exception error) { main.post(() -> { if (activeJam != null) jamTicker.postDelayed(this::pollJam, 4000); }); }
+        });
+    }
+
+    private void addJamEntry(JamClient.Entry entry) {
+        Track track = jamCatalog.get(entry.trackId);
+        if (track != null) { if (track.stableId.startsWith("online:")) enqueueOnline(track, false); else controller.addMediaItem(track.toMediaItem()); Toast.makeText(this, entry.guest + " added " + track.title, Toast.LENGTH_SHORT).show(); return; }
+        streamIo.execute(() -> {
+            List<Track> matches = onlineSource().page(entry.title + " " + entry.artist, 0, 8);
+            if (matches.isEmpty()) return; Track found = matches.get(0); jamCatalog.put(entry.trackId, found);
+            main.post(() -> { enqueueOnline(found, false); Toast.makeText(this, entry.guest + " added " + found.title, Toast.LENGTH_SHORT).show(); });
         });
     }
 

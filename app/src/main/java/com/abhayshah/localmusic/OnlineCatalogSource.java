@@ -17,6 +17,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 /** Searches public streaming catalogues and resolves playback entirely on the phone. */
 final class OnlineCatalogSource implements CatalogSource {
@@ -114,15 +116,38 @@ final class OnlineCatalogSource implements CatalogSource {
             AudioStream stream = info.getAudioStreams().stream().filter(AudioStream::isUrl)
                     .max(Comparator.comparingInt(AudioStream::getAverageBitrate)).orElseThrow(() -> new IllegalStateException("No playable audio stream"));
             List<Track> radio = new ArrayList<>();
+            Set<String> identities = new HashSet<>(); identities.add(identity(track.title));
             for (InfoItem item : info.getRelatedItems()) {
                 if (!(item instanceof StreamInfoItem) || radio.size() >= 12) continue;
                 StreamInfoItem related = (StreamInfoItem) item;
                 if (isUnwantedVersion(related, track.title + " " + track.artist) || !isLikelySong(related, track.artist)) continue;
-                radio.add(unresolved(NewPipe.getService(serviceId), related));
+                Track candidate = unresolved(NewPipe.getService(serviceId), related); String identity = identity(candidate.title);
+                if (identity.isEmpty() || tooSimilar(identity(track.title), identity) || !identities.add(identity)) continue;
+                radio.add(candidate);
+            }
+            if (radio.size() < 6) {
+                List<Track> fallback = new ArrayList<>(); String discovery = track.artist.replaceAll("(?i)\s*-\s*topic$", "").trim() + " songs";
+                search(ServiceList.YouTube, discovery, fallback, 20);
+                for (Track candidate : fallback) { String identity = identity(candidate.title); if (!identity.isEmpty() && !tooSimilar(identity(track.title), identity) && identities.add(identity)) radio.add(candidate); if (radio.size() >= 12) break; }
             }
             Collections.shuffle(radio);
             return new Resolution(new Track(track.stableId, Uri.parse(stream.getContent()), track.title, track.artist, track.album, track.artworkUri), radio);
         } catch (Exception error) { throw new IllegalStateException("Could not start this stream", error); }
+    }
+
+    static String identity(String title) {
+        return title.toLowerCase(java.util.Locale.ROOT)
+                .replaceAll("\\([^)]*\\)|\\[[^]]*]", " ")
+                .replaceAll("(?i)official|music video|video|audio|lyrics?|english translation|translation|full version|hd|4k|with|and", " ")
+                .replaceAll("[^\\p{L}\\p{N}]+", " ").trim().replaceAll("\\s+", " ");
+    }
+
+    static boolean tooSimilar(String seed, String candidate) {
+        if (seed.equals(candidate) || seed.contains(candidate) || candidate.contains(seed)) return true;
+        Set<String> left = new HashSet<>(java.util.Arrays.asList(seed.split(" "))), right = new HashSet<>(java.util.Arrays.asList(candidate.split(" ")));
+        left.removeIf(word -> word.length() < 3); right.removeIf(word -> word.length() < 3); if (left.isEmpty() || right.isEmpty()) return false;
+        Set<String> overlap = new HashSet<>(left); overlap.retainAll(right);
+        return overlap.size() >= 2 && overlap.size() * 1.0 / Math.min(left.size(), right.size()) >= .72;
     }
 
     private static Track unresolved(StreamingService service, StreamInfoItem stream) {

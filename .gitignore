@@ -4,5 +4,6 @@ local.properties
 local.private.properties
 **/build/
 .wrangler/
+node_modules/
 *.iml
 

@@ -1,7 +1,7 @@
 {
-  "versionCode": 11,
-  "versionName": "0.9.0",
-  "notes": "Adds durable offline downloads and removal, faster non-blocking recommendation queues, better artist matching, immediate touch feedback, optional haptics, autoplay and version controls, and a consolidated Settings screen.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.9.0/LocalMusic-0.9.0.apk",
-  "sha256": "19151C9B9C576D80436014D3488828D0E7E118146D40181A421E1B81885177C2"
+  "versionCode": 12,
+  "versionName": "0.10.0",
+  "notes": "A redesigned artwork-led full-screen player, duplicate-resistant autoqueue, broader discovery fallback, improved lyrics with stream-caption fallback, and live Jam searches whose selections reach the host queue.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.10.0/LocalMusic-0.10.0.apk",
+  "sha256": "B75093C83F2702ABD3F4751FDBF3FB568DCD7DAAB75F83B66A0C3DA465FBB269"
 }

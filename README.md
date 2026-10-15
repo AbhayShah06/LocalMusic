@@ -17,15 +17,16 @@ An audio-only, dark Android music player for direct on-device streaming, local l
 - Playback queue, position, shuffle and repeat persist across process/service recreation; restored playback starts paused.
 - A bounded 512 MB playback cache reuses recently streamed audio for faster replay, seeking, and lower data use.
 - On-demand lyrics, recently played history, and a daily personal mix are cached and generated on the phone.
+- Lyrics try clean metadata first, then fall back to the selected stream's own captions when available.
 - One-tap offline downloads continue in the background, appear in a dedicated Downloads library, and can be removed without affecting the source track.
-- Related songs resolve independently after playback starts, so one slow result cannot hold up the rest of the queue.
+- Related songs resolve independently after playback starts, deduplicate alternate uploads of the same recording, and fall back to broader artist discovery when the related feed is repetitive.
 - Settings centralizes haptics, autoplay, version preference, sources, playlist import, equalizer, permissions, downloads, and temporary-cache cleanup.
 - No video playback, ads, analytics, tracking, or LocalMusic account.
 - Android target SDK 35, minimum SDK 26.
 
 Keep the B2 bucket private. Create an application key restricted to the music bucket with `listFiles`, `readFiles`, and `shareFiles`, then enter the key ID, application key, and bucket name in the public app. The private `personal` build can instead read these values from the ignored `local.private.properties` file. Organizing objects as `Artist/Album/Track.ext` gives the best library labels. Files named `Artist - Track.ext` are also recognized.
 
-Jam uses a static GitHub Pages guest interface and a small Cloudflare Worker backed by a SQLite Durable Object. Rooms expire automatically, contain catalog metadata and queue state only, and never receive music files or Backblaze credentials.
+Jam uses a static GitHub Pages guest interface and a small Cloudflare Worker backed by a SQLite Durable Object. Guest searches are sent to the host phone, which searches the live online catalogue and publishes results back to the room. Rooms expire automatically, contain catalog metadata and queue state only, and never receive music files or Backblaze credentials.
 
 ## Build
 

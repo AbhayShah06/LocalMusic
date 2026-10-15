@@ -54,6 +54,9 @@ export class JamRoom extends DurableObject {
     if (url.pathname === "/create" && request.method === "POST") return this.create(request);
     if (url.pathname === "/" && request.method === "GET") return this.snapshotResponse();
     if (url.pathname === "/queue" && request.method === "POST") return this.add(request);
+    if (url.pathname === "/search" && request.method === "POST") return this.search(request);
+    const results = url.pathname.match(/^\/search\/([a-f0-9-]{36})\/results$/);
+    if (results && request.method === "POST") return this.searchResults(request, results[1]);
     if (url.pathname === "/close" && request.method === "POST") return this.close(request);
     if (url.pathname === "/events" && request.headers.get("upgrade") === "websocket") return this.connect();
     return json({ error: "Not found" }, 404);
@@ -64,7 +67,7 @@ export class JamRoom extends DurableObject {
     const input = await request.json().catch(() => ({}));
     const catalog = sanitizeCatalog(input.catalog);
     const hostToken = token();
-    const room = { active: true, createdAt: Date.now(), updatedAt: Date.now(), hostToken, catalog, queue: [], revision: 1 };
+    const room = { active: true, createdAt: Date.now(), updatedAt: Date.now(), hostToken, catalog, queue: [], searches: [], revision: 1 };
     await this.ctx.storage.put("room", room);
     await this.ctx.storage.setAlarm(Date.now() + 12 * 60 * 60 * 1000);
     return json({ hostToken, room: publicRoom(room) }, 201);
@@ -88,6 +91,35 @@ export class JamRoom extends DurableObject {
     room.queue.push(entry); room.updatedAt = Date.now(); room.revision += 1;
     await this.ctx.storage.put("room", room); this.broadcast(room);
     return json({ ok: true, entry, revision: room.revision }, 201);
+  }
+
+  async search(request) {
+    const room = await this.ctx.storage.get("room");
+    if (!room) return json({ error: "Jam not found" }, 404);
+    if (!room.active) return json({ error: "This Jam is closed" }, 410);
+    const input = await request.json().catch(() => ({}));
+    const query = String(input.query || "").trim().replace(/\s+/g, " ").slice(0, 120);
+    if (query.length < 2) return json({ error: "Search is too short" }, 400);
+    room.searches ||= [];
+    const recent = room.searches.find(item => item.query.toLowerCase() === query.toLowerCase() && Date.now() - item.createdAt < 10 * 60 * 1000);
+    if (recent) return json({ ok: true, search: recent }, 200);
+    const search = { id: crypto.randomUUID(), query, status: "pending", createdAt: Date.now() };
+    room.searches.push(search); room.searches = room.searches.slice(-30); room.updatedAt = Date.now(); room.revision += 1;
+    await this.ctx.storage.put("room", room); this.broadcast(room);
+    return json({ ok: true, search }, 202);
+  }
+
+  async searchResults(request, searchId) {
+    const room = await this.ctx.storage.get("room");
+    if (!room) return json({ error: "Jam not found" }, 404);
+    if (!authorized(request, room.hostToken)) return json({ error: "Host access required" }, 401);
+    const search = (room.searches || []).find(item => item.id === searchId);
+    if (!search) return json({ error: "Search not found" }, 404);
+    const input = await request.json().catch(() => ({})); const additions = sanitizeCatalog(input.catalog);
+    const known = new Set(room.catalog.map(item => item.id)); for (const item of additions) if (!known.has(item.id)) { room.catalog.push(item); known.add(item.id); }
+    room.catalog = room.catalog.slice(-1200); search.status = "ready"; search.resultCount = additions.length; room.updatedAt = Date.now(); room.revision += 1;
+    await this.ctx.storage.put("room", room); this.broadcast(room);
+    return json({ ok: true, count: additions.length, revision: room.revision });
   }
 
   async close(request) {
@@ -122,5 +154,5 @@ function sanitizeCatalog(value) {
   }
   return catalog;
 }
-function publicRoom(room) { return { active: room.active, createdAt: room.createdAt, updatedAt: room.updatedAt, catalog: room.catalog, queue: room.queue, revision: room.revision }; }
+function publicRoom(room) { return { active: room.active, createdAt: room.createdAt, updatedAt: room.updatedAt, catalog: room.catalog, queue: room.queue, searches: room.searches || [], revision: room.revision }; }
 function authorized(request, hostToken) { return request.headers.get("authorization") === `Bearer ${hostToken}`; }

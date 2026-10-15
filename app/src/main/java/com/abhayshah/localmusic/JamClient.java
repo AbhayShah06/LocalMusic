@@ -25,15 +25,22 @@ final class JamClient {
         return new Room(body.getString("roomCode"), body.getString("hostToken"));
     }
 
-    List<Entry> queue(String roomCode) throws Exception {
-        JSONObject body = get("/api/rooms/" + roomCode);
+    State state(Room room) throws Exception {
+        JSONObject body = get("/api/rooms/" + room.code, room.hostToken);
         JSONArray values = body.getJSONObject("room").getJSONArray("queue");
         List<Entry> entries = new ArrayList<>();
         for (int i = 0; i < values.length(); i++) {
             JSONObject item = values.getJSONObject(i);
-            entries.add(new Entry(item.getString("id"), item.getString("trackId"), item.optString("guest", "Guest")));
+            entries.add(new Entry(item.getString("id"), item.getString("trackId"), item.optString("guest", "Guest"), item.optString("title"), item.optString("artist")));
         }
-        return entries;
+        List<Search> searches = new ArrayList<>(); JSONArray searchValues = body.getJSONObject("room").optJSONArray("searches");
+        if (searchValues != null) for (int i = 0; i < searchValues.length(); i++) { JSONObject item = searchValues.getJSONObject(i); searches.add(new Search(item.getString("id"), item.optString("query"), "pending".equals(item.optString("status")))); }
+        return new State(entries, searches);
+    }
+
+    void publish(Room room, String searchId, List<Track> tracks) throws Exception {
+        JSONArray values = new JSONArray(); for (Track track : tracks) values.put(new JSONObject().put("id", track.stableId).put("title", track.title).put("artist", track.artist).put("album", track.album));
+        post("/api/rooms/" + room.code + "/search/" + searchId + "/results", new JSONObject().put("catalog", values), room.hostToken);
     }
 
     void close(Room room) throws Exception { post("/api/rooms/" + room.code + "/close", new JSONObject(), room.hostToken); }
@@ -46,8 +53,8 @@ final class JamClient {
         return bitmap;
     }
 
-    private static JSONObject get(String path) throws Exception {
-        HttpURLConnection c = connection(path); return read(c);
+    private static JSONObject get(String path, String bearer) throws Exception {
+        HttpURLConnection c = connection(path); if (bearer != null) c.setRequestProperty("Authorization", "Bearer " + bearer); return read(c);
     }
     private static JSONObject post(String path, JSONObject body, String bearer) throws Exception {
         HttpURLConnection c = connection(path); c.setRequestMethod("POST"); c.setDoOutput(true); c.setRequestProperty("Content-Type", "application/json");
@@ -70,5 +77,7 @@ final class JamClient {
     }
 
     static final class Room { final String code, hostToken; Room(String code, String hostToken) { this.code = code; this.hostToken = hostToken; } String joinUrl() { return SITE_BASE + "?room=" + code; } }
-    static final class Entry { final String id, trackId, guest; Entry(String id, String trackId, String guest) { this.id = id; this.trackId = trackId; this.guest = guest; } }
+    static final class State { final List<Entry> entries; final List<Search> searches; State(List<Entry> entries, List<Search> searches) { this.entries = entries; this.searches = searches; } }
+    static final class Search { final String id, query; final boolean pending; Search(String id, String query, boolean pending) { this.id = id; this.query = query; this.pending = pending; } }
+    static final class Entry { final String id, trackId, guest, title, artist; Entry(String id, String trackId, String guest, String title, String artist) { this.id = id; this.trackId = trackId; this.guest = guest; this.title = title; this.artist = artist; } }
 }
