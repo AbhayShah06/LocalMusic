@@ -1,7 +1,7 @@
 {
-  "versionCode": 9,
-  "versionName": "0.8.1",
-  "notes": "Broad cross-artist radio with spoken-content filtering, plus reliable tap-anywhere playback for song rows.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.8.1/LocalMusic-0.8.1.apk",
-  "sha256": "A685522625961D49562B04F6345FDBB6B909AC219B5099CC18D38385AE7AEE34"
+  "versionCode": 10,
+  "versionName": "0.8.2",
+  "notes": "Faster repeat playback with a 512 MB stream cache, disk-cached artwork, on-demand lyrics, recently played history, an on-device daily mix, and lower background state-write overhead.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.8.2/LocalMusic-0.8.2.apk",
+  "sha256": "2596D723670D8CAD2D20EA3A5824014C203526A0503793A1DEF51406F9EDBACE"
 }

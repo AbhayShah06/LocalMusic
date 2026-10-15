@@ -11,6 +11,7 @@
     </LinearLayout>
     <LinearLayout android:layout_width="match_parent" android:layout_height="56dp" android:gravity="center" android:orientation="horizontal">
         <Button android:id="@+id/fullPlaylist" android:layout_width="0dp" android:layout_height="48dp" android:layout_weight="1" android:background="@drawable/bg_source_chip" android:text="Add to playlist" android:textAllCaps="false" android:textColor="#F6F1E8" />
-        <Button android:id="@+id/fullQueue" android:layout_width="0dp" android:layout_height="48dp" android:layout_marginStart="10dp" android:layout_weight="1" android:background="@drawable/bg_source_chip" android:text="Queue" android:textAllCaps="false" android:textColor="#F6F1E8" />
+        <Button android:id="@+id/fullLyrics" android:layout_width="0dp" android:layout_height="48dp" android:layout_marginStart="8dp" android:layout_weight="1" android:background="@drawable/bg_source_chip" android:text="Lyrics" android:textAllCaps="false" android:textColor="#F6F1E8" />
+        <Button android:id="@+id/fullQueue" android:layout_width="0dp" android:layout_height="48dp" android:layout_marginStart="8dp" android:layout_weight="1" android:background="@drawable/bg_source_chip" android:text="Queue" android:textAllCaps="false" android:textColor="#F6F1E8" />
     </LinearLayout>
 </LinearLayout>

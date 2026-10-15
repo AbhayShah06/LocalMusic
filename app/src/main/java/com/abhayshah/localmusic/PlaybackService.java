@@ -38,15 +38,35 @@ public final class PlaybackService extends MediaSessionService {
     private final Runnable periodicSave = new Runnable() {
         @Override public void run() { saveState(); stateHandler.postDelayed(this, 15_000); }
     };
+    private final Runnable debouncedSave = this::saveState;
+    private boolean currentItemRecorded;
+    private final Runnable recordCurrentItem = () -> {
+        if (player != null && player.isPlaying() && !currentItemRecorded) {
+            ListeningHistory.record(PlaybackService.this, player.getCurrentMediaItem()); currentItemRecorded = true;
+        }
+    };
     private final Player.Listener persistenceListener = new Player.Listener() {
-        @Override public void onEvents(Player player, Player.Events events) { saveState(); }
+        @Override public void onMediaItemTransition(MediaItem item, int reason) {
+            currentItemRecorded = false; stateHandler.removeCallbacks(recordCurrentItem);
+            if (player != null && player.isPlaying()) stateHandler.postDelayed(recordCurrentItem, 30_000);
+        }
+        @Override public void onIsPlayingChanged(boolean isPlaying) {
+            stateHandler.removeCallbacks(recordCurrentItem);
+            if (isPlaying && !currentItemRecorded) stateHandler.postDelayed(recordCurrentItem, 30_000);
+        }
+        @Override public void onEvents(Player player, Player.Events events) {
+            stateHandler.removeCallbacks(debouncedSave);
+            stateHandler.postDelayed(debouncedSave, 750);
+        }
     };
 
     @Override public void onCreate() {
         super.onCreate();
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setUserAgent("LocalMusic/0.5");
-        player = new ExoPlayer.Builder(this).setMediaSourceFactory(new DefaultMediaSourceFactory(new DefaultDataSource.Factory(this, http))).build();
+        DefaultDataSource.Factory upstream = new DefaultDataSource.Factory(this, http);
+        player = new ExoPlayer.Builder(this).setMediaSourceFactory(
+                new DefaultMediaSourceFactory(PlaybackCache.dataSourceFactory(this, upstream))).build();
         prefs.edit().putInt("audio_session_id", player.getAudioSessionId()).apply();
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true);
         session = new MediaSession.Builder(this, player).build();
@@ -109,9 +129,11 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     private static MediaItem remoteItem(JSONObject item, String id, Uri uri) {
-        return new MediaItem.Builder().setMediaId(id).setUri(uri)
+        MediaItem.Builder value = new MediaItem.Builder().setMediaId(id).setUri(uri)
                 .setMediaMetadata(new androidx.media3.common.MediaMetadata.Builder().setTitle(item.optString("title"))
-                        .setArtist(item.optString("artist")).setAlbumTitle(item.optString("album")).build()).build();
+                        .setArtist(item.optString("artist")).setAlbumTitle(item.optString("album")).build());
+        if ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme())) value.setCustomCacheKey(id);
+        return value.build();
     }
 
     private void applyRestoredItems(List<MediaItem> items) {
@@ -170,6 +192,8 @@ public final class PlaybackService extends MediaSessionService {
 
     @Override public void onDestroy() {
         stateHandler.removeCallbacks(periodicSave);
+        stateHandler.removeCallbacks(debouncedSave);
+        stateHandler.removeCallbacks(recordCurrentItem);
         stateHandler.removeCallbacks(sleepPause);
         saveState();
         if (player != null) player.removeListener(persistenceListener);

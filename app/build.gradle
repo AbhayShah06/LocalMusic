@@ -10,8 +10,8 @@ android {
         applicationId 'com.abhayshah.localmusic'
         minSdk 26
         targetSdk 35
-        versionCode 9
-        versionName '0.8.1'
+        versionCode 10
+        versionName '0.8.2'
     }
     compileOptions {
         coreLibraryDesugaringEnabled true
@@ -45,6 +45,8 @@ dependencies {
     // artifacts require compileSdk 36 and a newer Android Gradle plugin.
     implementation 'androidx.media3:media3-exoplayer:1.5.1'
     implementation 'androidx.media3:media3-session:1.5.1'
+    implementation 'androidx.media3:media3-database:1.5.1'
+    implementation 'androidx.media3:media3-datasource:1.5.1'
     implementation 'androidx.core:core:1.15.0'
     implementation 'androidx.security:security-crypto:1.1.0-alpha06'
     implementation 'com.google.zxing:core:3.5.3'

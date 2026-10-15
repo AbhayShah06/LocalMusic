@@ -43,10 +43,14 @@ final class Track {
         this.artworkUri = artworkUri;
     }
 
+    @androidx.annotation.OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)
     MediaItem toMediaItem() {
         MediaMetadata.Builder metadata = new MediaMetadata.Builder().setTitle(title).setArtist(artist).setAlbumTitle(album);
         if (artworkUri != null) metadata.setArtworkUri(artworkUri);
-        return new MediaItem.Builder().setMediaId(stableId).setUri(playbackUri).setMediaMetadata(metadata.build()).build();
+        MediaItem.Builder item = new MediaItem.Builder().setMediaId(stableId).setUri(playbackUri).setMediaMetadata(metadata.build());
+        String scheme = playbackUri == null ? "" : playbackUri.getScheme();
+        if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) item.setCustomCacheKey(stableId);
+        return item.build();
     }
 
     static String clean(String value, String fallback) { return value == null || value.trim().isEmpty() ? fallback : value; }

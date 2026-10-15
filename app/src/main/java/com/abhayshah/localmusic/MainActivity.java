@@ -330,6 +330,7 @@ public final class MainActivity extends Activity {
         dialog.findViewById(R.id.fullPrevious).setOnClickListener(v -> { controller.seekToPreviousMediaItem(); main.postDelayed(refresh, 150); });
         dialog.findViewById(R.id.fullNext).setOnClickListener(v -> { controller.seekToNextMediaItem(); main.postDelayed(refresh, 150); });
         dialog.findViewById(R.id.fullQueue).setOnClickListener(v -> showQueue());
+        dialog.findViewById(R.id.fullLyrics).setOnClickListener(v -> { Track current = currentTrack(); if (current != null) showLyrics(current); });
         dialog.findViewById(R.id.fullPlaylist).setOnClickListener(v -> { Track current = currentTrack(); if (current != null) addTrackToPlaylist(current); });
         artist.setOnClickListener(v -> showArtistPage(artist.getText().toString()));
         fullSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -347,6 +348,17 @@ public final class MainActivity extends Activity {
         androidx.media3.common.MediaItem item = controller.getCurrentMediaItem(); androidx.media3.common.MediaMetadata metadata = item.mediaMetadata;
         Uri uri = item.localConfiguration == null ? Uri.EMPTY : item.localConfiguration.uri;
         return new Track(item.mediaId, uri, String.valueOf(metadata.title), String.valueOf(metadata.artist), String.valueOf(metadata.albumTitle), metadata.artworkUri);
+    }
+
+    private void showLyrics(Track track) {
+        Toast.makeText(this, "Finding lyrics…", Toast.LENGTH_SHORT).show();
+        io.execute(() -> { String lyrics = LyricsClient.get(this, track); main.post(() -> {
+            if (lyrics.isEmpty()) { Toast.makeText(this, "No lyrics found for this version", Toast.LENGTH_LONG).show(); return; }
+            TextView text = new TextView(this); int pad = (int)(22 * getResources().getDisplayMetrics().density);
+            text.setPadding(pad, pad, pad, pad); text.setText(lyrics); text.setTextColor(android.graphics.Color.rgb(246, 241, 232)); text.setTextSize(18); text.setLineSpacing(0, 1.25f); text.setTextIsSelectable(true);
+            android.widget.ScrollView scroll = new android.widget.ScrollView(this); scroll.setBackgroundColor(android.graphics.Color.rgb(11, 11, 12)); scroll.addView(text);
+            android.app.Dialog lyricsDialog = new android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar); lyricsDialog.setContentView(scroll); lyricsDialog.show(); if (lyricsDialog.getWindow() != null) lyricsDialog.getWindow().setLayout(-1, -1);
+        }); });
     }
 
     private void showArtistPage(String rawArtist) {
@@ -367,18 +379,27 @@ public final class MainActivity extends Activity {
     }
 
     private void showMoreMenu() {
-        String[] actions = {"Start a Jam", "Music source", "Import playlist", "Favorites", "Playlists", "Sleep timer", "Equalizer", "Music permission"};
+        String[] actions = {"Your mix", "Recently played", "Start a Jam", "Music source", "Import playlist", "Favorites", "Playlists", "Sleep timer", "Equalizer", "Music permission"};
         new AlertDialog.Builder(this).setTitle("Local Music").setItems(actions, (d, which) -> {
-            if (which == 0) startJam();
-            else if (which == 1) chooseSource();
-            else if (which == 2) choosePlaylistFile();
-            else if (which == 3) { selectTab(R.id.playlists); loadSavedTracks("favorites", "Favorites"); }
-            else if (which == 4) { selectTab(R.id.playlists); showPlaylists(); }
-            else if (which == 5) chooseSleepTimer();
-            else if (which == 6) openEqualizer();
+            if (which == 0) loadListeningList(true);
+            else if (which == 1) loadListeningList(false);
+            else if (which == 2) startJam();
+            else if (which == 3) chooseSource();
+            else if (which == 4) choosePlaylistFile();
+            else if (which == 5) { selectTab(R.id.playlists); loadSavedTracks("favorites", "Favorites"); }
+            else if (which == 6) { selectTab(R.id.playlists); showPlaylists(); }
+            else if (which == 7) chooseSleepTimer();
+            else if (which == 8) openEqualizer();
             else if (hasAudioPermission()) Toast.makeText(this, "Music access is allowed", Toast.LENGTH_SHORT).show();
             else requestAudioPermission();
         }).show();
+    }
+
+    private void loadListeningList(boolean mix) {
+        List<Track> found = mix ? ListeningHistory.dailyMix(this, 50) : ListeningHistory.recent(this, 50);
+        group = ""; tracks.clear(); tracks.addAll(found); adapter.clear();
+        for (Track track : found) adapter.add(track.title + "\n" + track.artist + " · " + track.album);
+        status.setText(found.isEmpty() ? "Play a few songs first" : mix ? "Your daily mix · built on this phone" : "Recently played");
     }
 
     private void startJam() {
