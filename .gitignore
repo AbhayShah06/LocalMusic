@@ -6,4 +6,6 @@ local.private.properties
 .wrangler/
 node_modules/
 *.iml
+__pycache__/
+*.pyc
 
