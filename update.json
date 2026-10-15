@@ -1,7 +1,7 @@
 {
-  "versionCode": 8,
-  "versionName": "0.8.0",
-  "notes": "On-device online music search and playback, official-audio ranking, artwork, radio queues, full-screen playback, artist pages, improved playlists, responsive controls, and Jam source fixes.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.8.0/LocalMusic-0.8.0.apk",
-  "sha256": "D0323AD6C9A5019E9957DD9711987E75D350D8C40279A762D9D577C29EF87C76"
+  "versionCode": 9,
+  "versionName": "0.8.1",
+  "notes": "Broad cross-artist radio with spoken-content filtering, plus reliable tap-anywhere playback for song rows.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.8.1/LocalMusic-0.8.1.apk",
+  "sha256": "A685522625961D49562B04F6345FDBB6B909AC219B5099CC18D38385AE7AEE34"
 }

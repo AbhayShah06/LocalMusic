@@ -87,7 +87,7 @@ public final class MainActivity extends Activity {
         b2Settings = new B2Settings(this);
         findViewById(R.id.source).setOnClickListener(v -> chooseSource());
         ListView list = findViewById(R.id.tracks);
-        adapter = new LibraryAdapter(this, tracks, this::showTrackActions);
+        adapter = new LibraryAdapter(this, tracks, this::playFrom, this::showTrackActions);
         list.setAdapter(adapter);
         list.setOnItemClickListener((parent, view, position, id) -> playFrom(position));
         list.setOnItemLongClickListener((parent, view, position, id) -> { showTrackActions(position); return true; });
@@ -358,7 +358,7 @@ public final class MainActivity extends Activity {
         TextView artistStatus = new TextView(this); artistStatus.setText("Loading top songs…"); artistStatus.setTextColor(android.graphics.Color.rgb(143, 138, 131)); artistStatus.setPadding(14, 8, 14, 14); root.addView(artistStatus);
         ListView list = new ListView(this); list.setDividerHeight(4); list.setDivider(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)); root.addView(list, new android.widget.LinearLayout.LayoutParams(-1, 0, 1));
         dialog.setContentView(root); close.setOnClickListener(v -> dialog.dismiss()); dialog.show(); if (dialog.getWindow() != null) dialog.getWindow().setLayout(-1, -1);
-        List<Track> artistTracks = new ArrayList<>(); LibraryAdapter artistAdapter = new LibraryAdapter(this, artistTracks, position -> addTrackToPlaylist(artistTracks.get(position))); list.setAdapter(artistAdapter);
+        List<Track> artistTracks = new ArrayList<>(); LibraryAdapter artistAdapter = new LibraryAdapter(this, artistTracks, position -> { dialog.dismiss(); resolveAndPlayOnline(artistTracks, position); }, position -> addTrackToPlaylist(artistTracks.get(position))); list.setAdapter(artistAdapter);
         list.setOnItemClickListener((parent, view, position, id) -> { dialog.dismiss(); resolveAndPlayOnline(artistTracks, position); });
         searchIo.execute(() -> {
             List<Track> found = new OnlineCatalogSource().page(artistName, 0, 50);

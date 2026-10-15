@@ -74,9 +74,28 @@ final class OnlineCatalogSource implements CatalogSource {
     private static boolean isUnwantedVersion(StreamInfoItem item, String query) {
         String title = item.getName().toLowerCase(java.util.Locale.ROOT);
         String wanted = query.toLowerCase(java.util.Locale.ROOT);
-        String[] variants = {"clean", "radio edit", "instrumental", "karaoke", "reaction", "nightcore", "slowed", "sped up", "live", "remix"};
+        if (item.getDuration() > 15 * 60 || (item.getDuration() > 0 && item.getDuration() < 45)) return true;
+        String[] variants = {"clean", "radio edit", "instrumental", "karaoke", "reaction", "nightcore", "slowed", "sped up", "live", "remix", "interview", "podcast", "documentary", "news", "trailer", "review", "explained"};
         for (String variant : variants) if (title.contains(variant) && !wanted.contains(variant)) return true;
         return title.contains("music video") && !title.contains("official audio");
+    }
+
+    private static boolean isLikelySong(StreamInfoItem item, String seedArtist) {
+        long duration = item.getDuration();
+        if (duration > 0 && (duration < 75 || duration > 10 * 60)) return false;
+        String title = item.getName().toLowerCase(java.util.Locale.ROOT);
+        String uploader = item.getUploaderName().toLowerCase(java.util.Locale.ROOT);
+        String artist = seedArtist.toLowerCase(java.util.Locale.ROOT).replace(" - topic", "").trim();
+        boolean trustedMusicChannel = uploader.endsWith(" - topic") || uploader.contains("vevo")
+                || uploader.contains("music") || uploader.contains("records")
+                || uploader.contains("recordings") || uploader.contains("official");
+        boolean labelledMusic = title.contains("official audio") || title.contains("audio") || title.contains("lyrics") || title.contains("visualizer");
+        boolean artistMatch = artist.length() > 2 && (uploader.contains(artist) || title.contains(artist));
+        // Related feeds are useful specifically because they cross artists and genres. Once
+        // obvious spoken/video content and bad durations are excluded, retain normal song-length
+        // results instead of narrowing the radio to the seed artist.
+        boolean normalSongLength = duration >= 75 && duration <= 10 * 60;
+        return trustedMusicChannel || labelledMusic || artistMatch || normalSongLength;
     }
 
     Track resolve(Track track) {
@@ -95,7 +114,7 @@ final class OnlineCatalogSource implements CatalogSource {
             for (InfoItem item : info.getRelatedItems()) {
                 if (!(item instanceof StreamInfoItem) || radio.size() >= 12) continue;
                 StreamInfoItem related = (StreamInfoItem) item;
-                if (isUnwantedVersion(related, track.title + " " + track.artist)) continue;
+                if (isUnwantedVersion(related, track.title + " " + track.artist) || !isLikelySong(related, track.artist)) continue;
                 radio.add(unresolved(NewPipe.getService(serviceId), related));
             }
             Collections.shuffle(radio);

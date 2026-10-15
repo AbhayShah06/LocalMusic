@@ -13,9 +13,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 final class LibraryAdapter extends BaseAdapter {
+    interface RowListener { void onRow(int position); }
     interface MenuListener { void onMenu(int position); }
-    private final Activity activity; private final List<Track> tracks; private final List<String> labels = new ArrayList<>(); private final MenuListener menuListener;
-    LibraryAdapter(Activity activity, List<Track> tracks, MenuListener menuListener) { this.activity = activity; this.tracks = tracks; this.menuListener = menuListener; }
+    private final Activity activity; private final List<Track> tracks; private final List<String> labels = new ArrayList<>(); private final RowListener rowListener; private final MenuListener menuListener;
+    LibraryAdapter(Activity activity, List<Track> tracks, RowListener rowListener, MenuListener menuListener) { this.activity = activity; this.tracks = tracks; this.rowListener = rowListener; this.menuListener = menuListener; }
     void add(String value) { labels.add(value); notifyDataSetChanged(); }
     void clear() { labels.clear(); notifyDataSetChanged(); }
     void remove(String value) { labels.remove(value); notifyDataSetChanged(); }
@@ -28,6 +29,7 @@ final class LibraryAdapter extends BaseAdapter {
         String label = labels.get(position); int line = label.indexOf('\n'); title.setText(line >= 0 ? label.substring(0, line) : label); subtitle.setText(line >= 0 ? label.substring(line + 1) : "Browse collection");
         artwork.setImageResource(android.R.drawable.ic_media_play);
         if (position < tracks.size()) ArtworkLoader.into(artwork, tracks.get(position).artworkUri, android.R.drawable.ic_media_play);
+        row.setOnClickListener(v -> rowListener.onRow(position));
         row.findViewById(R.id.trackMenu).setOnClickListener(v -> menuListener.onMenu(position));
         return row;
     }
