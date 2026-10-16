@@ -16,7 +16,7 @@
     if (navigator.share) await navigator.share({ title: "Join my LocalMusic Jam", url }).catch(() => {});
     else { await navigator.clipboard.writeText(url); toast("Join link copied"); }
   });
-  for (const action of ["previous", "toggle", "next"]) $(action).addEventListener("click", () => sendControl(action));
+  for (const action of ["previous", "toggle", "next"]) $(action).addEventListener("click", () => { if (action === "toggle" && state.data?.playback) { state.data.playback.playing = !state.data.playback.playing; renderQueue(); } sendControl(action); });
 
   async function join() {
     const room = $("room").value.trim(), guest = $("guest").value.trim();
@@ -82,7 +82,7 @@
   }
   function renderQueue() {
     const playback = state.data.playback || {}, authoritative = playback.queue?.length ? playback.queue : playback.upcoming || [], queue = state.optimisticQueue || authoritative; $("queueCount").textContent = queue.length;
-    $("nowTitle").textContent = playback.title || "Waiting for music"; $("nowArtist").textContent = playback.artist || "The host controls playback"; $("toggle").textContent = playback.playing ? "Pause" : "Play"; $("nowPulse").classList.toggle("playing", Boolean(playback.playing));
+    $("nowTitle").textContent = playback.title || "Waiting for music"; $("nowArtist").textContent = playback.artist || "The host controls playback"; $("toggle").classList.toggle("isPlaying", Boolean(playback.playing)); $("toggle").setAttribute("aria-label", playback.playing ? "Pause" : "Play"); $("nowPulse").classList.toggle("playing", Boolean(playback.playing));
     $("nowArtwork").replaceWith(artworkNode(playback.artwork, playback.artist, "nowArtwork", "nowArtwork"));
     $("queueList").replaceChildren(...(queue.length ? queue.map((item, index) => queueNode(item, index, queue, Number.isInteger(playback.currentIndex) ? playback.currentIndex : -1)) : [empty("Nothing queued yet") ]));
   }

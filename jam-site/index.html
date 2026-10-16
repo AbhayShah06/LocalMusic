@@ -35,9 +35,9 @@
       <aside class="playerDock">
         <div class="nowRow"><div class="nowArtwork" id="nowArtwork"><span>LM</span></div><div class="nowMeta"><small>NOW PLAYING</small><strong id="nowTitle">Waiting for music</strong><span id="nowArtist">The host controls playback</span></div><div class="nowPulse" id="nowPulse"></div></div>
         <div class="remoteControls">
-          <button id="previous" aria-label="Previous song">Previous</button>
-          <button id="toggle" class="primaryControl" aria-label="Play or pause">Play</button>
-          <button id="next" aria-label="Next song">Next</button>
+          <button id="previous" class="transportControl" aria-label="Previous song"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5v14M18 6l-9 6 9 6z"/></svg></button>
+          <button id="toggle" class="transportControl primaryControl" aria-label="Play"><svg class="playIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg><svg class="pauseIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM14 5h4v14h-4z"/></svg></button>
+          <button id="next" class="transportControl" aria-label="Next song"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 5v14M6 6l9 6-9 6z"/></svg></button>
         </div>
         <details id="queueDetails"><summary><span>Full queue</span><span id="queueCount">0</span></summary><div id="queueList"></div></details>
       </aside>

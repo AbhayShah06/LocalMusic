@@ -1,6 +1,8 @@
 import base64
+import difflib
 import json
 import mimetypes
+import re
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -17,7 +19,18 @@ class handler(BaseHTTPRequestHandler):
         if len(query) < 2:
             return self.reply(400, {"error": "Search is too short"})
         try:
-            results = YTMusic().search(query, filter="songs", limit=35)
+            client = YTMusic()
+            results = client.search(query, filter="songs", limit=35)
+            if not results or max((search_score(query, item) for item in results), default=0) < 0.58:
+                suggestions = client.get_search_suggestions(query)
+                if suggestions:
+                    results.extend(client.search(str(suggestions[0]), filter="songs", limit=25))
+            unique = {}
+            for item in results:
+                video_id = item.get("videoId")
+                if video_id and video_id not in unique:
+                    unique[video_id] = item
+            results = sorted(unique.values(), key=lambda item: search_score(query, item), reverse=True)
             tracks = []
             for item in results:
                 video_id = item.get("videoId")
@@ -68,3 +81,20 @@ class handler(BaseHTTPRequestHandler):
         self.cors()
         self.end_headers()
         self.wfile.write(payload)
+
+
+def normalized(value):
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+
+def search_score(query, item):
+    wanted = normalized(query)
+    artists = " ".join(artist.get("name", "") for artist in item.get("artists", []))
+    candidate = normalized(f"{item.get('title', '')} {artists}")
+    if not wanted or not candidate:
+        return 0
+    sequence = difflib.SequenceMatcher(None, wanted, candidate).ratio()
+    wanted_tokens, candidate_tokens = set(wanted.split()), set(candidate.split())
+    overlap = len(wanted_tokens & candidate_tokens) / max(1, len(wanted_tokens))
+    prefix = 0.15 if candidate.startswith(wanted) or wanted.startswith(candidate) else 0
+    return sequence * 0.55 + overlap * 0.45 + prefix
