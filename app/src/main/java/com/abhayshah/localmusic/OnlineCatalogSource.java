@@ -22,6 +22,10 @@ import java.util.Set;
 
 /** Searches public streaming catalogues and resolves playback entirely on the phone. */
 final class OnlineCatalogSource implements CatalogSource {
+    private static final long RESOLUTION_TTL_MS = 8 * 60_000L;
+    private static final java.util.LinkedHashMap<String, CachedTrack> RESOLVED = new java.util.LinkedHashMap<String, CachedTrack>(32, .75f, true) {
+        @Override protected boolean removeEldestEntry(java.util.Map.Entry<String, CachedTrack> eldest) { return size() > 32; }
+    };
     static final class Resolution {
         final Track playable; final List<Track> radio;
         Resolution(Track playable, List<Track> radio) { this.playable = playable; this.radio = radio; }
@@ -104,7 +108,14 @@ final class OnlineCatalogSource implements CatalogSource {
     }
 
     Track resolve(Track track) {
-        return resolveWithRadio(track).playable;
+        synchronized (RESOLVED) {
+            CachedTrack cached = RESOLVED.get(track.stableId);
+            if (cached != null && System.currentTimeMillis() - cached.createdAt < RESOLUTION_TTL_MS) return cached.track;
+            if (cached != null) RESOLVED.remove(track.stableId);
+        }
+        Track resolved = resolveWithRadio(track).playable;
+        synchronized (RESOLVED) { RESOLVED.put(track.stableId, new CachedTrack(resolved)); }
+        return resolved;
     }
 
     Resolution resolveWithRadio(Track track) {
@@ -182,5 +193,9 @@ final class OnlineCatalogSource implements CatalogSource {
             if (best == null || area > bestArea || area == bestArea && image.getEstimatedResolutionLevel().ordinal() > best.getEstimatedResolutionLevel().ordinal()) { best = image; bestArea = area; }
         }
         return best == null ? null : Uri.parse(best.getUrl());
+    }
+    private static final class CachedTrack {
+        final Track track; final long createdAt = System.currentTimeMillis();
+        CachedTrack(Track track) { this.track = track; }
     }
 }

@@ -14,7 +14,7 @@ import androidx.media3.datasource.DataSpec;
 /** Process-wide playback cache. Replayed and recently queued songs reuse downloaded audio. */
 @androidx.media3.common.util.UnstableApi
 final class PlaybackCache {
-    private static final long MAX_BYTES = 512L * 1024L * 1024L;
+    private static final long MAX_BYTES = 256L * 1024L * 1024L;
     private static SimpleCache cache;
     private static CacheDataSource.Factory factory;
 

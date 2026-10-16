@@ -49,7 +49,7 @@ final class ArtworkLoader {
             try (InputStream input = connection.getInputStream(); FileOutputStream output = new FileOutputStream(temporary)) {
                 byte[] buffer = new byte[16_384]; for (int read; (read = input.read(buffer)) >= 0; ) output.write(buffer, 0, read);
             }
-            if (destination.exists()) destination.delete(); boolean saved = temporary.renameTo(destination); if (saved) trim(directory, 128L * 1024L * 1024L); return saved;
+            if (destination.exists()) destination.delete(); boolean saved = temporary.renameTo(destination); if (saved) trim(directory, 48L * 1024L * 1024L); return saved;
         } catch (Exception ignored) { temporary.delete(); return false; }
         finally { if (connection != null) connection.disconnect(); }
     }
@@ -57,7 +57,7 @@ final class ArtworkLoader {
     private static Bitmap decode(File file) {
         if (!file.isFile()) return null; file.setLastModified(System.currentTimeMillis());
         BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true; BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
-        int sample = 1; while (bounds.outWidth / sample > 1600 || bounds.outHeight / sample > 1600) sample *= 2;
+        int sample = 1; while (bounds.outWidth / sample > 1200 || bounds.outHeight / sample > 1200) sample *= 2;
         BitmapFactory.Options options = new BitmapFactory.Options(); options.inSampleSize = sample; return BitmapFactory.decodeFile(file.getAbsolutePath(), options);
     }
 

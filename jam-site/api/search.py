@@ -45,7 +45,7 @@ class handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "content-type")
 
     def serve_static(self, path):
-        files = {"/": "index.html", "/index.html": "index.html", "/styles.css": "styles.css", "/app.js": "app.js", "/config.js": "config.js", "/localmusic-logo.png": "localmusic-logo.png"}
+        files = {"/": "index.html", "/index.html": "index.html", "/styles.css": "styles.css", "/queue.css": "queue.css", "/app.js": "app.js", "/config.js": "config.js", "/localmusic-logo.png": "localmusic-logo.png"}
         name = files.get(path)
         if not name:
             return self.reply(404, {"error": "Not found"})

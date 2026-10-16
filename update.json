@@ -1,7 +1,7 @@
 {
-  "versionCode": 17,
-  "versionName": "0.12.0",
-  "notes": "Jam queues now preserve song order, support direct play, Play Next, and drag reordering, and preload upcoming songs. The Android queue has a redesigned full-height player sheet with direct play, remove, and drag controls.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.0/LocalMusic-0.12.0.apk",
-  "sha256": "5434D39EFCCC3BCC771561D98DDB56D0B0CC79E05F9C88159DEBAE4798CEA8C8"
+  "versionCode": 18,
+  "versionName": "0.12.1",
+  "notes": "Jam queues preserve order, support direct play, Play Next, and drag reordering, and preload upcoming songs. The redesigned Android queue is faster and clearer. Stream cache is capped at 256 MB, artwork cache at 48 MB, and repeat stream resolution is reused briefly.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.1/LocalMusic-0.12.1.apk",
+  "sha256": "D7E57351B01FE1FE0EFA624EC3AF0D1143E76F2E3293DFAA3EE97607BE990B32"
 }
