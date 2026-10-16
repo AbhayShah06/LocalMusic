@@ -1,7 +1,7 @@
 {
-  "versionCode": 20,
-  "versionName": "0.12.3",
-  "notes": "Autoplay resolves in parallel but stays in the intended order, queues are grouped into clear sections, queued tracks preload for faster transitions, and restored online queues refresh expired stream links. Jam ignores stale playback updates. Search caches recent results and filters duplicate, spoken, video, and clean-version noise. Lyrics use ranked matching with provider and caption fallbacks.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.3/LocalMusic-0.12.3.apk",
-  "sha256": "E6FC701EC97BB783F30F20D84E20173BBD84DCD917DA0A7888F80AF96E7572FB"
+  "versionCode": 21,
+  "versionName": "0.12.4",
+  "notes": "Faster, more resilient playback with bounded queue preloading and automatic recovery from expired online streams. Save a full queue as an ordered playlist. Jam now shows who requested each track and distinguishes requests from autoplay. Playback controls use clear icons and correctly handle headphones, audio focus, and device sleep.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.4/LocalMusic-0.12.4.apk",
+  "sha256": "DCF4156519F9D20B52C6081850A908E796B7DB9F83254B82099CAE8004DB0452"
 }

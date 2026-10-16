@@ -110,7 +110,7 @@ export class JamRoom extends DurableObject {
 
   async playback(request) {
     const room = await this.ctx.storage.get("room"); if (!room) return json({ error: "Jam not found" }, 404); if (!authorized(request, room.hostToken)) return json({ error: "Host access required" }, 401);
-    const input = await request.json().catch(() => ({})); const cleanItem = item => ({ title: String(item?.title || "Unknown title").slice(0, 160), artist: String(item?.artist || "Unknown artist").slice(0, 160), artwork: safeArtwork(item?.artwork) });
+    const input = await request.json().catch(() => ({})); const cleanItem = item => ({ title: String(item?.title || "Unknown title").slice(0, 160), artist: String(item?.artist || "Unknown artist").slice(0, 160), artwork: safeArtwork(item?.artwork), source: new Set(["jam", "autoplay", "manual"]).has(item?.source) ? item.source : "manual", addedBy: String(item?.addedBy || "").slice(0, 28) });
     const sequence = Math.max(0, Number(input.sequence) || 0), previousSequence = Math.max(0, Number(room.playback?.sequence) || 0);
     if (sequence && previousSequence && sequence < previousSequence) return json({ ok: true, stale: true, revision: room.revision });
     const queue = Array.isArray(input.queue) ? input.queue.slice(0, 200).map(cleanItem) : [];

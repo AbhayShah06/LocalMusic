@@ -35,7 +35,8 @@ final class PlaybackCache {
         if (current == null || item.localConfiguration == null) return;
         String scheme = item.localConfiguration.uri.getScheme();
         if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) return;
-        DataSpec spec = new DataSpec.Builder().setUri(item.localConfiguration.uri).setKey(item.mediaId).build();
+        String key = item.localConfiguration.customCacheKey == null ? item.mediaId : item.localConfiguration.customCacheKey;
+        DataSpec spec = new DataSpec.Builder().setUri(item.localConfiguration.uri).setKey(key).build();
         new CacheWriter(current.createDataSource(), spec, null, null).cache();
     }
     static synchronized long bytes() { return cache == null ? 0 : cache.getCacheSpace(); }

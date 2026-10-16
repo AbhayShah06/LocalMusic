@@ -34,9 +34,9 @@
             <TextView android:id="@+id/nowPlaying" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:text="Nothing playing" android:textColor="#F6F1E8" android:textSize="15sp" android:textStyle="bold" />
             <TextView android:id="@+id/nowPlayingArtist" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:ellipsize="end" android:maxLines="1" android:text="Choose a song" android:textColor="#99948C" android:textSize="12sp" />
         </LinearLayout>
-        <TextView android:id="@+id/previous" style="@style/PlayerIcon" android:text="‹" android:contentDescription="Previous" />
-        <TextView android:id="@+id/playPause" style="@style/PlayerIcon.Primary" android:text="▶" android:contentDescription="Play or pause" />
-        <TextView android:id="@+id/next" style="@style/PlayerIcon" android:text="›" android:contentDescription="Next" />
+        <ImageButton android:id="@+id/previous" android:layout_width="42dp" android:layout_height="50dp" android:background="?android:attr/selectableItemBackgroundBorderless" android:contentDescription="Previous" android:padding="11dp" android:src="@drawable/ic_skip_previous" android:tint="#F6F1E8" />
+        <ImageButton android:id="@+id/playPause" android:layout_width="48dp" android:layout_height="48dp" android:background="@drawable/bg_play_button" android:contentDescription="Play or pause" android:padding="14dp" android:src="@drawable/ic_play" android:tint="#170A06" />
+        <ImageButton android:id="@+id/next" android:layout_width="42dp" android:layout_height="50dp" android:background="?android:attr/selectableItemBackgroundBorderless" android:contentDescription="Next" android:padding="11dp" android:src="@drawable/ic_skip_next" android:tint="#F6F1E8" />
     </LinearLayout>
     <SeekBar android:id="@+id/seek" android:layout_width="match_parent" android:layout_height="10dp" android:layout_marginStart="18dp" android:layout_marginEnd="18dp" android:layout_marginBottom="4dp" android:max="1000" android:padding="0dp" android:progressTint="#FF5C35" android:thumbTint="@android:color/transparent" />
 </LinearLayout>

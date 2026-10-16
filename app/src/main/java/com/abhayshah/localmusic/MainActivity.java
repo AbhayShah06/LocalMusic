@@ -327,7 +327,7 @@ public final class MainActivity extends Activity {
             nowPlayingArtist.setText(Track.clean(String.valueOf(controller.getMediaMetadata().artist), "Unknown artist"));
         }
         ArtworkLoader.into(findViewById(R.id.miniArtwork), controller == null ? null : controller.getMediaMetadata().artworkUri, android.R.drawable.ic_media_play);
-        ((TextView)findViewById(R.id.playPause)).setText(controller != null && controller.isPlaying() ? "Ⅱ" : "▶");
+        ((android.widget.ImageButton)findViewById(R.id.playPause)).setImageResource(controller != null && controller.isPlaying() ? R.drawable.ic_pause : R.drawable.ic_play);
         refreshProgress();
         publishJamPlayback();
     }
@@ -717,7 +717,10 @@ public final class MainActivity extends Activity {
         View grip = new View(this); android.graphics.drawable.GradientDrawable gripBg = new android.graphics.drawable.GradientDrawable(); gripBg.setColor(android.graphics.Color.rgb(92, 87, 82)); gripBg.setCornerRadius(queueDp(4)); grip.setBackground(gripBg);
         android.widget.LinearLayout.LayoutParams gripParams = new android.widget.LinearLayout.LayoutParams(queueDp(42), queueDp(4)); gripParams.gravity = android.view.Gravity.CENTER_HORIZONTAL; gripParams.bottomMargin = queueDp(18); sheet.addView(grip, gripParams);
         TextView eyebrow = new TextView(this); eyebrow.setText("PLAYBACK"); eyebrow.setTextColor(android.graphics.Color.rgb(255, 128, 95)); eyebrow.setTextSize(10); eyebrow.setLetterSpacing(.16f); eyebrow.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); sheet.addView(eyebrow);
-        TextView title = new TextView(this); title.setText("Your queue"); title.setTextColor(android.graphics.Color.rgb(246, 241, 232)); title.setTextSize(28); title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); title.setPadding(0, queueDp(4), 0, queueDp(2)); sheet.addView(title);
+        android.widget.LinearLayout heading = new android.widget.LinearLayout(this); heading.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView title = new TextView(this); title.setText("Your queue"); title.setTextColor(android.graphics.Color.rgb(246, 241, 232)); title.setTextSize(28); title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); title.setPadding(0, queueDp(4), 0, queueDp(2)); heading.addView(title, new android.widget.LinearLayout.LayoutParams(0, -2, 1));
+        TextView save = new TextView(this); save.setText("SAVE"); save.setGravity(android.view.Gravity.CENTER); save.setTextColor(android.graphics.Color.rgb(255, 128, 95)); save.setTextSize(11); save.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); save.setLetterSpacing(.12f); save.setBackgroundResource(R.drawable.bg_player_action); save.setContentDescription("Save queue as playlist");
+        heading.addView(save, new android.widget.LinearLayout.LayoutParams(queueDp(72), queueDp(42))); sheet.addView(heading); save.setOnClickListener(v -> saveQueueAsPlaylist(dialog));
         TextView hint = new TextView(this); hint.setText("Tap a song to play. Drag the rail to reorder."); hint.setTextColor(android.graphics.Color.rgb(150, 144, 137)); hint.setTextSize(13); hint.setPadding(0, 0, 0, queueDp(12)); sheet.addView(hint);
         android.widget.ScrollView scroll = new android.widget.ScrollView(this); scroll.setFillViewport(true);
         android.widget.LinearLayout rows = new android.widget.LinearLayout(this); rows.setOrientation(android.widget.LinearLayout.VERTICAL); scroll.addView(rows);
@@ -776,6 +779,27 @@ public final class MainActivity extends Activity {
         header.setTextColor(android.graphics.Color.rgb(255, 128, 95)); header.setTextSize(10); header.setLetterSpacing(.14f);
         header.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); header.setPadding(queueDp(5), queueDp(16), 0, queueDp(5));
         return header;
+    }
+
+    private void saveQueueAsPlaylist(android.app.Dialog queueDialog) {
+        EditText input = new EditText(this); input.setHint("Playlist name");
+        new AlertDialog.Builder(this).setTitle("Save queue as playlist").setView(input).setPositiveButton("Save", (dialog, which) -> {
+            String name = input.getText().toString().trim(); if (name.isEmpty() || controller == null) return;
+            org.json.JSONArray order = new org.json.JSONArray(); java.util.Set<String> entries = new java.util.LinkedHashSet<>();
+            for (int i = 0; i < controller.getMediaItemCount(); i++) { String value = savedMediaItem(controller.getMediaItemAt(i)); if (!value.isEmpty() && entries.add(value)) order.put(value); }
+            getSharedPreferences("library", MODE_PRIVATE).edit().putStringSet("playlist:" + name, entries).putString("playlist_order:" + name, order.toString()).putString("last_playlist", name).apply();
+            Toast.makeText(this, "Saved " + order.length() + " songs to " + name, Toast.LENGTH_SHORT).show(); queueDialog.dismiss();
+        }).setNegativeButton("Cancel", null).show();
+    }
+
+    private String savedMediaItem(androidx.media3.common.MediaItem item) {
+        try {
+            String stableId = item.mediaId;
+            if (stableId.startsWith("auto:")) stableId = stableId.substring(5);
+            int marker = stableId.indexOf(":online:"); if (stableId.startsWith("jam:") && marker >= 0) stableId = stableId.substring(marker + 1);
+            org.json.JSONObject value = new org.json.JSONObject(); value.put("id", stableId); value.put("uri", item.localConfiguration == null ? "" : item.localConfiguration.uri.toString());
+            value.put("title", String.valueOf(item.mediaMetadata.title)); value.put("artist", String.valueOf(item.mediaMetadata.artist)); value.put("album", String.valueOf(item.mediaMetadata.albumTitle)); value.put("artwork", item.mediaMetadata.artworkUri == null ? "" : item.mediaMetadata.artworkUri.toString()); return value.toString();
+        } catch (Exception ignored) { return ""; }
     }
 
     private int queueDp(int value) { return (int)(value * getResources().getDisplayMetrics().density + .5f); }
@@ -837,7 +861,10 @@ public final class MainActivity extends Activity {
     }
 
     private void loadSavedTracks(String key, String label) {
-        java.util.Set<String> ids = getSharedPreferences("library", MODE_PRIVATE).getStringSet(key, new java.util.HashSet<>());
+        android.content.SharedPreferences library = getSharedPreferences("library", MODE_PRIVATE);
+        java.util.List<String> ids = new ArrayList<>(); String order = key.startsWith("playlist:") ? library.getString("playlist_order:" + key.substring(9), "") : "";
+        if (!order.isEmpty()) try { org.json.JSONArray values = new org.json.JSONArray(order); for (int i = 0; i < values.length(); i++) ids.add(values.getString(i)); } catch (Exception ignored) { }
+        if (ids.isEmpty()) ids.addAll(library.getStringSet(key, new java.util.HashSet<>()));
         io.execute(() -> {
             List<Track> found = new ArrayList<>();
             int loaded = 0;
@@ -902,7 +929,10 @@ public final class MainActivity extends Activity {
             org.json.JSONObject value = new org.json.JSONObject(); value.put("id", track.stableId); value.put("uri", track.playbackUri.toString()); value.put("title", track.title);
             value.put("artist", track.artist); value.put("album", track.album); value.put("artwork", track.artworkUri == null ? "" : track.artworkUri.toString()); entries.add(value.toString());
         } catch (Exception ignored) { return; }
-        prefs.edit().putStringSet(key, entries).putString("last_playlist", playlist).apply(); Toast.makeText(this, "Added to " + playlist, Toast.LENGTH_SHORT).show();
+        org.json.JSONArray order; try { order = new org.json.JSONArray(prefs.getString("playlist_order:" + playlist, "[]")); } catch (Exception ignored) { order = new org.json.JSONArray(); }
+        String added = null; for (String entry : entries) if (entry.contains("\"id\":\"" + track.stableId.replace("\"", "") + "\"")) added = entry;
+        if (added != null) { boolean present = false; for (int i = 0; i < order.length(); i++) if (added.equals(order.optString(i))) present = true; if (!present) order.put(added); }
+        prefs.edit().putStringSet(key, entries).putString("playlist_order:" + playlist, order.toString()).putString("last_playlist", playlist).apply(); Toast.makeText(this, "Added to " + playlist, Toast.LENGTH_SHORT).show();
     }
 
     private void showPlaylists() {

@@ -90,7 +90,9 @@
     const row = document.createElement("div"); row.className = `queueItem${index < currentIndex ? " played" : index === currentIndex ? " current" : ""}`; row.dataset.index = index;
     const handle = document.createElement("button"); handle.className = "dragHandle"; handle.type = "button"; handle.setAttribute("aria-label", `Move ${item.title}`); handle.innerHTML = "<i></i><i></i><i></i>";
     const art = artworkNode(item.artwork, item.artist, "queueArtwork");
-    const name = document.createElement("div"); name.className = "queueMeta"; const title = document.createElement("b"); title.textContent = item.title; title.title = item.title; const artist = document.createElement("span"); artist.textContent = index === currentIndex ? `NOW PLAYING · ${item.artist}` : item.artist; artist.title = item.artist; name.append(title, artist);
+    const name = document.createElement("div"); name.className = "queueMeta"; const title = document.createElement("b"); title.textContent = item.title; title.title = item.title; const artist = document.createElement("span");
+    const context = index === currentIndex ? "NOW PLAYING" : item.source === "jam" && item.addedBy ? `REQUESTED BY ${item.addedBy}` : item.source === "autoplay" ? "AUTOPLAY" : "";
+    artist.textContent = context ? `${context} · ${item.artist}` : item.artist; artist.title = item.artist; name.append(title, artist);
     const play = document.createElement("button"); play.className = "queuePlay"; play.type = "button"; play.textContent = index === currentIndex ? "Playing" : "Play"; play.disabled = index === currentIndex; play.addEventListener("click", event => { event.stopPropagation(); sendControl("play", index, 0, undefined, true); });
     row.addEventListener("click", () => { if (index !== currentIndex) sendControl("play", index, 0, undefined, true); });
     if (index > currentIndex) bindDrag(handle, row, index, queue, currentIndex + 1); else { handle.disabled = true; handle.setAttribute("aria-hidden", "true"); }
