@@ -301,9 +301,21 @@ public final class MainActivity extends Activity {
         if (!getSharedPreferences("settings", MODE_PRIVATE).getBoolean("autoplay", true)) return;
         List<Track> upcoming = radio.isEmpty() ? new ArrayList<>(sourceTracks.subList(Math.min(position + 1, sourceTracks.size()), Math.min(sourceTracks.size(), position + 6)))
                 : new ArrayList<>(radio.subList(0, Math.min(5, radio.size())));
-        for (Track item : upcoming) java.util.concurrent.CompletableFuture
-                .supplyAsync(() -> { Track local = DownloadStore.offline(this, item); if (local != null) return local; try { return source.resolve(item); } catch (RuntimeException ignored) { return null; } }, streamIo)
-                .thenAccept(ready -> main.post(() -> { if (ready != null && controller != null && streamRequest.get() == request) controller.addMediaItem(ready.toMediaItem()); }));
+        List<java.util.concurrent.CompletableFuture<Track>> pending = new ArrayList<>();
+        for (Track item : upcoming) pending.add(java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            Track local = DownloadStore.offline(this, item); if (local != null) return local;
+            try { return source.resolve(item); } catch (RuntimeException ignored) { return null; }
+        }, streamIo));
+        java.util.concurrent.CompletableFuture.allOf(pending.toArray(new java.util.concurrent.CompletableFuture[0])).thenRun(() -> main.post(() -> {
+            if (controller == null || streamRequest.get() != request) return;
+            for (java.util.concurrent.CompletableFuture<Track> future : pending) {
+                Track ready = future.getNow(null); if (ready == null) continue;
+                androidx.media3.common.MediaItem media = ready.toMediaItem().buildUpon().setMediaId("auto:" + ready.stableId).setCustomCacheKey(ready.stableId).build();
+                controller.addMediaItem(media);
+                streamIo.execute(() -> { try { PlaybackCache.preload(media); } catch (Exception ignored) { } });
+            }
+            publishJamPlayback();
+        }));
     }
 
     private void updateNowPlaying() {
@@ -710,7 +722,12 @@ public final class MainActivity extends Activity {
         android.widget.ScrollView scroll = new android.widget.ScrollView(this); scroll.setFillViewport(true);
         android.widget.LinearLayout rows = new android.widget.LinearLayout(this); rows.setOrientation(android.widget.LinearLayout.VERTICAL); scroll.addView(rows);
         int current = controller.getCurrentMediaItemIndex();
-        for (int i = 0; i < controller.getMediaItemCount(); i++) rows.addView(queueRow(dialog, i, current));
+        String previousSection = "";
+        for (int i = 0; i < controller.getMediaItemCount(); i++) {
+            String section = queueSection(i, current, controller.getMediaItemAt(i).mediaId);
+            if (!section.equals(previousSection)) { rows.addView(queueSectionHeader(section)); previousSection = section; }
+            rows.addView(queueRow(dialog, i, current));
+        }
         sheet.addView(scroll, new android.widget.LinearLayout.LayoutParams(-1, 0, 1));
         dialog.setContentView(sheet); installSwipeBack(sheet, dialog::dismiss); installSwipeBack(scroll, dialog::dismiss); android.view.Window window = dialog.getWindow();
         if (window != null) { window.setBackgroundDrawableResource(android.R.color.transparent); window.setLayout(-1, -1); window.setGravity(android.view.Gravity.BOTTOM); window.setDimAmount(.62f); window.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND); }
@@ -744,6 +761,21 @@ public final class MainActivity extends Activity {
             });
         }
         return row;
+    }
+
+    private String queueSection(int index, int current, String mediaId) {
+        if (index < current) return "Played";
+        if (index == current) return "Now playing";
+        if (mediaId != null && mediaId.startsWith("jam:")) return "Jam requests";
+        if (mediaId != null && mediaId.startsWith("auto:")) return "Autoplay";
+        return "Your queue";
+    }
+
+    private View queueSectionHeader(String label) {
+        TextView header = new TextView(this); header.setText(label.toUpperCase(java.util.Locale.ROOT));
+        header.setTextColor(android.graphics.Color.rgb(255, 128, 95)); header.setTextSize(10); header.setLetterSpacing(.14f);
+        header.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); header.setPadding(queueDp(5), queueDp(16), 0, queueDp(5));
+        return header;
     }
 
     private int queueDp(int value) { return (int)(value * getResources().getDisplayMetrics().density + .5f); }

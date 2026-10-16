@@ -30,8 +30,12 @@ import org.json.JSONObject;
 final class OnlineCatalogSource implements CatalogSource {
     private static final String CLOUD_SEARCH = "https://localmusic-jam.vercel.app/api/search?q=";
     private static final long RESOLUTION_TTL_MS = 8 * 60_000L;
+    private static final long SEARCH_TTL_MS = 5 * 60_000L;
     private static final java.util.LinkedHashMap<String, CachedTrack> RESOLVED = new java.util.LinkedHashMap<String, CachedTrack>(32, .75f, true) {
         @Override protected boolean removeEldestEntry(java.util.Map.Entry<String, CachedTrack> eldest) { return size() > 32; }
+    };
+    private static final java.util.LinkedHashMap<String, CachedSearch> SEARCHED = new java.util.LinkedHashMap<String, CachedSearch>(24, .75f, true) {
+        @Override protected boolean removeEldestEntry(java.util.Map.Entry<String, CachedSearch> eldest) { return size() > 24; }
     };
     static final class Resolution {
         final Track playable; final List<Track> radio;
@@ -49,12 +53,28 @@ final class OnlineCatalogSource implements CatalogSource {
 
     @Override public List<Track> page(String query, int offset, int limit) {
         if (query == null || query.trim().isEmpty() || offset > 0) return Collections.emptyList();
+        String cacheKey = query.trim().toLowerCase(java.util.Locale.ROOT) + "|" + avoidCleanVersions;
+        synchronized (SEARCHED) {
+            CachedSearch cached = SEARCHED.get(cacheKey);
+            if (cached != null && System.currentTimeMillis() - cached.createdAt < SEARCH_TTL_MS) return new ArrayList<>(cached.tracks.subList(0, Math.min(limit, cached.tracks.size())));
+            if (cached != null) SEARCHED.remove(cacheKey);
+        }
         List<Track> tracks = new ArrayList<>();
         searchCloud(query.trim(), tracks, limit);
-        if (tracks.size() >= Math.min(8, limit)) return tracks;
-        search(ServiceList.YouTube, query.trim(), tracks, limit);
+        tracks.removeIf(track -> isUnwantedTitle(track.title, query));
+        if (tracks.size() < Math.min(8, limit)) search(ServiceList.YouTube, query.trim(), tracks, limit);
         if (tracks.size() < Math.min(8, limit)) search(ServiceList.SoundCloud, query.trim(), tracks, limit);
-        return tracks;
+        List<Track> unique = new ArrayList<>(); Set<String> identities = new HashSet<>();
+        for (Track track : tracks) { String identity = identity(track.title) + "|" + identity(track.artist); if (!identity.trim().equals("|") && identities.add(identity)) unique.add(track); }
+        synchronized (SEARCHED) { SEARCHED.put(cacheKey, new CachedSearch(new ArrayList<>(unique))); }
+        return new ArrayList<>(unique.subList(0, Math.min(limit, unique.size())));
+    }
+
+    private boolean isUnwantedTitle(String value, String query) {
+        String title = value.toLowerCase(java.util.Locale.ROOT), wanted = query.toLowerCase(java.util.Locale.ROOT);
+        String[] spoken = {"reaction", "interview", "podcast", "documentary", "news", "trailer", "review", "explained"};
+        for (String term : spoken) if (title.contains(term) && !wanted.contains(term)) return true;
+        return avoidCleanVersions && (title.contains("clean") || title.contains("radio edit")) && !wanted.contains("clean") && !wanted.contains("radio edit");
     }
 
     /** Music-specific cloud search is faster and avoids general-video false negatives. */
@@ -231,5 +251,9 @@ final class OnlineCatalogSource implements CatalogSource {
     private static final class CachedTrack {
         final Track track; final long createdAt = System.currentTimeMillis();
         CachedTrack(Track track) { this.track = track; }
+    }
+    private static final class CachedSearch {
+        final List<Track> tracks; final long createdAt = System.currentTimeMillis();
+        CachedSearch(List<Track> tracks) { this.tracks = tracks; }
     }
 }

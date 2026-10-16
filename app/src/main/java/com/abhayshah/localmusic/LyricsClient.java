@@ -26,6 +26,7 @@ final class LyricsClient {
             String cleanTitle = cleanTitle(track.title), cleanArtist = track.artist.replaceAll("(?i)\\s*-\\s*topic$", "").trim();
             String best = lrclib(cleanTitle, cleanArtist);
             if (best.isEmpty()) best = lrclib(cleanTitle, "");
+            if (best.isEmpty()) best = lyricsOvh(cleanTitle, cleanArtist);
             if (best.isEmpty() && track.stableId.startsWith("online:")) best = captions(track);
             if (!best.isEmpty()) { if (!directory.exists()) directory.mkdirs(); try (FileOutputStream output = new FileOutputStream(cached)) { output.write(best.getBytes(StandardCharsets.UTF_8)); } }
             return best;
@@ -37,10 +38,36 @@ final class LyricsClient {
             String query = "track_name=" + encode(title) + (artist.isEmpty() ? "" : "&artist_name=" + encode(artist));
             String body = fetch("https://lrclib.net/api/search?" + query); if (body.isEmpty()) return "";
             JSONArray results = new JSONArray(body);
-            for (int i = 0; i < Math.min(12, results.length()); i++) { String plain = results.getJSONObject(i).optString("plainLyrics", "").trim(); if (!plain.isEmpty()) return plain; }
+            String best = ""; double bestScore = -1;
+            for (int i = 0; i < Math.min(20, results.length()); i++) {
+                JSONObject item = results.getJSONObject(i); String plain = item.optString("plainLyrics", "").trim();
+                if (plain.isEmpty()) plain = stripTimestamps(item.optString("syncedLyrics", "")); if (plain.isEmpty()) continue;
+                double score = similarity(title, item.optString("trackName")) * .7 + similarity(artist, item.optString("artistName")) * .3;
+                if (artist.isEmpty()) score = similarity(title, item.optString("trackName"));
+                if (score > bestScore) { bestScore = score; best = plain; }
+            }
+            if (bestScore >= .42) return best;
         } catch (Exception ignored) { }
         return "";
     }
+
+    private static String lyricsOvh(String title, String artist) {
+        if (title.isEmpty() || artist.isEmpty()) return "";
+        try { return new JSONObject(fetch("https://api.lyrics.ovh/v1/" + encode(artist) + "/" + encode(title))).optString("lyrics", "").trim(); }
+        catch (Exception ignored) { return ""; }
+    }
+
+    private static double similarity(String left, String right) {
+        Set<String> a = words(cleanTitle(left)), b = words(cleanTitle(right)); if (a.isEmpty() || b.isEmpty()) return 0;
+        Set<String> overlap = new HashSet<>(a); overlap.retainAll(b);
+        return overlap.size() * 2.0 / (a.size() + b.size());
+    }
+
+    private static Set<String> words(String value) {
+        Set<String> result = new HashSet<>(); for (String word : value.toLowerCase(java.util.Locale.ROOT).split("[^\\p{L}\\p{N}]+")) if (word.length() > 1) result.add(word); return result;
+    }
+
+    private static String stripTimestamps(String value) { return value.replaceAll("(?m)^\\[[^]]+]\\s*", "").trim(); }
 
     private static String captions(Track track) {
         try {

@@ -1,7 +1,7 @@
 {
-  "versionCode": 19,
-  "versionName": "0.12.2",
-  "notes": "Play resumes reliably, Android search uses the music-specific catalogue first, and Jam surfaces show real artwork. Jam now mirrors the phone's complete queue and current position, keeps guest requests ahead of autoplay recommendations, and supports exact multi-device play and reorder commands. Full-screen surfaces support edge-swipe back.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.2/LocalMusic-0.12.2.apk",
-  "sha256": "1CE3F01233D931B5FE9CCED5202464759764720A2195159B9A7A196D03E1A439"
+  "versionCode": 20,
+  "versionName": "0.12.3",
+  "notes": "Autoplay resolves in parallel but stays in the intended order, queues are grouped into clear sections, queued tracks preload for faster transitions, and restored online queues refresh expired stream links. Jam ignores stale playback updates. Search caches recent results and filters duplicate, spoken, video, and clean-version noise. Lyrics use ranked matching with provider and caption fallbacks.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.3/LocalMusic-0.12.3.apk",
+  "sha256": "E6FC701EC97BB783F30F20D84E20173BBD84DCD917DA0A7888F80AF96E7572FB"
 }

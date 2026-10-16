@@ -48,6 +48,7 @@ public final class PlaybackService extends MediaSessionService {
     private int jamCommitCursor;
     private volatile JamClient.Room jamRoom;
     private volatile boolean jamRequestRunning;
+    private final java.util.concurrent.atomic.AtomicLong jamPlaybackSequence = new java.util.concurrent.atomic.AtomicLong();
     private final Handler stateHandler = new Handler(Looper.getMainLooper());
     private final Runnable sleepPause = () -> {
         if (player != null) player.pause();
@@ -159,6 +160,16 @@ public final class PlaybackService extends MediaSessionService {
                         Track unresolved = new Track(id, Uri.EMPTY, item.optString("title"), item.optString("artist"), item.optString("album"));
                         Track resolved = new OnlineCatalogSource().resolve(unresolved);
                         items.add(remoteItem(item, id, resolved.playbackUri));
+                    } else if (id.startsWith("auto:online:")) {
+                        String sourceId = id.substring(5);
+                        Track unresolved = new Track(sourceId, Uri.EMPTY, item.optString("title"), item.optString("artist"), item.optString("album"));
+                        Track resolved = new OnlineCatalogSource().resolve(unresolved);
+                        items.add(remoteItem(item, id, resolved.playbackUri));
+                    } else if (id.startsWith("jam:") && item.optString("sourceId").startsWith("online:")) {
+                        String sourceId = item.optString("sourceId");
+                        Track unresolved = new Track(sourceId, Uri.EMPTY, item.optString("title"), item.optString("artist"), item.optString("album"));
+                        Track resolved = new OnlineCatalogSource().resolve(unresolved);
+                        items.add(remoteItem(item, id, resolved.playbackUri));
                     } else if (!id.startsWith("local:")) items.add(remoteItem(item, id, Uri.parse(item.getString("uri"))));
                     else addLocalItem(items, resolver, Long.parseLong(id.substring(6)));
                 }
@@ -175,7 +186,8 @@ public final class PlaybackService extends MediaSessionService {
     private static MediaItem remoteItem(JSONObject item, String id, Uri uri) {
         MediaItem.Builder value = new MediaItem.Builder().setMediaId(id).setUri(uri)
                 .setMediaMetadata(new androidx.media3.common.MediaMetadata.Builder().setTitle(item.optString("title"))
-                        .setArtist(item.optString("artist")).setAlbumTitle(item.optString("album")).build());
+                        .setArtist(item.optString("artist")).setAlbumTitle(item.optString("album"))
+                        .setArtworkUri(item.optString("artwork").startsWith("https://") ? Uri.parse(item.optString("artwork")) : null).build());
         if ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme())) value.setCustomCacheKey(id);
         return value.build();
     }
@@ -208,7 +220,9 @@ public final class PlaybackService extends MediaSessionService {
         for (int i = 0; i < count; i++) {
             MediaItem item = player.getMediaItemAt(i); JSONObject value = new JSONObject();
             try { value.put("id", item.mediaId); value.put("uri", item.mediaId.startsWith("b2:") || item.localConfiguration == null ? "" : item.localConfiguration.uri.toString());
-                value.put("title", String.valueOf(item.mediaMetadata.title)); value.put("artist", String.valueOf(item.mediaMetadata.artist)); value.put("album", String.valueOf(item.mediaMetadata.albumTitle)); saved.put(value); } catch (Exception ignored) { }
+                if (item.mediaId.startsWith("jam:")) { int marker = item.mediaId.indexOf(":online:"); if (marker >= 0) value.put("sourceId", item.mediaId.substring(marker + 1)); }
+                value.put("title", String.valueOf(item.mediaMetadata.title)); value.put("artist", String.valueOf(item.mediaMetadata.artist)); value.put("album", String.valueOf(item.mediaMetadata.albumTitle));
+                value.put("artwork", item.mediaMetadata.artworkUri == null ? "" : item.mediaMetadata.artworkUri.toString()); saved.put(value); } catch (Exception ignored) { }
         }
         prefs.edit().putString("queue", saved.toString()).putInt("index", Math.max(0, player.getCurrentMediaItemIndex()))
                 .putLong("position", Math.max(0, player.getCurrentPosition())).putBoolean("shuffle", player.getShuffleModeEnabled())
@@ -247,7 +261,7 @@ public final class PlaybackService extends MediaSessionService {
             if (item == null) return;
             jamCommitCursor += 1;
             if (player == null || item.track == null) continue;
-            MediaItem media = item.track.toMediaItem().buildUpon().setMediaId("jam:" + item.entry.id).setCustomCacheKey(item.track.stableId).build();
+            MediaItem media = item.track.toMediaItem().buildUpon().setMediaId("jam:" + item.entry.id + ":" + item.track.stableId).setCustomCacheKey(item.track.stableId).build();
             if ("next".equals(item.entry.placement)) player.addMediaItem(Math.min(player.getCurrentMediaItemIndex() + 1, player.getMediaItemCount()), media);
             else {
                 int insert = Math.max(0, player.getCurrentMediaItemIndex() + 1);
@@ -286,7 +300,8 @@ public final class PlaybackService extends MediaSessionService {
         String title = Track.clean(String.valueOf(current.title), "Unknown title"), artist = Track.clean(String.valueOf(current.artist), "Unknown artist"), artwork = current.artworkUri == null ? "" : current.artworkUri.toString();
         List<String[]> queue = new ArrayList<>(); int currentIndex = player.getCurrentMediaItemIndex();
         for (int i = 0; i < Math.min(player.getMediaItemCount(), 200); i++) { androidx.media3.common.MediaMetadata item = player.getMediaItemAt(i).mediaMetadata; queue.add(new String[]{Track.clean(String.valueOf(item.title), "Unknown title"), Track.clean(String.valueOf(item.artist), "Unknown artist"), item.artworkUri == null ? "" : item.artworkUri.toString()}); }
-        boolean playing = player.isPlaying(); jamIo.execute(() -> { try { new JamClient().publishPlayback(room, title, artist, artwork, playing, queue, currentIndex); } catch (Exception ignored) { } });
+        boolean playing = player.isPlaying(); long sequence = jamPlaybackSequence.incrementAndGet();
+        jamIo.execute(() -> { try { new JamClient().publishPlayback(room, title, artist, artwork, playing, queue, currentIndex, sequence); } catch (Exception ignored) { } });
     }
 
     private void resumePlayer() {

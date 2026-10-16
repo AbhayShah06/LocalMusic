@@ -46,14 +46,18 @@ final class JamClient {
     }
 
     void publishPlayback(Room room, String title, String artist, String artwork, boolean playing, List<String[]> upcoming) throws Exception {
-        publishPlayback(room, title, artist, artwork, playing, upcoming, -1);
+        publishPlayback(room, title, artist, artwork, playing, upcoming, -1, 0);
     }
 
     void publishPlayback(Room room, String title, String artist, String artwork, boolean playing, List<String[]> queueItems, int currentIndex) throws Exception {
+        publishPlayback(room, title, artist, artwork, playing, queueItems, currentIndex, 0);
+    }
+
+    void publishPlayback(Room room, String title, String artist, String artwork, boolean playing, List<String[]> queueItems, int currentIndex, long sequence) throws Exception {
         JSONArray queue = new JSONArray(); for (String[] item : queueItems) queue.put(new JSONObject().put("title", item[0]).put("artist", item[1]).put("artwork", item.length > 2 ? item[2] : ""));
         JSONArray upcoming = new JSONArray();
         for (int i = 0; i < queue.length(); i++) if (currentIndex < 0 || i > currentIndex) upcoming.put(queue.getJSONObject(i));
-        post("/api/rooms/" + room.code + "/playback", new JSONObject().put("title", title).put("artist", artist).put("artwork", artwork).put("playing", playing).put("queue", queue).put("currentIndex", currentIndex).put("upcoming", upcoming), room.hostToken);
+        post("/api/rooms/" + room.code + "/playback", new JSONObject().put("title", title).put("artist", artist).put("artwork", artwork).put("playing", playing).put("queue", queue).put("currentIndex", currentIndex).put("upcoming", upcoming).put("sequence", sequence), room.hostToken);
     }
 
     void close(Room room) throws Exception { post("/api/rooms/" + room.code + "/close", new JSONObject(), room.hostToken); }
