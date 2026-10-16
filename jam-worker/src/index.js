@@ -110,8 +110,8 @@ export class JamRoom extends DurableObject {
 
   async playback(request) {
     const room = await this.ctx.storage.get("room"); if (!room) return json({ error: "Jam not found" }, 404); if (!authorized(request, room.hostToken)) return json({ error: "Host access required" }, 401);
-    const input = await request.json().catch(() => ({})); const upcoming = Array.isArray(input.upcoming) ? input.upcoming.slice(0, 20).map(item => ({ title: String(item?.title || "Unknown title").slice(0, 160), artist: String(item?.artist || "Unknown artist").slice(0, 160) })) : [];
-    room.playback = { title: String(input.title || "").slice(0, 160), artist: String(input.artist || "").slice(0, 160), playing: Boolean(input.playing), upcoming }; room.updatedAt = Date.now(); room.revision += 1; await this.ctx.storage.put("room", room); this.broadcast(room); return json({ ok: true, revision: room.revision });
+    const input = await request.json().catch(() => ({})); const upcoming = Array.isArray(input.upcoming) ? input.upcoming.slice(0, 20).map(item => ({ title: String(item?.title || "Unknown title").slice(0, 160), artist: String(item?.artist || "Unknown artist").slice(0, 160), artwork: safeArtwork(item?.artwork) })) : [];
+    room.playback = { title: String(input.title || "").slice(0, 160), artist: String(input.artist || "").slice(0, 160), artwork: safeArtwork(input.artwork), playing: Boolean(input.playing), upcoming }; room.updatedAt = Date.now(); room.revision += 1; await this.ctx.storage.put("room", room); this.broadcast(room); return json({ ok: true, revision: room.revision });
   }
 
   async search(request) {
@@ -184,9 +184,10 @@ function sanitizeCatalog(value) {
   for (const raw of value.slice(0, 1200)) {
     const id = String(raw?.id || "").slice(0, 700);
     if (!id || seen.has(id)) continue; seen.add(id);
-    catalog.push({ id, title: String(raw?.title || "Unknown title").slice(0, 160), artist: String(raw?.artist || "Unknown artist").slice(0, 160), album: String(raw?.album || "").slice(0, 160) });
+    catalog.push({ id, title: String(raw?.title || "Unknown title").slice(0, 160), artist: String(raw?.artist || "Unknown artist").slice(0, 160), album: String(raw?.album || "").slice(0, 160), artwork: safeArtwork(raw?.artwork) });
   }
   return catalog;
 }
 function publicRoom(room, host) { const value = { active: room.active, createdAt: room.createdAt, updatedAt: room.updatedAt, catalog: room.catalog, queue: room.queue, searches: room.searches || [], playback: room.playback || { title: "", artist: "", playing: false, upcoming: [] }, revision: room.revision }; if (host) value.controls = room.controls || []; return value; }
 function authorized(request, hostToken) { return request.headers.get("authorization") === `Bearer ${hostToken}`; }
+function safeArtwork(value) { const url = String(value || "").slice(0, 900); return /^https:\/\//.test(url) ? url : ""; }

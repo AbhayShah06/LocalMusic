@@ -102,7 +102,7 @@ public final class MainActivity extends Activity {
                 if (total > 0 && first + visible >= total - 8) loadNextPage();
             }
         });
-        findViewById(R.id.playPause).setOnClickListener(v -> { if (controller != null) { if (controller.isPlaying()) controller.pause(); else controller.play(); } });
+        findViewById(R.id.playPause).setOnClickListener(v -> togglePlayback());
         findViewById(R.id.previous).setOnClickListener(v -> { if (controller != null) controller.seekToPreviousMediaItem(); });
         findViewById(R.id.next).setOnClickListener(v -> { if (controller != null) controller.seekToNextMediaItem(); });
         findViewById(R.id.playlists).setOnClickListener(v -> showPlaylists());
@@ -350,7 +350,7 @@ public final class MainActivity extends Activity {
         progressTicker[0] = () -> { progress.run(); if (dialog.isShowing()) main.postDelayed(progressTicker[0], 500); };
         refresh.run();
         dialog.findViewById(R.id.closeNowPlaying).setOnClickListener(v -> dialog.dismiss());
-        play.setOnClickListener(v -> { if (controller.isPlaying()) controller.pause(); else controller.play(); refresh.run(); });
+        play.setOnClickListener(v -> { togglePlayback(); refresh.run(); });
         dialog.findViewById(R.id.fullPrevious).setOnClickListener(v -> { controller.seekToPreviousMediaItem(); main.postDelayed(refresh, 150); });
         dialog.findViewById(R.id.fullNext).setOnClickListener(v -> { controller.seekToNextMediaItem(); main.postDelayed(refresh, 150); });
         dialog.findViewById(R.id.fullQueue).setOnClickListener(v -> showQueue());
@@ -582,7 +582,7 @@ public final class MainActivity extends Activity {
         if (controller == null) return;
         if ("previous".equals(control.action)) controller.seekToPreviousMediaItem();
         else if ("next".equals(control.action)) controller.seekToNextMediaItem();
-        else if ("toggle".equals(control.action)) { if (controller.isPlaying()) controller.pause(); else controller.play(); }
+        else if ("toggle".equals(control.action)) togglePlayback();
         else if ("move".equals(control.action) && control.index >= 0 && Math.abs(control.direction) == 1) {
             int from = controller.getCurrentMediaItemIndex() + 1 + control.index, to = from + control.direction;
             if (from >= 0 && from < controller.getMediaItemCount() && to > controller.getCurrentMediaItemIndex() && to < controller.getMediaItemCount()) controller.moveMediaItem(from, to);
@@ -599,7 +599,7 @@ public final class MainActivity extends Activity {
         StringBuilder key = new StringBuilder(title).append('|').append(artist).append('|').append(controller.isPlaying()); for (String[] item : upcoming) key.append('|').append(item[0]).append('/').append(item[1]);
         boolean playing = controller.isPlaying();
         if (key.toString().equals(lastJamPlayback)) return; lastJamPlayback = key.toString();
-        jamSyncIo.execute(() -> { try { new JamClient().publishPlayback(room, title, artist, playing, upcoming); } catch (Exception ignored) { lastJamPlayback = ""; } });
+        jamSyncIo.execute(() -> { try { new JamClient().publishPlayback(room, title, artist, "", playing, upcoming); } catch (Exception ignored) { lastJamPlayback = ""; } });
     }
 
     private void addJamEntry(JamClient.Entry entry) {
@@ -745,6 +745,15 @@ public final class MainActivity extends Activity {
     }
 
     private int queueDp(int value) { return (int)(value * getResources().getDisplayMetrics().density + .5f); }
+
+    private void togglePlayback() {
+        if (controller == null) return;
+        if (controller.isPlaying()) { controller.pause(); return; }
+        if (controller.getMediaItemCount() == 0) return;
+        if (controller.getPlaybackState() == Player.STATE_ENDED) controller.seekTo(Math.max(0, controller.getCurrentMediaItemIndex()), 0);
+        if (controller.getPlaybackState() == Player.STATE_IDLE) controller.prepare();
+        controller.play();
+    }
 
     private void toggleShuffle() {
         if (controller == null) return;

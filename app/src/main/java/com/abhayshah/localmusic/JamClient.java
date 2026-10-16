@@ -20,7 +20,7 @@ final class JamClient {
     Room create(List<Track> catalog) throws Exception {
         JSONArray values = new JSONArray();
         for (Track track : catalog) values.put(new JSONObject().put("id", track.stableId).put("title", track.title)
-                .put("artist", track.artist).put("album", track.album));
+                .put("artist", track.artist).put("album", track.album).put("artwork", track.artworkUri == null ? "" : track.artworkUri.toString()));
         JSONObject body = post("/api/rooms", new JSONObject().put("catalog", values), null);
         return new Room(body.getString("roomCode"), body.getString("hostToken"));
     }
@@ -41,13 +41,13 @@ final class JamClient {
     }
 
     void publish(Room room, String searchId, List<Track> tracks) throws Exception {
-        JSONArray values = new JSONArray(); for (Track track : tracks) values.put(new JSONObject().put("id", track.stableId).put("title", track.title).put("artist", track.artist).put("album", track.album));
+        JSONArray values = new JSONArray(); for (Track track : tracks) values.put(new JSONObject().put("id", track.stableId).put("title", track.title).put("artist", track.artist).put("album", track.album).put("artwork", track.artworkUri == null ? "" : track.artworkUri.toString()));
         post("/api/rooms/" + room.code + "/search/" + searchId + "/results", new JSONObject().put("catalog", values), room.hostToken);
     }
 
-    void publishPlayback(Room room, String title, String artist, boolean playing, List<String[]> upcoming) throws Exception {
-        JSONArray queue = new JSONArray(); for (String[] item : upcoming) queue.put(new JSONObject().put("title", item[0]).put("artist", item[1]));
-        post("/api/rooms/" + room.code + "/playback", new JSONObject().put("title", title).put("artist", artist).put("playing", playing).put("upcoming", queue), room.hostToken);
+    void publishPlayback(Room room, String title, String artist, String artwork, boolean playing, List<String[]> upcoming) throws Exception {
+        JSONArray queue = new JSONArray(); for (String[] item : upcoming) queue.put(new JSONObject().put("title", item[0]).put("artist", item[1]).put("artwork", item.length > 2 ? item[2] : ""));
+        post("/api/rooms/" + room.code + "/playback", new JSONObject().put("title", title).put("artist", artist).put("artwork", artwork).put("playing", playing).put("upcoming", queue), room.hostToken);
     }
 
     void close(Room room) throws Exception { post("/api/rooms/" + room.code + "/close", new JSONObject(), room.hostToken); }

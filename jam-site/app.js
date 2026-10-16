@@ -61,7 +61,7 @@
   }
   function trackNode(track) {
     const row = document.createElement("div"); row.className = "track";
-    const art = document.createElement("span"); art.className = "art"; art.textContent = initials(track.artist);
+    const art = artworkNode(track.artwork, track.artist, "art");
     const meta = document.createElement("div"); meta.className = "meta";
     const title = document.createElement("strong"); title.textContent = track.title;
     const sub = document.createElement("span"); sub.textContent = [track.artist, track.album].filter(Boolean).join(" · "); meta.append(title, sub);
@@ -83,15 +83,17 @@
   function renderQueue() {
     const playback = state.data.playback || {}, queue = state.optimisticQueue || playback.upcoming || []; $("queueCount").textContent = queue.length;
     $("nowTitle").textContent = playback.title || "Waiting for music"; $("nowArtist").textContent = playback.artist || "The host controls playback"; $("toggle").textContent = playback.playing ? "Pause" : "Play"; $("nowPulse").classList.toggle("playing", Boolean(playback.playing));
+    $("nowArtwork").replaceWith(artworkNode(playback.artwork, playback.artist, "nowArtwork", "nowArtwork"));
     $("queueList").replaceChildren(...(queue.length ? queue.map((item, index) => queueNode(item, index, queue)) : [empty("Nothing queued yet") ]));
   }
   function queueNode(item, index, queue) {
     const row = document.createElement("div"); row.className = "queueItem"; row.dataset.index = index;
     const handle = document.createElement("button"); handle.className = "dragHandle"; handle.type = "button"; handle.setAttribute("aria-label", `Move ${item.title}`); handle.innerHTML = "<i></i><i></i><i></i>";
+    const art = artworkNode(item.artwork, item.artist, "queueArtwork");
     const name = document.createElement("div"); name.className = "queueMeta"; const title = document.createElement("b"); title.textContent = item.title; const artist = document.createElement("span"); artist.textContent = item.artist; name.append(title, artist);
     const play = document.createElement("button"); play.className = "queuePlay"; play.type = "button"; play.textContent = "Play"; play.addEventListener("click", event => { event.stopPropagation(); sendControl("play", index); });
     row.addEventListener("click", () => sendControl("play", index)); bindDrag(handle, row, index, queue);
-    row.append(handle, name, play); return row;
+    row.append(handle, art, name, play); return row;
   }
   function bindDrag(handle, row, startIndex, queue) {
     let timer, active = false, targetIndex = startIndex;
@@ -107,6 +109,7 @@
     catch (error) { state.optimisticQueue = null; renderQueue(); toast(error.message); } finally { if (action === "reorder") setTimeout(() => { state.optimisticQueue = null; renderQueue(); }, 1400); if (button) setTimeout(() => button.disabled = false, 500); }
   }
   function empty(text) { const node = document.createElement("div"); node.className = "empty"; node.textContent = text; return node; }
+  function artworkNode(url, artist, className, id) { const box = document.createElement("span"); box.className = className; if (id) box.id = id; const fallback = document.createElement("span"); fallback.textContent = initials(artist); box.append(fallback); if (url) { const image = document.createElement("img"); image.src = url; image.alt = ""; image.loading = "lazy"; image.decoding = "async"; image.addEventListener("load", () => box.classList.add("loaded")); image.addEventListener("error", () => image.remove()); box.append(image); } return box; }
   function initials(value) { return String(value || "LM").split(/\s+/).slice(0, 2).map(x => x[0] || "").join("").toUpperCase(); }
   function fail(message) { $("setupError").textContent = message; }
   let toastTimer; function toast(message) { $("toast").textContent = message; $("toast").classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => $("toast").classList.remove("show"), 2200); }

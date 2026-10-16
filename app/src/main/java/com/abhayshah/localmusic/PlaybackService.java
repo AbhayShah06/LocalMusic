@@ -259,7 +259,7 @@ public final class PlaybackService extends MediaSessionService {
         if (player == null) return;
         if ("previous".equals(control.action)) player.seekToPreviousMediaItem();
         else if ("next".equals(control.action)) player.seekToNextMediaItem();
-        else if ("toggle".equals(control.action)) { if (player.isPlaying()) player.pause(); else player.play(); }
+        else if ("toggle".equals(control.action)) { if (player.isPlaying()) player.pause(); else resumePlayer(); }
         else if ("play".equals(control.action) && control.index >= 0) {
             int target = player.getCurrentMediaItemIndex() + 1 + control.index;
             if (target >= 0 && target < player.getMediaItemCount()) { player.seekTo(target, 0); player.play(); }
@@ -279,10 +279,17 @@ public final class PlaybackService extends MediaSessionService {
         JamClient.Room room = jamRoom;
         if (room == null || player == null || player.getCurrentMediaItem() == null) return;
         androidx.media3.common.MediaMetadata current = player.getMediaMetadata();
-        String title = Track.clean(String.valueOf(current.title), "Unknown title"), artist = Track.clean(String.valueOf(current.artist), "Unknown artist");
+        String title = Track.clean(String.valueOf(current.title), "Unknown title"), artist = Track.clean(String.valueOf(current.artist), "Unknown artist"), artwork = current.artworkUri == null ? "" : current.artworkUri.toString();
         List<String[]> upcoming = new ArrayList<>(); int start = Math.max(0, player.getCurrentMediaItemIndex() + 1);
-        for (int i = start; i < Math.min(player.getMediaItemCount(), start + 20); i++) { androidx.media3.common.MediaMetadata item = player.getMediaItemAt(i).mediaMetadata; upcoming.add(new String[]{Track.clean(String.valueOf(item.title), "Unknown title"), Track.clean(String.valueOf(item.artist), "Unknown artist")}); }
-        boolean playing = player.isPlaying(); jamIo.execute(() -> { try { new JamClient().publishPlayback(room, title, artist, playing, upcoming); } catch (Exception ignored) { } });
+        for (int i = start; i < Math.min(player.getMediaItemCount(), start + 20); i++) { androidx.media3.common.MediaMetadata item = player.getMediaItemAt(i).mediaMetadata; upcoming.add(new String[]{Track.clean(String.valueOf(item.title), "Unknown title"), Track.clean(String.valueOf(item.artist), "Unknown artist"), item.artworkUri == null ? "" : item.artworkUri.toString()}); }
+        boolean playing = player.isPlaying(); jamIo.execute(() -> { try { new JamClient().publishPlayback(room, title, artist, artwork, playing, upcoming); } catch (Exception ignored) { } });
+    }
+
+    private void resumePlayer() {
+        if (player == null || player.getMediaItemCount() == 0) return;
+        if (player.getPlaybackState() == Player.STATE_ENDED) player.seekTo(Math.max(0, player.getCurrentMediaItemIndex()), 0);
+        if (player.getPlaybackState() == Player.STATE_IDLE) player.prepare();
+        player.play();
     }
 
     private void restoreSleepTimer() {

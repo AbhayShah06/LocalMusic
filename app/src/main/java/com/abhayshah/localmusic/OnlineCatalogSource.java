@@ -19,9 +19,16 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.HashSet;
 import java.util.Set;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 /** Searches public streaming catalogues and resolves playback entirely on the phone. */
 final class OnlineCatalogSource implements CatalogSource {
+    private static final String CLOUD_SEARCH = "https://localmusic-jam.vercel.app/api/search?q=";
     private static final long RESOLUTION_TTL_MS = 8 * 60_000L;
     private static final java.util.LinkedHashMap<String, CachedTrack> RESOLVED = new java.util.LinkedHashMap<String, CachedTrack>(32, .75f, true) {
         @Override protected boolean removeEldestEntry(java.util.Map.Entry<String, CachedTrack> eldest) { return size() > 32; }
@@ -43,9 +50,35 @@ final class OnlineCatalogSource implements CatalogSource {
     @Override public List<Track> page(String query, int offset, int limit) {
         if (query == null || query.trim().isEmpty() || offset > 0) return Collections.emptyList();
         List<Track> tracks = new ArrayList<>();
+        searchCloud(query.trim(), tracks, limit);
+        if (tracks.size() >= Math.min(8, limit)) return tracks;
         search(ServiceList.YouTube, query.trim(), tracks, limit);
         if (tracks.size() < Math.min(8, limit)) search(ServiceList.SoundCloud, query.trim(), tracks, limit);
         return tracks;
+    }
+
+    /** Music-specific cloud search is faster and avoids general-video false negatives. */
+    private static void searchCloud(String query, List<Track> output, int limit) {
+        HttpURLConnection connection = null;
+        try {
+            String encoded = java.net.URLEncoder.encode(query, "UTF-8");
+            connection = (HttpURLConnection)new URL(CLOUD_SEARCH + encoded).openConnection();
+            connection.setConnectTimeout(5_000); connection.setReadTimeout(8_000); connection.setRequestProperty("User-Agent", "LocalMusic/0.12");
+            if (connection.getResponseCode() != 200) return;
+            try (InputStream input = connection.getInputStream(); ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[8192]; for (int read; (read = input.read(buffer)) >= 0; ) bytes.write(buffer, 0, read);
+                JSONArray values = new JSONObject(bytes.toString("UTF-8")).optJSONArray("tracks");
+                if (values == null) return;
+                Set<String> known = new HashSet<>(); for (Track track : output) known.add(track.stableId);
+                for (int i = 0; i < values.length() && output.size() < limit; i++) {
+                    JSONObject item = values.optJSONObject(i); if (item == null) continue;
+                    String id = item.optString("id"), title = item.optString("title"), artist = item.optString("artist"), album = item.optString("album", "YouTube Music"), artwork = item.optString("artwork");
+                    if (!id.startsWith("online:") || !known.add(id)) continue;
+                    output.add(new Track(id, Uri.EMPTY, title, artist, album, artwork.isEmpty() ? null : Uri.parse(artwork)));
+                }
+            }
+        } catch (Exception ignored) { }
+        finally { if (connection != null) connection.disconnect(); }
     }
 
     private void search(StreamingService service, String query, List<Track> output, int limit) {
