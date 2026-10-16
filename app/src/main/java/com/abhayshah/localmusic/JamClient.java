@@ -31,12 +31,12 @@ final class JamClient {
         List<Entry> entries = new ArrayList<>();
         for (int i = 0; i < values.length(); i++) {
             JSONObject item = values.getJSONObject(i);
-            entries.add(new Entry(item.getString("id"), item.getString("trackId"), item.optString("guest", "Guest"), item.optString("title"), item.optString("artist")));
+            entries.add(new Entry(item.getString("id"), item.getString("trackId"), item.optString("guest", "Guest"), item.optString("title"), item.optString("artist"), item.optString("placement", "end")));
         }
         List<Search> searches = new ArrayList<>(); JSONArray searchValues = body.getJSONObject("room").optJSONArray("searches");
         if (searchValues != null) for (int i = 0; i < searchValues.length(); i++) { JSONObject item = searchValues.getJSONObject(i); searches.add(new Search(item.getString("id"), item.optString("query"), "pending".equals(item.optString("status")))); }
         List<Control> controls = new ArrayList<>(); JSONArray controlValues = body.getJSONObject("room").optJSONArray("controls");
-        if (controlValues != null) for (int i = 0; i < controlValues.length(); i++) { JSONObject item = controlValues.getJSONObject(i); controls.add(new Control(item.getString("id"), item.optString("action"), item.optString("guest", "Guest"), item.optInt("index", -1), item.optInt("direction", 0))); }
+        if (controlValues != null) for (int i = 0; i < controlValues.length(); i++) { JSONObject item = controlValues.getJSONObject(i); controls.add(new Control(item.getString("id"), item.optString("action"), item.optString("guest", "Guest"), item.optInt("index", -1), item.optInt("direction", 0), item.optInt("toIndex", -1))); }
         return new State(entries, searches, controls);
     }
 
@@ -86,6 +86,6 @@ final class JamClient {
     static final class Room { final String code, hostToken; Room(String code, String hostToken) { this.code = code; this.hostToken = hostToken; } String joinUrl() { return SITE_BASE + "?room=" + code; } }
     static final class State { final List<Entry> entries; final List<Search> searches; final List<Control> controls; State(List<Entry> entries, List<Search> searches, List<Control> controls) { this.entries = entries; this.searches = searches; this.controls = controls; } }
     static final class Search { final String id, query; final boolean pending; Search(String id, String query, boolean pending) { this.id = id; this.query = query; this.pending = pending; } }
-    static final class Control { final String id, action, guest; final int index, direction; Control(String id, String action, String guest, int index, int direction) { this.id = id; this.action = action; this.guest = guest; this.index = index; this.direction = direction; } }
-    static final class Entry { final String id, trackId, guest, title, artist; Entry(String id, String trackId, String guest, String title, String artist) { this.id = id; this.trackId = trackId; this.guest = guest; this.title = title; this.artist = artist; } }
+    static final class Control { final String id, action, guest; final int index, direction, toIndex; Control(String id, String action, String guest, int index, int direction, int toIndex) { this.id = id; this.action = action; this.guest = guest; this.index = index; this.direction = direction; this.toIndex = toIndex; } }
+    static final class Entry { final String id, trackId, guest, title, artist, placement; Entry(String id, String trackId, String guest, String title, String artist, String placement) { this.id = id; this.trackId = trackId; this.guest = guest; this.title = title; this.artist = artist; this.placement = placement; } }
 }

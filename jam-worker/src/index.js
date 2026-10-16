@@ -92,7 +92,8 @@ export class JamRoom extends DurableObject {
     const requestId = String(input.requestId || "").slice(0, 80); const now = Date.now();
     const duplicate = room.queue.find(item => (requestId && item.requestId === requestId) || (item.trackId === track.id && item.guest === guest && now - item.addedAt < 12_000));
     if (duplicate) return json({ ok: true, duplicate: true, entry: duplicate, revision: room.revision }, 200);
-    const entry = { id: crypto.randomUUID(), requestId, trackId: track.id, title: track.title, artist: track.artist, guest, addedAt: now };
+    const placement = input.placement === "next" ? "next" : "end";
+    const entry = { id: crypto.randomUUID(), requestId, trackId: track.id, title: track.title, artist: track.artist, guest, placement, addedAt: now };
     room.queue.push(entry); room.updatedAt = Date.now(); room.revision += 1;
     await this.ctx.storage.put("room", room); this.broadcast(room);
     return json({ ok: true, entry, revision: room.revision }, 201);
@@ -101,9 +102,9 @@ export class JamRoom extends DurableObject {
   async control(request) {
     const room = await this.ctx.storage.get("room"); if (!room) return json({ error: "Jam not found" }, 404); if (!room.active) return json({ error: "This Jam is closed" }, 410);
     const input = await request.json().catch(() => ({})); const action = String(input.action || "");
-    if (!new Set(["previous", "toggle", "next", "move"]).has(action)) return json({ error: "Unknown control" }, 400);
+    if (!new Set(["previous", "toggle", "next", "move", "play", "reorder"]).has(action)) return json({ error: "Unknown control" }, 400);
     room.controls ||= []; const requestId = String(input.requestId || "").slice(0, 80); const duplicate = room.controls.find(item => requestId && item.requestId === requestId); if (duplicate) return json({ ok: true, duplicate: true, control: duplicate }, 200);
-    const control = { id: crypto.randomUUID(), requestId, action, guest: String(input.guest || "Guest").trim().slice(0, 28) || "Guest", index: Math.max(-1, Math.min(19, Number(input.index) || 0)), direction: Math.sign(Number(input.direction) || 0), createdAt: Date.now() };
+    const control = { id: crypto.randomUUID(), requestId, action, guest: String(input.guest || "Guest").trim().slice(0, 28) || "Guest", index: Math.max(-1, Math.min(19, Number(input.index) || 0)), toIndex: Math.max(-1, Math.min(19, Number(input.toIndex) || 0)), direction: Math.sign(Number(input.direction) || 0), createdAt: Date.now() };
     room.controls.push(control); room.controls = room.controls.slice(-80); room.updatedAt = Date.now(); room.revision += 1; await this.ctx.storage.put("room", room); this.broadcast(room); return json({ ok: true, control }, 201);
   }
 

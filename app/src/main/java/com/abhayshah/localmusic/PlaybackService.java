@@ -18,6 +18,7 @@ import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
 
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -39,8 +40,12 @@ public final class PlaybackService extends MediaSessionService {
     private MediaSession session;
     private SharedPreferences prefs;
     private final ExecutorService jamIo = Executors.newFixedThreadPool(3);
+    private final ExecutorService preloadIo = Executors.newFixedThreadPool(2);
     private final Set<String> jamEntries = ConcurrentHashMap.newKeySet();
     private final Set<String> jamControls = ConcurrentHashMap.newKeySet();
+    private final List<String> jamEntryOrder = new ArrayList<>();
+    private final Map<String, ResolvedJamTrack> jamResolved = new ConcurrentHashMap<>();
+    private int jamCommitCursor;
     private volatile JamClient.Room jamRoom;
     private volatile boolean jamRequestRunning;
     private final Handler stateHandler = new Handler(Looper.getMainLooper());
@@ -113,6 +118,7 @@ public final class PlaybackService extends MediaSessionService {
             setSleepTimer(intent.getLongExtra(EXTRA_SLEEP_MINUTES, 0));
         } else if (intent != null && ACTION_START_JAM.equals(intent.getAction())) {
             jamEntries.clear(); jamControls.clear();
+            jamEntryOrder.clear(); jamResolved.clear(); jamCommitCursor = 0;
             jamRoom = new JamClient.Room(intent.getStringExtra(EXTRA_JAM_CODE), intent.getStringExtra(EXTRA_JAM_TOKEN));
             stateHandler.removeCallbacks(jamPoll); stateHandler.post(jamPoll);
         } else if (intent != null && ACTION_STOP_JAM.equals(intent.getAction())) {
@@ -220,13 +226,33 @@ public final class PlaybackService extends MediaSessionService {
     private void addJamTrack(JamClient.Entry entry) {
         if (player == null) return;
         if (!entry.trackId.startsWith("online:")) return;
+        jamEntryOrder.add(entry.id);
         Track unresolved = new Track(entry.trackId, Uri.EMPTY, entry.title, entry.artist, "YouTube Music");
         jamIo.execute(() -> {
             try {
                 Track resolved = new OnlineCatalogSource().resolve(unresolved);
-                stateHandler.post(() -> { if (player != null) { player.addMediaItem(resolved.toMediaItem()); publishJamPlayback(); } });
-            } catch (RuntimeException ignored) { jamEntries.remove(entry.id); }
+                jamResolved.put(entry.id, new ResolvedJamTrack(entry, resolved));
+                stateHandler.post(this::flushResolvedJamTracks);
+            } catch (RuntimeException ignored) {
+                jamResolved.put(entry.id, new ResolvedJamTrack(entry, null));
+                stateHandler.post(this::flushResolvedJamTracks);
+            }
         });
+    }
+
+    /** Parallel resolution is committed in cloud queue order, so web indexes always match playback. */
+    private void flushResolvedJamTracks() {
+        while (jamCommitCursor < jamEntryOrder.size()) {
+            ResolvedJamTrack item = jamResolved.remove(jamEntryOrder.get(jamCommitCursor));
+            if (item == null) return;
+            jamCommitCursor += 1;
+            if (player == null || item.track == null) continue;
+            MediaItem media = item.track.toMediaItem();
+            if ("next".equals(item.entry.placement)) player.addMediaItem(Math.min(player.getCurrentMediaItemIndex() + 1, player.getMediaItemCount()), media);
+            else player.addMediaItem(media);
+            preloadIo.execute(() -> { try { PlaybackCache.preload(media); } catch (Exception ignored) { } });
+        }
+        publishJamPlayback();
     }
 
     private void applyJamControl(JamClient.Control control) {
@@ -234,6 +260,15 @@ public final class PlaybackService extends MediaSessionService {
         if ("previous".equals(control.action)) player.seekToPreviousMediaItem();
         else if ("next".equals(control.action)) player.seekToNextMediaItem();
         else if ("toggle".equals(control.action)) { if (player.isPlaying()) player.pause(); else player.play(); }
+        else if ("play".equals(control.action) && control.index >= 0) {
+            int target = player.getCurrentMediaItemIndex() + 1 + control.index;
+            if (target >= 0 && target < player.getMediaItemCount()) { player.seekTo(target, 0); player.play(); }
+        }
+        else if ("reorder".equals(control.action) && control.index >= 0 && control.toIndex >= 0) {
+            int base = player.getCurrentMediaItemIndex() + 1;
+            int from = base + control.index, to = base + control.toIndex;
+            if (from >= base && from < player.getMediaItemCount() && to >= base && to < player.getMediaItemCount() && from != to) player.moveMediaItem(from, to);
+        }
         else if ("move".equals(control.action) && control.index >= 0 && Math.abs(control.direction) == 1) {
             int from = player.getCurrentMediaItemIndex() + 1 + control.index, to = from + control.direction;
             if (from >= 0 && from < player.getMediaItemCount() && to > player.getCurrentMediaItemIndex() && to < player.getMediaItemCount()) player.moveMediaItem(from, to);
@@ -269,10 +304,16 @@ public final class PlaybackService extends MediaSessionService {
         stateHandler.removeCallbacks(jamPoll);
         jamRoom = null;
         jamIo.shutdownNow();
+        preloadIo.shutdownNow();
         saveState();
         if (player != null) player.removeListener(persistenceListener);
         if (session != null) { session.release(); session = null; }
         if (player != null) { player.release(); player = null; }
         super.onDestroy();
+    }
+
+    private static final class ResolvedJamTrack {
+        final JamClient.Entry entry; final Track track;
+        ResolvedJamTrack(JamClient.Entry entry, Track track) { this.entry = entry; this.track = track; }
     }
 }

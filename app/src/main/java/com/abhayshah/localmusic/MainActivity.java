@@ -696,23 +696,55 @@ public final class MainActivity extends Activity {
 
     private void showQueue() {
         if (controller == null || controller.getMediaItemCount() == 0) { Toast.makeText(this, "Queue is empty", Toast.LENGTH_SHORT).show(); return; }
-        List<String> labels = new ArrayList<>();
-        for (int i = 0; i < controller.getMediaItemCount(); i++) {
-            androidx.media3.common.MediaMetadata m = controller.getMediaItemAt(i).mediaMetadata;
-            labels.add((i == controller.getCurrentMediaItemIndex() ? "▶  " : "") + Track.clean(String.valueOf(m.title), "Unknown title") + " — " + Track.clean(String.valueOf(m.artist), "Unknown artist"));
-        }
-        new AlertDialog.Builder(this).setTitle("Queue · tap to play, hold to edit")
-                .setItems(labels.toArray(new String[0]), (dialog, index) -> controller.seekTo(index))
-                .setOnCancelListener(d -> { }).show().getListView().setOnItemLongClickListener((parent, view, index, id) -> {
-                    String[] actions = index == controller.getCurrentMediaItemIndex() ? new String[]{"Remove"} : new String[]{"Move up", "Move down", "Remove"};
-                    new AlertDialog.Builder(this).setItems(actions, (a, choice) -> {
-                        if (index == controller.getCurrentMediaItemIndex()) controller.removeMediaItem(index);
-                        else if (choice == 0) controller.moveMediaItem(index, Math.max(0, index - 1));
-                        else if (choice == 1) controller.moveMediaItem(index, Math.min(controller.getMediaItemCount() - 1, index + 1));
-                        else controller.removeMediaItem(index);
-                    }).show(); return true;
-                });
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        android.widget.LinearLayout sheet = new android.widget.LinearLayout(this); sheet.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = queueDp(20); sheet.setPadding(pad, queueDp(14), pad, queueDp(22));
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable(); background.setColor(android.graphics.Color.rgb(18, 17, 17)); background.setCornerRadii(new float[]{queueDp(26),queueDp(26),queueDp(26),queueDp(26),0,0,0,0}); sheet.setBackground(background);
+        View grip = new View(this); android.graphics.drawable.GradientDrawable gripBg = new android.graphics.drawable.GradientDrawable(); gripBg.setColor(android.graphics.Color.rgb(92, 87, 82)); gripBg.setCornerRadius(queueDp(4)); grip.setBackground(gripBg);
+        android.widget.LinearLayout.LayoutParams gripParams = new android.widget.LinearLayout.LayoutParams(queueDp(42), queueDp(4)); gripParams.gravity = android.view.Gravity.CENTER_HORIZONTAL; gripParams.bottomMargin = queueDp(18); sheet.addView(grip, gripParams);
+        TextView eyebrow = new TextView(this); eyebrow.setText("PLAYBACK"); eyebrow.setTextColor(android.graphics.Color.rgb(255, 128, 95)); eyebrow.setTextSize(10); eyebrow.setLetterSpacing(.16f); eyebrow.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); sheet.addView(eyebrow);
+        TextView title = new TextView(this); title.setText("Your queue"); title.setTextColor(android.graphics.Color.rgb(246, 241, 232)); title.setTextSize(28); title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); title.setPadding(0, queueDp(4), 0, queueDp(2)); sheet.addView(title);
+        TextView hint = new TextView(this); hint.setText("Tap a song to play. Drag the rail to reorder."); hint.setTextColor(android.graphics.Color.rgb(150, 144, 137)); hint.setTextSize(13); hint.setPadding(0, 0, 0, queueDp(12)); sheet.addView(hint);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this); scroll.setFillViewport(true);
+        android.widget.LinearLayout rows = new android.widget.LinearLayout(this); rows.setOrientation(android.widget.LinearLayout.VERTICAL); scroll.addView(rows);
+        int current = controller.getCurrentMediaItemIndex();
+        for (int i = 0; i < controller.getMediaItemCount(); i++) rows.addView(queueRow(dialog, i, current));
+        sheet.addView(scroll, new android.widget.LinearLayout.LayoutParams(-1, 0, 1));
+        dialog.setContentView(sheet); android.view.Window window = dialog.getWindow();
+        if (window != null) { window.setBackgroundDrawableResource(android.R.color.transparent); window.setLayout(-1, -1); window.setGravity(android.view.Gravity.BOTTOM); window.setDimAmount(.62f); window.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND); }
+        dialog.setOnShowListener(ignored -> { android.view.Window w = dialog.getWindow(); if (w != null) { w.setLayout(-1, (int)(getResources().getDisplayMetrics().heightPixels * .82f)); w.setGravity(android.view.Gravity.BOTTOM); } });
+        dialog.show();
     }
+
+    private View queueRow(android.app.Dialog dialog, int index, int current) {
+        androidx.media3.common.MediaMetadata metadata = controller.getMediaItemAt(index).mediaMetadata;
+        android.widget.LinearLayout row = new android.widget.LinearLayout(this); row.setGravity(android.view.Gravity.CENTER_VERTICAL); row.setPadding(queueDp(5), queueDp(8), 0, queueDp(8)); row.setMinimumHeight(queueDp(66));
+        if (index == current) { android.graphics.drawable.GradientDrawable selected = new android.graphics.drawable.GradientDrawable(); selected.setColor(android.graphics.Color.rgb(39, 31, 28)); selected.setCornerRadius(queueDp(14)); row.setBackground(selected); }
+        TextView rail = new TextView(this); rail.setText("≡"); rail.setGravity(android.view.Gravity.CENTER); rail.setTextColor(index == current ? android.graphics.Color.rgb(91, 86, 81) : android.graphics.Color.rgb(173, 164, 156)); rail.setTextSize(24); rail.setContentDescription("Drag to reorder");
+        android.widget.LinearLayout.LayoutParams railParams = new android.widget.LinearLayout.LayoutParams(queueDp(42), queueDp(50)); row.addView(rail, railParams);
+        android.widget.LinearLayout meta = new android.widget.LinearLayout(this); meta.setOrientation(android.widget.LinearLayout.VERTICAL); meta.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView name = new TextView(this); name.setText(Track.clean(String.valueOf(metadata.title), "Unknown title")); name.setSingleLine(true); name.setEllipsize(android.text.TextUtils.TruncateAt.END); name.setTextColor(android.graphics.Color.rgb(246, 241, 232)); name.setTextSize(15); name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); meta.addView(name);
+        TextView artist = new TextView(this); artist.setText(index == current ? "NOW PLAYING  ·  " + Track.clean(String.valueOf(metadata.artist), "Unknown artist") : Track.clean(String.valueOf(metadata.artist), "Unknown artist")); artist.setSingleLine(true); artist.setEllipsize(android.text.TextUtils.TruncateAt.END); artist.setTextColor(index == current ? android.graphics.Color.rgb(255, 128, 95) : android.graphics.Color.rgb(145, 139, 132)); artist.setTextSize(12); artist.setPadding(0, queueDp(4), 0, 0); meta.addView(artist);
+        row.addView(meta, new android.widget.LinearLayout.LayoutParams(0, -1, 1));
+        TextView remove = new TextView(this); remove.setText("×"); remove.setGravity(android.view.Gravity.CENTER); remove.setTextColor(android.graphics.Color.rgb(150, 144, 137)); remove.setTextSize(22); remove.setContentDescription("Remove from queue"); row.addView(remove, new android.widget.LinearLayout.LayoutParams(queueDp(44), queueDp(48)));
+        row.setOnClickListener(v -> { controller.seekTo(index, 0); controller.play(); dialog.dismiss(); });
+        remove.setOnClickListener(v -> { controller.removeMediaItem(index); dialog.dismiss(); main.postDelayed(this::showQueue, 100); });
+        if (index != current) {
+            final float[] down = new float[1]; final boolean[] dragging = new boolean[1];
+            rail.setOnTouchListener((v, event) -> {
+                if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) { down[0] = event.getRawY(); dragging[0] = true; v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS); row.animate().scaleX(1.02f).scaleY(1.02f).setDuration(80).start(); return true; }
+                if (event.getActionMasked() == android.view.MotionEvent.ACTION_MOVE && dragging[0]) { row.setTranslationY(event.getRawY() - down[0]); return true; }
+                if ((event.getActionMasked() == android.view.MotionEvent.ACTION_UP || event.getActionMasked() == android.view.MotionEvent.ACTION_CANCEL) && dragging[0]) {
+                    dragging[0] = false; int delta = Math.round((event.getRawY() - down[0]) / Math.max(1f, row.getHeight())); int target = Math.max(current + 1, Math.min(controller.getMediaItemCount() - 1, index + delta)); row.setTranslationY(0); row.setScaleX(1); row.setScaleY(1);
+                    if (target != index) controller.moveMediaItem(index, target); dialog.dismiss(); main.postDelayed(this::showQueue, 100); return true;
+                }
+                return false;
+            });
+        }
+        return row;
+    }
+
+    private int queueDp(int value) { return (int)(value * getResources().getDisplayMetrics().density + .5f); }
 
     private void toggleShuffle() {
         if (controller == null) return;

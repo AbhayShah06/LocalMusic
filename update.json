@@ -1,7 +1,7 @@
 {
-  "versionCode": 16,
-  "versionName": "0.11.0",
-  "notes": "Jam now searches in the cloud, keeps running with the host phone locked, blocks duplicate rapid taps, shows the real queue, and adds playback and queue-order controls to the guest site.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.11.0/LocalMusic-0.11.0.apk",
-  "sha256": "9C34B3E164437F53A54D5D10E2175D8B914D377D2C7A66AEC83633F8B50B5497"
+  "versionCode": 17,
+  "versionName": "0.12.0",
+  "notes": "Jam queues now preserve song order, support direct play, Play Next, and drag reordering, and preload upcoming songs. The Android queue has a redesigned full-height player sheet with direct play, remove, and drag controls.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.0/LocalMusic-0.12.0.apk",
+  "sha256": "5434D39EFCCC3BCC771561D98DDB56D0B0CC79E05F9C88159DEBAE4798CEA8C8"
 }
