@@ -45,7 +45,7 @@
   function renderTracks() {
     if (!state.data) return;
     const query = $("search").value.trim().toLowerCase();
-    const matches = state.data.catalog.filter(t => !query || `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(query)).slice(0, 80);
+    const matches = uniqueTracks(state.data.catalog.filter(t => !query || `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(query))).slice(0, 30);
     $("resultCount").textContent = matches.length ? matches.length : "";
     const pending = (state.data.searches || []).some(item => item.status === "pending" && item.query.toLowerCase() === query);
     $("searchStatus").textContent = query && (pending || state.searching) ? "Searching the live catalogue…" : query && matches.length ? `${matches.length} results` : "";
@@ -81,35 +81,37 @@
     } catch (error) { toast(error.message); button.disabled = false; button.textContent = "Add"; } finally { state.pendingAdds.delete(track.id); }
   }
   function renderQueue() {
-    const playback = state.data.playback || {}, queue = state.optimisticQueue || playback.upcoming || []; $("queueCount").textContent = queue.length;
+    const playback = state.data.playback || {}, authoritative = playback.queue?.length ? playback.queue : playback.upcoming || [], queue = state.optimisticQueue || authoritative; $("queueCount").textContent = queue.length;
     $("nowTitle").textContent = playback.title || "Waiting for music"; $("nowArtist").textContent = playback.artist || "The host controls playback"; $("toggle").textContent = playback.playing ? "Pause" : "Play"; $("nowPulse").classList.toggle("playing", Boolean(playback.playing));
     $("nowArtwork").replaceWith(artworkNode(playback.artwork, playback.artist, "nowArtwork", "nowArtwork"));
-    $("queueList").replaceChildren(...(queue.length ? queue.map((item, index) => queueNode(item, index, queue)) : [empty("Nothing queued yet") ]));
+    $("queueList").replaceChildren(...(queue.length ? queue.map((item, index) => queueNode(item, index, queue, Number.isInteger(playback.currentIndex) ? playback.currentIndex : -1)) : [empty("Nothing queued yet") ]));
   }
-  function queueNode(item, index, queue) {
-    const row = document.createElement("div"); row.className = "queueItem"; row.dataset.index = index;
+  function queueNode(item, index, queue, currentIndex) {
+    const row = document.createElement("div"); row.className = `queueItem${index < currentIndex ? " played" : index === currentIndex ? " current" : ""}`; row.dataset.index = index;
     const handle = document.createElement("button"); handle.className = "dragHandle"; handle.type = "button"; handle.setAttribute("aria-label", `Move ${item.title}`); handle.innerHTML = "<i></i><i></i><i></i>";
     const art = artworkNode(item.artwork, item.artist, "queueArtwork");
-    const name = document.createElement("div"); name.className = "queueMeta"; const title = document.createElement("b"); title.textContent = item.title; const artist = document.createElement("span"); artist.textContent = item.artist; name.append(title, artist);
-    const play = document.createElement("button"); play.className = "queuePlay"; play.type = "button"; play.textContent = "Play"; play.addEventListener("click", event => { event.stopPropagation(); sendControl("play", index); });
-    row.addEventListener("click", () => sendControl("play", index)); bindDrag(handle, row, index, queue);
+    const name = document.createElement("div"); name.className = "queueMeta"; const title = document.createElement("b"); title.textContent = item.title; title.title = item.title; const artist = document.createElement("span"); artist.textContent = index === currentIndex ? `NOW PLAYING · ${item.artist}` : item.artist; artist.title = item.artist; name.append(title, artist);
+    const play = document.createElement("button"); play.className = "queuePlay"; play.type = "button"; play.textContent = index === currentIndex ? "Playing" : "Play"; play.disabled = index === currentIndex; play.addEventListener("click", event => { event.stopPropagation(); sendControl("play", index, 0, undefined, true); });
+    row.addEventListener("click", () => { if (index !== currentIndex) sendControl("play", index, 0, undefined, true); });
+    if (index > currentIndex) bindDrag(handle, row, index, queue, currentIndex + 1); else { handle.disabled = true; handle.setAttribute("aria-hidden", "true"); }
     row.append(handle, art, name, play); return row;
   }
-  function bindDrag(handle, row, startIndex, queue) {
+  function bindDrag(handle, row, startIndex, queue, minimumIndex) {
     let timer, active = false, targetIndex = startIndex;
-    const finish = () => { clearTimeout(timer); if (!active) return; active = false; handle.releasePointerCapture?.(pointerId); document.body.classList.remove("sorting"); row.classList.remove("dragging"); if (targetIndex !== startIndex) sendControl("reorder", startIndex, 0, targetIndex); };
+    const finish = () => { clearTimeout(timer); if (!active) return; active = false; handle.releasePointerCapture?.(pointerId); document.body.classList.remove("sorting"); row.classList.remove("dragging"); if (targetIndex !== startIndex) sendControl("reorder", startIndex, 0, targetIndex, true); };
     let pointerId;
     handle.addEventListener("pointerdown", event => { event.stopPropagation(); pointerId = event.pointerId; timer = setTimeout(() => { active = true; handle.setPointerCapture?.(pointerId); row.classList.add("dragging"); document.body.classList.add("sorting"); navigator.vibrate?.(18); }, 260); });
-    handle.addEventListener("pointermove", event => { if (!active) return; event.preventDefault(); const over = document.elementFromPoint(event.clientX, event.clientY)?.closest?.(".queueItem"); const next = Number(over?.dataset.index); if (!Number.isInteger(next) || next === targetIndex) return; targetIndex = next; const reordered = [...queue]; const [moved] = reordered.splice(startIndex, 1); reordered.splice(targetIndex, 0, moved); state.optimisticQueue = reordered; renderQueue(); });
+    handle.addEventListener("pointermove", event => { if (!active) return; event.preventDefault(); const over = document.elementFromPoint(event.clientX, event.clientY)?.closest?.(".queueItem"); const next = Number(over?.dataset.index); if (!Number.isInteger(next) || next < minimumIndex || next === targetIndex) return; targetIndex = next; const reordered = [...queue]; const [moved] = reordered.splice(startIndex, 1); reordered.splice(targetIndex, 0, moved); state.optimisticQueue = reordered; renderQueue(); });
     handle.addEventListener("pointerup", finish); handle.addEventListener("pointercancel", finish); handle.addEventListener("pointerleave", () => { if (!active) clearTimeout(timer); });
   }
-  async function sendControl(action, index, direction, toIndex) {
+  async function sendControl(action, index, direction, toIndex, absolute) {
     if (!state.data?.active) return; const button = $(action); if (button) button.disabled = true;
-    try { const requestId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${action}`; const response = await fetch(`${API}/api/rooms/${state.room}/control`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, guest: state.guest, requestId, index, direction, toIndex }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error || "Control failed"); toast(action === "toggle" ? "Playback updated" : action === "next" ? "Skipping forward" : action === "previous" ? "Going back" : action === "play" ? "Playing selection" : "Queue order updated"); }
+    try { const requestId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${action}`; const response = await fetch(`${API}/api/rooms/${state.room}/control`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, guest: state.guest, requestId, index, direction, toIndex, absolute }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error || "Control failed"); toast(action === "toggle" ? "Playback updated" : action === "next" ? "Skipping forward" : action === "previous" ? "Going back" : action === "play" ? "Playing selection" : "Queue order updated"); }
     catch (error) { state.optimisticQueue = null; renderQueue(); toast(error.message); } finally { if (action === "reorder") setTimeout(() => { state.optimisticQueue = null; renderQueue(); }, 1400); if (button) setTimeout(() => button.disabled = false, 500); }
   }
   function empty(text) { const node = document.createElement("div"); node.className = "empty"; node.textContent = text; return node; }
   function artworkNode(url, artist, className, id) { const box = document.createElement("span"); box.className = className; if (id) box.id = id; const fallback = document.createElement("span"); fallback.textContent = initials(artist); box.append(fallback); if (url) { const image = document.createElement("img"); image.src = url; image.alt = ""; image.loading = "lazy"; image.decoding = "async"; image.addEventListener("load", () => box.classList.add("loaded")); image.addEventListener("error", () => image.remove()); box.append(image); } return box; }
+  function uniqueTracks(tracks) { const seen = new Set(); return tracks.filter(track => { const key = `${track.title} ${track.artist}`.toLowerCase().replace(/\([^)]*\)|\[[^\]]*\]|official|audio|video|lyrics?/g, " ").replace(/[^a-z0-9]+/g, " ").trim(); if (!key || seen.has(key)) return false; seen.add(key); return true; }); }
   function initials(value) { return String(value || "LM").split(/\s+/).slice(0, 2).map(x => x[0] || "").join("").toUpperCase(); }
   function fail(message) { $("setupError").textContent = message; }
   let toastTimer; function toast(message) { $("toast").textContent = message; $("toast").classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => $("toast").classList.remove("show"), 2200); }

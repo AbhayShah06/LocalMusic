@@ -60,6 +60,13 @@
   font-weight: 850;
 }
 .queuePlay:active { background: #302a27; }
+.queuePlay:disabled { color: var(--accent2); opacity: .75; }
+.queueItem.current { background: #211b18; }
+.queueItem.current .queueMeta span { color: var(--accent2); font-weight: 800; }
+.queueItem.played { opacity: .52; }
+.queueItem.played:hover { opacity: .82; }
+.queueItem .dragHandle:disabled { opacity: .12; }
+.nowMeta strong { max-width: 100%; }
 .sorting { user-select: none; }
 .sorting .queueItem { transition: none; }
 @media (max-width: 430px) {

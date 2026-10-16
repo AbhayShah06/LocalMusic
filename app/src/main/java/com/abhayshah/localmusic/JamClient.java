@@ -36,7 +36,7 @@ final class JamClient {
         List<Search> searches = new ArrayList<>(); JSONArray searchValues = body.getJSONObject("room").optJSONArray("searches");
         if (searchValues != null) for (int i = 0; i < searchValues.length(); i++) { JSONObject item = searchValues.getJSONObject(i); searches.add(new Search(item.getString("id"), item.optString("query"), "pending".equals(item.optString("status")))); }
         List<Control> controls = new ArrayList<>(); JSONArray controlValues = body.getJSONObject("room").optJSONArray("controls");
-        if (controlValues != null) for (int i = 0; i < controlValues.length(); i++) { JSONObject item = controlValues.getJSONObject(i); controls.add(new Control(item.getString("id"), item.optString("action"), item.optString("guest", "Guest"), item.optInt("index", -1), item.optInt("direction", 0), item.optInt("toIndex", -1))); }
+        if (controlValues != null) for (int i = 0; i < controlValues.length(); i++) { JSONObject item = controlValues.getJSONObject(i); controls.add(new Control(item.getString("id"), item.optString("action"), item.optString("guest", "Guest"), item.optInt("index", -1), item.optInt("direction", 0), item.optInt("toIndex", -1), item.optBoolean("absolute", false))); }
         return new State(entries, searches, controls);
     }
 
@@ -46,8 +46,14 @@ final class JamClient {
     }
 
     void publishPlayback(Room room, String title, String artist, String artwork, boolean playing, List<String[]> upcoming) throws Exception {
-        JSONArray queue = new JSONArray(); for (String[] item : upcoming) queue.put(new JSONObject().put("title", item[0]).put("artist", item[1]).put("artwork", item.length > 2 ? item[2] : ""));
-        post("/api/rooms/" + room.code + "/playback", new JSONObject().put("title", title).put("artist", artist).put("artwork", artwork).put("playing", playing).put("upcoming", queue), room.hostToken);
+        publishPlayback(room, title, artist, artwork, playing, upcoming, -1);
+    }
+
+    void publishPlayback(Room room, String title, String artist, String artwork, boolean playing, List<String[]> queueItems, int currentIndex) throws Exception {
+        JSONArray queue = new JSONArray(); for (String[] item : queueItems) queue.put(new JSONObject().put("title", item[0]).put("artist", item[1]).put("artwork", item.length > 2 ? item[2] : ""));
+        JSONArray upcoming = new JSONArray();
+        for (int i = 0; i < queue.length(); i++) if (currentIndex < 0 || i > currentIndex) upcoming.put(queue.getJSONObject(i));
+        post("/api/rooms/" + room.code + "/playback", new JSONObject().put("title", title).put("artist", artist).put("artwork", artwork).put("playing", playing).put("queue", queue).put("currentIndex", currentIndex).put("upcoming", upcoming), room.hostToken);
     }
 
     void close(Room room) throws Exception { post("/api/rooms/" + room.code + "/close", new JSONObject(), room.hostToken); }
@@ -86,6 +92,6 @@ final class JamClient {
     static final class Room { final String code, hostToken; Room(String code, String hostToken) { this.code = code; this.hostToken = hostToken; } String joinUrl() { return SITE_BASE + "?room=" + code; } }
     static final class State { final List<Entry> entries; final List<Search> searches; final List<Control> controls; State(List<Entry> entries, List<Search> searches, List<Control> controls) { this.entries = entries; this.searches = searches; this.controls = controls; } }
     static final class Search { final String id, query; final boolean pending; Search(String id, String query, boolean pending) { this.id = id; this.query = query; this.pending = pending; } }
-    static final class Control { final String id, action, guest; final int index, direction, toIndex; Control(String id, String action, String guest, int index, int direction, int toIndex) { this.id = id; this.action = action; this.guest = guest; this.index = index; this.direction = direction; this.toIndex = toIndex; } }
+    static final class Control { final String id, action, guest; final int index, direction, toIndex; final boolean absolute; Control(String id, String action, String guest, int index, int direction, int toIndex, boolean absolute) { this.id = id; this.action = action; this.guest = guest; this.index = index; this.direction = direction; this.toIndex = toIndex; this.absolute = absolute; } }
     static final class Entry { final String id, trackId, guest, title, artist, placement; Entry(String id, String trackId, String guest, String title, String artist, String placement) { this.id = id; this.trackId = trackId; this.guest = guest; this.title = title; this.artist = artist; this.placement = placement; } }
 }

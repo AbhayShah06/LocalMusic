@@ -104,14 +104,17 @@ export class JamRoom extends DurableObject {
     const input = await request.json().catch(() => ({})); const action = String(input.action || "");
     if (!new Set(["previous", "toggle", "next", "move", "play", "reorder"]).has(action)) return json({ error: "Unknown control" }, 400);
     room.controls ||= []; const requestId = String(input.requestId || "").slice(0, 80); const duplicate = room.controls.find(item => requestId && item.requestId === requestId); if (duplicate) return json({ ok: true, duplicate: true, control: duplicate }, 200);
-    const control = { id: crypto.randomUUID(), requestId, action, guest: String(input.guest || "Guest").trim().slice(0, 28) || "Guest", index: Math.max(-1, Math.min(19, Number(input.index) || 0)), toIndex: Math.max(-1, Math.min(19, Number(input.toIndex) || 0)), direction: Math.sign(Number(input.direction) || 0), createdAt: Date.now() };
+    const control = { id: crypto.randomUUID(), requestId, action, guest: String(input.guest || "Guest").trim().slice(0, 28) || "Guest", index: Math.max(-1, Math.min(199, Number(input.index) || 0)), toIndex: Math.max(-1, Math.min(199, Number(input.toIndex) || 0)), direction: Math.sign(Number(input.direction) || 0), absolute: Boolean(input.absolute), createdAt: Date.now() };
     room.controls.push(control); room.controls = room.controls.slice(-80); room.updatedAt = Date.now(); room.revision += 1; await this.ctx.storage.put("room", room); this.broadcast(room); return json({ ok: true, control }, 201);
   }
 
   async playback(request) {
     const room = await this.ctx.storage.get("room"); if (!room) return json({ error: "Jam not found" }, 404); if (!authorized(request, room.hostToken)) return json({ error: "Host access required" }, 401);
-    const input = await request.json().catch(() => ({})); const upcoming = Array.isArray(input.upcoming) ? input.upcoming.slice(0, 20).map(item => ({ title: String(item?.title || "Unknown title").slice(0, 160), artist: String(item?.artist || "Unknown artist").slice(0, 160), artwork: safeArtwork(item?.artwork) })) : [];
-    room.playback = { title: String(input.title || "").slice(0, 160), artist: String(input.artist || "").slice(0, 160), artwork: safeArtwork(input.artwork), playing: Boolean(input.playing), upcoming }; room.updatedAt = Date.now(); room.revision += 1; await this.ctx.storage.put("room", room); this.broadcast(room); return json({ ok: true, revision: room.revision });
+    const input = await request.json().catch(() => ({})); const cleanItem = item => ({ title: String(item?.title || "Unknown title").slice(0, 160), artist: String(item?.artist || "Unknown artist").slice(0, 160), artwork: safeArtwork(item?.artwork) });
+    const queue = Array.isArray(input.queue) ? input.queue.slice(0, 200).map(cleanItem) : [];
+    const currentIndex = Math.max(-1, Math.min(queue.length - 1, Number(input.currentIndex) || 0));
+    const upcoming = queue.length ? queue.slice(currentIndex + 1) : Array.isArray(input.upcoming) ? input.upcoming.slice(0, 200).map(cleanItem) : [];
+    room.playback = { title: String(input.title || "").slice(0, 160), artist: String(input.artist || "").slice(0, 160), artwork: safeArtwork(input.artwork), playing: Boolean(input.playing), queue, currentIndex, upcoming }; room.updatedAt = Date.now(); room.revision += 1; await this.ctx.storage.put("room", room); this.broadcast(room); return json({ ok: true, revision: room.revision });
   }
 
   async search(request) {

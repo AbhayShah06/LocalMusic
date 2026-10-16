@@ -72,9 +72,9 @@ final class OnlineCatalogSource implements CatalogSource {
                 Set<String> known = new HashSet<>(); for (Track track : output) known.add(track.stableId);
                 for (int i = 0; i < values.length() && output.size() < limit; i++) {
                     JSONObject item = values.optJSONObject(i); if (item == null) continue;
-                    String id = item.optString("id"), title = item.optString("title"), artist = item.optString("artist"), album = item.optString("album", "YouTube Music"), artwork = item.optString("artwork");
+                    String id = bounded(item.optString("id"), 700), title = bounded(item.optString("title"), 160), artist = bounded(item.optString("artist"), 160), album = bounded(item.optString("album", "YouTube Music"), 160), artwork = bounded(item.optString("artwork"), 900);
                     if (!id.startsWith("online:") || !known.add(id)) continue;
-                    output.add(new Track(id, Uri.EMPTY, title, artist, album, artwork.isEmpty() ? null : Uri.parse(artwork)));
+                    output.add(new Track(id, Uri.EMPTY, title, artist, album, artwork.startsWith("https://") ? Uri.parse(artwork) : null));
                 }
             }
         } catch (Exception ignored) { }
@@ -227,6 +227,7 @@ final class OnlineCatalogSource implements CatalogSource {
         }
         return best == null ? null : Uri.parse(best.getUrl());
     }
+    private static String bounded(String value, int max) { String clean = value == null ? "" : value.trim(); return clean.length() <= max ? clean : clean.substring(0, max); }
     private static final class CachedTrack {
         final Track track; final long createdAt = System.currentTimeMillis();
         CachedTrack(Track track) { this.track = track; }

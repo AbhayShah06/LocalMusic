@@ -324,6 +324,7 @@ public final class MainActivity extends Activity {
         if (controller == null || controller.getCurrentMediaItem() == null) { Toast.makeText(this, "Choose a song first", Toast.LENGTH_SHORT).show(); return; }
         android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar);
         dialog.setContentView(R.layout.dialog_now_playing);
+        installSwipeBack(dialog.findViewById(android.R.id.content), dialog::dismiss);
         if (dialog.getWindow() != null) { dialog.getWindow().setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT); dialog.getWindow().setStatusBarColor(android.graphics.Color.rgb(11, 11, 12)); dialog.getWindow().setNavigationBarColor(android.graphics.Color.rgb(11, 11, 12)); }
         TextView title = dialog.findViewById(R.id.fullTitle), artist = dialog.findViewById(R.id.fullArtist), elapsed = dialog.findViewById(R.id.fullElapsed), durationLabel = dialog.findViewById(R.id.fullDuration);
         android.widget.ImageButton play = dialog.findViewById(R.id.fullPlayPause);
@@ -402,6 +403,7 @@ public final class MainActivity extends Activity {
             text.setPadding(pad, pad, pad, pad); text.setText(lyrics); text.setTextColor(android.graphics.Color.rgb(246, 241, 232)); text.setTextSize(18); text.setLineSpacing(0, 1.25f); text.setTextIsSelectable(true);
             android.widget.ScrollView scroll = new android.widget.ScrollView(this); scroll.setBackgroundColor(android.graphics.Color.rgb(11, 11, 12)); scroll.addView(text);
             android.app.Dialog lyricsDialog = new android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar); lyricsDialog.setContentView(scroll); lyricsDialog.show(); if (lyricsDialog.getWindow() != null) lyricsDialog.getWindow().setLayout(-1, -1);
+            installSwipeBack(scroll, lyricsDialog::dismiss);
         }); });
     }
 
@@ -413,7 +415,7 @@ public final class MainActivity extends Activity {
         TextView heading = new TextView(this); heading.setText(artistName); heading.setTextColor(android.graphics.Color.rgb(246, 241, 232)); heading.setTextSize(32); heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); heading.setPadding(14, 22, 14, 10); root.addView(heading);
         TextView artistStatus = new TextView(this); artistStatus.setText("Loading top songs…"); artistStatus.setTextColor(android.graphics.Color.rgb(143, 138, 131)); artistStatus.setPadding(14, 8, 14, 14); root.addView(artistStatus);
         ListView list = new ListView(this); list.setDividerHeight(4); list.setDivider(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)); root.addView(list, new android.widget.LinearLayout.LayoutParams(-1, 0, 1));
-        dialog.setContentView(root); close.setOnClickListener(v -> dialog.dismiss()); dialog.show(); if (dialog.getWindow() != null) dialog.getWindow().setLayout(-1, -1);
+        dialog.setContentView(root); close.setOnClickListener(v -> dialog.dismiss()); installSwipeBack(root, dialog::dismiss); installSwipeBack(list, dialog::dismiss); dialog.show(); if (dialog.getWindow() != null) dialog.getWindow().setLayout(-1, -1);
         List<Track> artistTracks = new ArrayList<>(); LibraryAdapter artistAdapter = new LibraryAdapter(this, artistTracks, position -> { dialog.dismiss(); resolveAndPlayOnline(artistTracks, position); }, position -> addTrackToPlaylist(artistTracks.get(position))); list.setAdapter(artistAdapter);
         list.setOnItemClickListener((parent, view, position, id) -> { dialog.dismiss(); resolveAndPlayOnline(artistTracks, position); });
         searchIo.execute(() -> {
@@ -710,7 +712,7 @@ public final class MainActivity extends Activity {
         int current = controller.getCurrentMediaItemIndex();
         for (int i = 0; i < controller.getMediaItemCount(); i++) rows.addView(queueRow(dialog, i, current));
         sheet.addView(scroll, new android.widget.LinearLayout.LayoutParams(-1, 0, 1));
-        dialog.setContentView(sheet); android.view.Window window = dialog.getWindow();
+        dialog.setContentView(sheet); installSwipeBack(sheet, dialog::dismiss); installSwipeBack(scroll, dialog::dismiss); android.view.Window window = dialog.getWindow();
         if (window != null) { window.setBackgroundDrawableResource(android.R.color.transparent); window.setLayout(-1, -1); window.setGravity(android.view.Gravity.BOTTOM); window.setDimAmount(.62f); window.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND); }
         dialog.setOnShowListener(ignored -> { android.view.Window w = dialog.getWindow(); if (w != null) { w.setLayout(-1, (int)(getResources().getDisplayMetrics().heightPixels * .82f)); w.setGravity(android.view.Gravity.BOTTOM); } });
         dialog.show();
@@ -745,6 +747,24 @@ public final class MainActivity extends Activity {
     }
 
     private int queueDp(int value) { return (int)(value * getResources().getDisplayMetrics().density + .5f); }
+
+    /** Edge swipe follows the familiar iOS gesture without stealing ordinary list scrolling. */
+    private void installSwipeBack(View view, Runnable back) {
+        if (view == null) return;
+        final float[] startX = new float[1], startY = new float[1]; final boolean[] tracking = new boolean[1], fired = new boolean[1];
+        view.setOnTouchListener((target, event) -> {
+            if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
+                startX[0] = event.getX(); startY[0] = event.getY(); tracking[0] = startX[0] <= queueDp(28); fired[0] = false; return false;
+            }
+            if (tracking[0] && event.getActionMasked() == android.view.MotionEvent.ACTION_MOVE && !fired[0]) {
+                float dx = event.getX() - startX[0], dy = Math.abs(event.getY() - startY[0]);
+                if (dx > queueDp(96) && dy < dx * .6f) { fired[0] = true; target.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK); back.run(); return true; }
+                if (dy > queueDp(48) || dx < -queueDp(12)) tracking[0] = false;
+            }
+            if (event.getActionMasked() == android.view.MotionEvent.ACTION_UP || event.getActionMasked() == android.view.MotionEvent.ACTION_CANCEL) tracking[0] = false;
+            return false;
+        });
+    }
 
     private void togglePlayback() {
         if (controller == null) return;

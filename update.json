@@ -1,7 +1,7 @@
 {
   "versionCode": 19,
   "versionName": "0.12.2",
-  "notes": "Play now resumes reliably from idle or ended playback. Android search uses the music-specific cloud catalogue first, with on-device fallback. Jam search, Now Playing, and queue rows now show real artwork.",
+  "notes": "Play resumes reliably, Android search uses the music-specific catalogue first, and Jam surfaces show real artwork. Jam now mirrors the phone's complete queue and current position, keeps guest requests ahead of autoplay recommendations, and supports exact multi-device play and reorder commands. Full-screen surfaces support edge-swipe back.",
   "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.2/LocalMusic-0.12.2.apk",
-  "sha256": "2F076D934CBF48060771AB3598C68BA84624CC819AF037C29586823F804914C7"
+  "sha256": "1CE3F01233D931B5FE9CCED5202464759764720A2195159B9A7A196D03E1A439"
 }
