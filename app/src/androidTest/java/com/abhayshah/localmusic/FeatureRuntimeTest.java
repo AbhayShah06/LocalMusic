@@ -77,7 +77,7 @@ public class FeatureRuntimeTest {
     }
     @Test public void c_settingsAndPlaylistImportScreensActuallyOpen()throws Exception{
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
-            onView(withId(R.id.forYou)).perform(click());onView(withText("Recently played")).check(matches(isDisplayed()));androidx.test.espresso.Espresso.pressBack();
+            onView(withId(R.id.forYou)).perform(click());onView(withText("Recently played")).check(matches(isDisplayed()));onView(withId(R.id.songs)).perform(click());
             onView(withId(R.id.playlists)).perform(click());onView(withText("+ Import playlist")).perform(click());
             onView(withText("Paste song names")).perform(click());onView(withText("Import playlist")).check(matches(isDisplayed()));androidx.test.espresso.Espresso.pressBack();
             onView(withId(R.id.more)).perform(click());onView(withText("Settings")).perform(click());onView(withText(org.hamcrest.Matchers.startsWith("Import playlists"))).perform(scrollTo()).check(matches(isDisplayed()));androidx.test.espresso.Espresso.pressBack();
@@ -107,6 +107,77 @@ public class FeatureRuntimeTest {
         }
     }
     static void shell(String command)throws Exception{try(android.os.ParcelFileDescriptor result=InstrumentationRegistry.getInstrumentation().getUiAutomation().executeShellCommand(command);java.io.InputStream in=new android.os.ParcelFileDescriptor.AutoCloseInputStream(result)){byte[] buffer=new byte[1024];while(in.read(buffer)!=-1){}}}
+    @Test public void f_queueRefreshesDuringAutomaticTransitionAndIncomingAddition()throws Exception{
+        try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
+            Track one=fixture("transition-one"),two=fixture("transition-two"),incoming=fixture("incoming");MediaController controller=connect();
+            main(()->{controller.setMediaItems(Arrays.asList(one.toMediaItem(),two.toMediaItem()));controller.prepare();controller.play();});
+            await("Playback not ready",()->value(controller::isPlaying),10000);
+            onView(withId(R.id.miniPlayer)).perform(click());onView(withId(R.id.fullQueue)).perform(click());
+            main(()->controller.seekTo(299750));
+            await("Automatic transition did not happen",()->value(()->controller.getCurrentMediaItem().mediaId).equals(two.stableId),10000);
+            activity.moveToState(androidx.lifecycle.Lifecycle.State.CREATED);
+            main(()->controller.addMediaItem(incoming.toMediaItem().buildUpon().setMediaId("auto:"+incoming.stableId).build()));
+            activity.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED);
+            waitForText("Test Song incoming");
+            onView(withContentDescription("More options for Test Song incoming")).perform(click());onView(withText("Download")).check(matches(isDisplayed()));
+            androidx.test.espresso.Espresso.pressBack();androidx.test.espresso.Espresso.pressBack();
+            onView(withId(R.id.fullTitle)).check(matches(withText("Test Song transition-two")));
+            androidx.test.espresso.Espresso.pressBack();onView(withId(R.id.nowPlaying)).check(matches(withText("Test Song transition-two")));main(()->{controller.pause();controller.release();});
+        }
+    }
+    @Test public void g_phonePlaylistsSongsAlbumsAndSourceSwitchKeepDownloadsVisible()throws Exception{
+        Track saved=fixture("navigation");File destination=DownloadStore.destination(context,saved.stableId);Files.copy(new File(saved.playbackUri.getPath()).toPath(),destination.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);DownloadStore.put(context,saved,destination);
+        try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
+            onView(withId(R.id.source)).perform(click());onView(withText("This phone")).perform(click());
+            waitForText("Test Song navigation");
+            for(int round=0;round<2;round++){
+                onView(withId(R.id.playlists)).perform(click());androidx.test.espresso.Espresso.pressBack();onView(withId(R.id.songs)).perform(click());waitForText("Test Song navigation");
+                onView(withId(R.id.albums)).perform(click());waitForText("Fixtures · Runtime Test");onView(withId(R.id.songs)).perform(click());waitForText("Test Song navigation");
+                onView(withId(R.id.forYou)).perform(click());onView(withId(R.id.songs)).perform(click());waitForText("Test Song navigation");
+                onView(withId(R.id.source)).perform(click());onView(withText("Stream online")).perform(click());
+                onView(withId(R.id.source)).perform(click());onView(withText("This phone")).perform(click());waitForText("Test Song navigation");
+            }
+        }finally{DownloadStore.remove(context,saved.stableId);}
+    }
+    static void waitForText(String text)throws Exception{
+        long until=System.currentTimeMillis()+10000;AssertionError last=null;
+        while(System.currentTimeMillis()<until){try{onView(withText(text)).check(matches(isDisplayed()));return;}catch(androidx.test.espresso.NoMatchingViewException|AssertionError waiting){if(waiting instanceof AssertionError)last=(AssertionError)waiting;Thread.sleep(150);}}
+        if(last!=null)throw last;onView(withText(text)).check(matches(isDisplayed()));
+    }
+    @Test public void h_feedbackAndNotificationActionsDoNotTrapNavigation()throws Exception{
+        try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
+            onView(withId(R.id.more)).perform(click());onView(withText("Settings")).perform(click());
+            onView(withText(org.hamcrest.Matchers.startsWith("Feedback"))).perform(scrollTo(),click());onView(withText("Copy email address")).perform(click());
+            assertEquals(FeedbackDraft.EMAIL,value(()->context.getSystemService(android.content.ClipboardManager.class).getPrimaryClip().getItemAt(0).getText().toString()));
+            androidx.test.espresso.Espresso.pressBack();onView(withId(R.id.forYou)).perform(click());onView(withText("Recently played")).check(matches(isDisplayed()));
+            Track track=fixture("notification-cancel");DownloadTasks.put(context,track,"queued",0,-1,"");
+            new DownloadNotificationReceiver().onReceive(context,new Intent(context,DownloadNotificationReceiver.class).setAction("hide").putExtra("track_id",track.stableId));
+            assertTrue(context.getSharedPreferences("download_notifications",Context.MODE_PRIVATE).getBoolean(track.stableId,false));assertEquals("queued",DownloadTasks.get(context,track.stableId).optString("state"));
+            new DownloadNotificationReceiver().onReceive(context,new Intent(context,DownloadNotificationReceiver.class).setAction("cancel").putExtra("track_id",track.stableId));
+            assertEquals("cancelled",DownloadTasks.get(context,track.stableId).optString("state"));
+            android.app.NotificationChannel channel=context.getSystemService(android.app.NotificationManager.class).getNotificationChannel("offline_downloads_quiet");
+            if(channel!=null){assertEquals(android.app.NotificationManager.IMPORTANCE_LOW,channel.getImportance());assertNull(channel.getSound());assertFalse(channel.shouldVibrate());}
+        }
+    }
+    @Test public void i_autoplayRefillsFiveKeepsOriginalSeedAndManualTracks()throws Exception{
+        try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
+            MediaController controller=connect();Track seed=fixture("radio-seed"),manual=fixture("radio-manual");List<Track> candidates=new ArrayList<>();
+            for(int i=0;i<14;i++)candidates.add(new Track("fixture:radio-"+i,seed.playbackUri,"Radio Song "+i,"Related Artist","Radio"));
+            main(()->{controller.setMediaItem(seed.toMediaItem());controller.prepare();controller.play();});
+            context.startService(new Intent(context,PlaybackService.class).setAction(PlaybackService.ACTION_SET_RADIO).putExtra("radio_seed",JamClient.hostCatalog(Collections.singletonList(seed))).putExtra("radio_candidates",JamClient.hostCatalog(candidates)));
+            try{
+                await("Initial five recommendations missing",()->value(()->autoplayAhead(controller))==5,20000);
+                main(()->controller.addMediaItem(1,manual.toMediaItem()));
+                for(int pass=0;pass<4;pass++){
+                    main(controller::seekToNextMediaItem);await("Autoplay did not replenish to five",()->value(()->autoplayAhead(controller))==5,15000);
+                    assertTrue(value(()->{for(int n=0;n<controller.getMediaItemCount();n++)if(controller.getMediaItemAt(n).mediaId.equals(manual.stableId))return true;return false;}));
+                    assertEquals(seed.stableId,new org.json.JSONArray(context.getSharedPreferences("radio",0).getString("seed","[]")).getJSONObject(0).getString("id"));
+                }
+                assertNull(value(controller::getPlayerError));
+            }finally{context.startService(new Intent(context,PlaybackService.class).setAction(PlaybackService.ACTION_STOP_RADIO));main(()->{controller.pause();controller.release();});}
+        }
+    }
+    static int autoplayAhead(MediaController controller){int count=0;for(int i=controller.getCurrentMediaItemIndex()+1;i<controller.getMediaItemCount();i++)if(controller.getMediaItemAt(i).mediaId.startsWith("auto:"))count++;return count;}
     @Test public void z_actualAndroidJamHostAndBrowserFriend()throws Exception{
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
             Track one=fixture("host"),two=fixture("friend");MediaController controller=connect();
@@ -121,7 +192,7 @@ public class FeatureRuntimeTest {
                 await("Friend song never reached actual Android queue",()->value(controller::getMediaItemCount)>=2,180000);
                 assertTrue(value(()->controller.getMediaItemAt(1).mediaId.startsWith("jam:")));assertEquals("Test Song friend",value(()->controller.getMediaItemAt(1).mediaMetadata.title.toString()));
                 android.util.Log.i("FeatureRuntimeTest","JAM_QUEUE_PASS waiting for guest pause");
-                if(!manual)guest(room.code,"control","{\"action\":\"pause\",\"guest\":\"Automated Friend\"}");
+                if(!manual)guest(room.code,"control","{\"action\":\"toggle\",\"guest\":\"Automated Friend\"}");
                 await("Guest pause never reached Android player",()->!value(controller::getPlayWhenReady),120000);
                 assertNull(value(controller::getPlayerError));
             }finally{new JamClient().close(room);context.startService(new Intent(context,PlaybackService.class).setAction(PlaybackService.ACTION_STOP_JAM));main(controller::release);}

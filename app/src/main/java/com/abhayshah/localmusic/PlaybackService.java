@@ -41,6 +41,9 @@ public final class PlaybackService extends MediaSessionService {
     static final String EXTRA_JAM_TOKEN = "jam_token";
     static final String EXTRA_JAM_CATALOG = "jam_catalog";
     static final String ACTION_PUBLISH_JAM = "com.abhayshah.localmusic.PUBLISH_JAM";
+    static final String ACTION_SET_RADIO = "com.abhayshah.localmusic.SET_RADIO";
+    static final String ACTION_STOP_RADIO = "com.abhayshah.localmusic.STOP_RADIO";
+    private AutoplayQueue autoplayQueue;
     private final Map<String, Track> jamCatalog = new ConcurrentHashMap<>();
     private final Set<String> jamSearches = ConcurrentHashMap.newKeySet();
     private volatile boolean destroyed;
@@ -115,6 +118,7 @@ public final class PlaybackService extends MediaSessionService {
             stateHandler.postDelayed(debouncedSave, 750);
             if (jamRoom != null) stateHandler.postDelayed(PlaybackService.this::publishJamPlayback, 120);
             scheduleUpcomingPreloads();
+            if(autoplayQueue!=null)autoplayQueue.refill();
         }
     };
 
@@ -129,6 +133,7 @@ public final class PlaybackService extends MediaSessionService {
         prefs.edit().putInt("audio_session_id", player.getAudioSessionId()).apply();
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true);
         session = new MediaSession.Builder(this, player).build();
+        autoplayQueue=new AutoplayQueue(this,player,stateHandler);
         player.addListener(persistenceListener);
         restoreQueue();
         restoreSleepTimer();
@@ -136,7 +141,11 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     @Override public int onStartCommand(android.content.Intent intent, int flags, int startId) {
-        if (intent != null && ACTION_SET_SLEEP_TIMER.equals(intent.getAction())) {
+        if(intent!=null && ACTION_SET_RADIO.equals(intent.getAction())){
+            autoplayQueue.configure(intent.getStringExtra("radio_seed"),intent.getStringExtra("radio_candidates"));
+        } else if(intent!=null && ACTION_STOP_RADIO.equals(intent.getAction())){
+            autoplayQueue.stop();
+        } else if (intent != null && ACTION_SET_SLEEP_TIMER.equals(intent.getAction())) {
             setSleepTimer(intent.getLongExtra(EXTRA_SLEEP_MINUTES, 0));
         } else if (intent != null && ACTION_START_JAM.equals(intent.getAction())) {
             jamEntries.clear(); jamControls.clear();
@@ -404,6 +413,7 @@ public final class PlaybackService extends MediaSessionService {
 
     @Override public void onDestroy() {
         destroyed = true;
+        if(autoplayQueue!=null)autoplayQueue.close();
         bufferingForDownloads = false;
         stateHandler.removeCallbacksAndMessages(null);
         stateHandler.removeCallbacks(periodicSave);

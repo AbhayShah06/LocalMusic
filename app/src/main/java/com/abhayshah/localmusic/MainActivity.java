@@ -74,9 +74,11 @@ public final class MainActivity extends Activity {
     private final java.util.Set<String> seenJamSearches = new java.util.HashSet<>();
     private final java.util.Set<String> seenJamControls = new java.util.HashSet<>();
     private volatile String lastJamPlayback = "";
+    private final java.util.Set<Runnable> livePlayerViews = new java.util.HashSet<>();
+    private void refreshLivePlayerViews() { for(Runnable refresh:new ArrayList<>(livePlayerViews))refresh.run(); }
     private final Player.Listener uiPlayerListener = new Player.Listener() {
         @Override public void onEvents(Player player, Player.Events events) {
-            if (events.containsAny(Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_MEDIA_METADATA_CHANGED, Player.EVENT_TIMELINE_CHANGED, Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAY_WHEN_READY_CHANGED)) updateNowPlaying();
+            if (events.containsAny(Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_MEDIA_METADATA_CHANGED, Player.EVENT_TIMELINE_CHANGED, Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAY_WHEN_READY_CHANGED)) { updateNowPlaying(); refreshLivePlayerViews(); }
         }
     };
 
@@ -126,7 +128,7 @@ public final class MainActivity extends Activity {
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                query = s.toString(); searchHandler.removeCallbacksAndMessages(null);
+                query = s.toString(); if(showingForYou && !query.trim().isEmpty())selectTab(R.id.songs); searchHandler.removeCallbacksAndMessages(null);
                 searchHandler.postDelayed(MainActivity.this::resetAndLoad, onlineMode ? 350 : 120);
             }
             @Override public void afterTextChanged(Editable s) { }
@@ -135,6 +137,7 @@ public final class MainActivity extends Activity {
         permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE);
         ((TextView)findViewById(R.id.source)).setText("Stream  ▾");
         status.setText("Search for any song, artist, or album");
+        showForYou();
         handlePlaylistShare(getIntent());
         if (getIntent().getBooleanExtra("show_download_activity",false)) showDownloadActivity();
     }
@@ -143,7 +146,7 @@ public final class MainActivity extends Activity {
         SessionToken token = new SessionToken(this, new ComponentName(this, PlaybackService.class));
         controllerFuture = new MediaController.Builder(this, token).buildAsync();
         controllerFuture.addListener(() -> {
-            try { controller = controllerFuture.get(); controller.addListener(uiPlayerListener); updateNowPlaying(); }
+            try { controller = controllerFuture.get(); controller.addListener(uiPlayerListener); updateNowPlaying(); refreshLivePlayerViews(); }
             catch (Exception e) { status.setText("Playback service could not be connected."); }
         }, command -> main.post(command));
     }
@@ -178,8 +181,8 @@ public final class MainActivity extends Activity {
     private void requestAudioPermission() { requestPermissions(new String[]{audioPermission()}, AUDIO_PERMISSION_REQUEST); }
 
     private void refreshPermissionState() {
-        if (permissionPanel == null || remoteMode) return;
-        if (hasAudioPermission()) {
+        if (permissionPanel == null || remoteMode || showingForYou) return;
+        if (hasAudioPermission() || !DownloadStore.all(this).isEmpty()) {
             permissionPanel.setVisibility(View.GONE);
             findViewById(R.id.tracks).setVisibility(View.VISIBLE);
             if (tracks.isEmpty() && !loading) resetAndLoad();
@@ -202,29 +205,40 @@ public final class MainActivity extends Activity {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_PERMISSION_REQUEST);
     }
 
+    private View forYouContent;
+    private boolean showingForYou;
     private void selectTab(int selectedId) {
-        int[] ids = {R.id.songs, R.id.albums, R.id.artists, R.id.playlists};
+        if (selectedId != R.id.forYou && showingForYou) {
+            showingForYou=false;
+            if(forYouContent!=null){((android.widget.FrameLayout)findViewById(R.id.libraryContent)).removeView(forYouContent);forYouContent=null;}
+            findViewById(R.id.tracks).setVisibility(View.VISIBLE);status.setVisibility(View.VISIBLE);
+        }
+        int[] ids = {R.id.forYou, R.id.songs, R.id.albums, R.id.artists, R.id.playlists};
         for (int id : ids) findViewById(id).setSelected(id == selectedId);
     }
 
-    private void setGroup(String value) { group = value; query = ""; search.setText(""); resetAndLoad(); }
+    private void setGroup(String value) { selectTab(R.id.songs); group = value; query = ""; search.setText(""); resetAndLoad(); }
 
+    private boolean libraryPaged = true;
+    private int libraryGeneration;
     private void resetAndLoad() {
+        libraryGeneration++; libraryPaged=true;
         offset = 0; exhausted = false; loading = false; tracks.clear(); adapter.clear();
         loadNextPage();
     }
 
     private void loadNextPage() {
-        if (loading || exhausted || !group.isEmpty()) return;
-        if (!remoteMode && checkSelfPermission(Build.VERSION.SDK_INT >= 33 ? Manifest.permission.READ_MEDIA_AUDIO : Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) return;
+        if (showingForYou || !libraryPaged || loading || exhausted || !group.isEmpty()) return;
         loading = true;
+        int generation=libraryGeneration; boolean pageOnline=onlineMode,pageB2=b2Mode,pageRemote=remoteMode;
         int pageOffset = offset;
         String pageQuery = query;
         searchIo.execute(() -> {
             List<Track> page;
-            try { page = onlineMode ? onlineSource().page(pageQuery, pageOffset, PAGE_SIZE) : b2Mode ? new B2CatalogClient(b2Settings).page(pageQuery, pageOffset, PAGE_SIZE) : remoteMode ? new OpenSubsonicClient(serverSettings).page(pageQuery, pageOffset, PAGE_SIZE) : new MediaStoreCatalogSource(getContentResolver()).page(pageQuery, pageOffset, PAGE_SIZE); }
-            catch (RuntimeException error) { main.post(() -> { loading = false; status.setText("Could not reach this music source. Check its connection settings."); }); return; }
+            try { page = pageOnline ? onlineSource().page(pageQuery, pageOffset, PAGE_SIZE) : pageB2 ? new B2CatalogClient(b2Settings).page(pageQuery, pageOffset, PAGE_SIZE) : pageRemote ? new OpenSubsonicClient(serverSettings).page(pageQuery, pageOffset, PAGE_SIZE) : new PhoneCatalogSource(this).page(pageQuery, pageOffset, PAGE_SIZE); }
+            catch (RuntimeException error) { main.post(() -> { if(generation!=libraryGeneration||isDestroyed())return; loading = false; status.setText("Could not reach this music source. Check its connection settings."); }); return; }
             main.post(() -> {
+                if(generation!=libraryGeneration||isDestroyed())return;
                 loading = false;
                 if (!pageQuery.equals(query)) return;
                 if (tracks.size() + page.size() > WINDOW_SIZE) {
@@ -241,24 +255,28 @@ public final class MainActivity extends Activity {
 
     private void showGroups(boolean artists) {
         if (remoteMode) { Toast.makeText(this, "Use search to find remote albums and artists for now.", Toast.LENGTH_SHORT).show(); return; }
-        group = artists ? "artist" : "album";
-        tracks.clear(); adapter.clear();
+        libraryGeneration++;libraryPaged=false;loading=false;searchHandler.removeCallbacksAndMessages(null);int generation=libraryGeneration;
+        group = artists ? "artist" : "album"; tracks.clear(); adapter.clear();
         streamIo.execute(() -> {
-            List<String> labels = new ArrayList<>();
-            String[] columns = artists ? new String[]{android.provider.MediaStore.Audio.Artists._ID, android.provider.MediaStore.Audio.Artists.ARTIST}
-                    : new String[]{android.provider.MediaStore.Audio.Albums._ID, android.provider.MediaStore.Audio.Albums.ALBUM, android.provider.MediaStore.Audio.Albums.ARTIST};
-            android.net.Uri uri = artists ? android.provider.MediaStore.Audio.Artists.EXTERNAL_CONTENT_URI : android.provider.MediaStore.Audio.Albums.EXTERNAL_CONTENT_URI;
-            try (android.database.Cursor c = getContentResolver().query(uri, columns, null, null, columns[1] + " COLLATE NOCASE ASC")) {
-                if (c != null) while (c.moveToNext() && labels.size() < 200) labels.add(c.getLong(0) + "\u0001" + (artists ? Track.clean(c.getString(1), "Unknown artist") : Track.clean(c.getString(1), "Unknown album") + " · " + Track.clean(c.getString(2), "Unknown artist")));
+            java.util.Set<String> labels = new java.util.TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            for(Track track:DownloadStore.all(this))labels.add(artists?track.artist:track.album+" · "+track.artist);
+            if(hasAudioPermission()){
+                String[] columns = artists ? new String[]{android.provider.MediaStore.Audio.Artists._ID, android.provider.MediaStore.Audio.Artists.ARTIST}
+                        : new String[]{android.provider.MediaStore.Audio.Albums._ID, android.provider.MediaStore.Audio.Albums.ALBUM, android.provider.MediaStore.Audio.Albums.ARTIST};
+                Uri uri = artists ? android.provider.MediaStore.Audio.Artists.EXTERNAL_CONTENT_URI : android.provider.MediaStore.Audio.Albums.EXTERNAL_CONTENT_URI;
+                try (android.database.Cursor c = getContentResolver().query(uri, columns, null, null, columns[1] + " COLLATE NOCASE ASC")) {
+                    if (c != null) while (c.moveToNext() && labels.size() < 200) labels.add(artists ? Track.clean(c.getString(1), "Unknown artist") : Track.clean(c.getString(1), "Unknown album") + " · " + Track.clean(c.getString(2), "Unknown artist"));
+                }catch(SecurityException permissionChanged){}
             }
-            main.post(() -> { adapter.clear(); for (String label : labels) adapter.add(label.substring(label.indexOf('\u0001') + 1)); status.setText(labels.size() + (artists ? " artists" : " albums") + " (first 200)"); });
+            main.post(() -> {if(generation!=libraryGeneration||isDestroyed())return;adapter.clear();for(String label:labels)adapter.add(label);status.setText(labels.size()+(artists?" artists":" albums"));});
         });
     }
 
     private void playFrom(int position) {
         if (group.isEmpty()) {
             if (controller == null || tracks.isEmpty()) return;
-            if (tracks.get(position).stableId.startsWith("online:")) { resolveAndPlayOnline(new ArrayList<>(tracks), position); return; }
+            if (remoteMode && tracks.get(position).stableId.startsWith("online:")) { resolveAndPlayOnline(new ArrayList<>(tracks), position); return; }
+            stopRadio();
             List<androidx.media3.common.MediaItem> queue = new ArrayList<>();
             int end = Math.min(tracks.size(), position + 200);
             for (int i = position; i < end; i++) queue.add(tracks.get(i).toMediaItem());
@@ -274,6 +292,7 @@ public final class MainActivity extends Activity {
     }
 
     private void resolveAndPlayOnline(List<Track> sourceTracks, int position) {
+        stopRadio();
         Track selected = sourceTracks.get(position);
         long now = android.os.SystemClock.elapsedRealtime();
         if (selected.stableId.equals(lastTrackTapId) && now - lastTrackTapAt < 900) return;
@@ -302,30 +321,20 @@ public final class MainActivity extends Activity {
     }
 
     private void appendRadio(OnlineCatalogSource source, List<Track> sourceTracks, int position, List<Track> radio, int request) {
-        if (!getSharedPreferences("settings", MODE_PRIVATE).getBoolean("autoplay", true)) return;
-        List<Track> upcoming = radio.isEmpty() ? new ArrayList<>(sourceTracks.subList(Math.min(position + 1, sourceTracks.size()), Math.min(sourceTracks.size(), position + 6)))
-                : new ArrayList<>(radio.subList(0, Math.min(5, radio.size())));
-        List<java.util.concurrent.CompletableFuture<Track>> pending = new ArrayList<>();
-        for (Track item : upcoming) pending.add(java.util.concurrent.CompletableFuture.supplyAsync(() -> {
-            Track local = DownloadStore.offline(this, item); if (local != null) return local;
-            try { return source.resolve(item); } catch (RuntimeException ignored) { return null; }
-        }, streamIo));
-        java.util.concurrent.CompletableFuture.allOf(pending.toArray(new java.util.concurrent.CompletableFuture[0])).thenRun(() -> main.post(() -> {
-            if (controller == null || streamRequest.get() != request) return;
-            for (java.util.concurrent.CompletableFuture<Track> future : pending) {
-                Track ready = future.getNow(null); if (ready == null) continue;
-                androidx.media3.common.MediaItem media = ready.toMediaItem().buildUpon().setMediaId("auto:" + ready.stableId).setCustomCacheKey(ready.stableId).build();
-                controller.addMediaItem(media);
-                streamIo.execute(() -> { try { PlaybackCache.preload(media); } catch (Exception ignored) { } });
-            }
-            publishJamPlayback();
-        }));
+        main.post(() -> {
+            if(controller==null||streamRequest.get()!=request||!getSharedPreferences("settings",MODE_PRIVATE).getBoolean("autoplay",true))return;
+            try{startService(new Intent(this,PlaybackService.class).setAction(PlaybackService.ACTION_SET_RADIO)
+                .putExtra("radio_seed",JamClient.hostCatalog(java.util.Collections.singletonList(sourceTracks.get(position).original())))
+                .putExtra("radio_candidates",JamClient.hostCatalog(radio)));}catch(Exception ignored){}
+        });
     }
+
+    private void stopRadio(){startService(new Intent(this,PlaybackService.class).setAction(PlaybackService.ACTION_STOP_RADIO));}
 
     private androidx.media3.common.MediaMetadata displayMetadata() {
         if (controller == null) return androidx.media3.common.MediaMetadata.EMPTY;
         androidx.media3.common.MediaItem item = controller.getCurrentMediaItem();
-        return item != null && item.mediaMetadata.title != null ? item.mediaMetadata : controller.getMediaMetadata();
+        return item == null ? androidx.media3.common.MediaMetadata.EMPTY : item.mediaMetadata;
     }
 
     private void updateNowPlaying() {
@@ -334,7 +343,7 @@ public final class MainActivity extends Activity {
         } else {
             adapter.clearPending();
             nowPlaying.setText(displayMetadata().title);
-            nowPlayingArtist.setText(Track.clean(String.valueOf(displayMetadata().artist), "Unknown artist"));
+            nowPlayingArtist.setText(Track.clean(displayMetadata().artist==null?null:displayMetadata().artist.toString(), "Unknown artist"));
         }
         ArtworkLoader.into(findViewById(R.id.miniArtwork), controller == null ? null : displayMetadata().artworkUri, android.R.drawable.ic_media_play);
         ((android.widget.ImageButton)findViewById(R.id.playPause)).setImageResource(controller != null && controller.isPlaying() ? R.drawable.ic_pause : R.drawable.ic_play);
@@ -353,9 +362,10 @@ public final class MainActivity extends Activity {
         android.widget.ImageView artwork = dialog.findViewById(R.id.fullArtwork), backgroundArtwork = dialog.findViewById(R.id.fullBackgroundArtwork); SeekBar fullSeek = dialog.findViewById(R.id.fullSeek);
         if (Build.VERSION.SDK_INT >= 31) backgroundArtwork.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(44f, 44f, android.graphics.Shader.TileMode.CLAMP));
         Runnable refresh = () -> {
-            if (controller == null || controller.getCurrentMediaItem() == null) return;
-            title.setText(Track.clean(String.valueOf(displayMetadata().title), "Now playing"));
-            artist.setText(Track.clean(String.valueOf(displayMetadata().artist), "Unknown artist"));
+            if (controller == null) return;
+            if(controller.getCurrentMediaItem()==null){title.setText("Nothing playing");artist.setText("");play.setImageResource(R.drawable.ic_play);artwork.setImageResource(android.R.drawable.ic_media_play);backgroundArtwork.setImageDrawable(null);elapsed.setText("0:00");durationLabel.setText("0:00");fullSeek.setProgress(0);return;}
+            title.setText(Track.clean(displayMetadata().title==null?null:displayMetadata().title.toString(), "Now playing"));
+            artist.setText(Track.clean(displayMetadata().artist==null?null:displayMetadata().artist.toString(), "Unknown artist"));
             play.setImageResource(controller.isPlaying() ? R.drawable.ic_pause : R.drawable.ic_play);
             ArtworkLoader.into(artwork, displayMetadata().artworkUri, android.R.drawable.ic_media_play);
             ArtworkLoader.into(backgroundArtwork, displayMetadata().artworkUri, android.R.drawable.ic_media_play);
@@ -374,35 +384,19 @@ public final class MainActivity extends Activity {
         refresh.run();
         dialog.findViewById(R.id.closeNowPlaying).setOnClickListener(v -> dialog.dismiss());
         play.setOnClickListener(v -> { togglePlayback(); refresh.run(); });
-        dialog.findViewById(R.id.fullPrevious).setOnClickListener(v -> { controller.seekToPreviousMediaItem(); main.postDelayed(refresh, 150); });
-        dialog.findViewById(R.id.fullNext).setOnClickListener(v -> { controller.seekToNextMediaItem(); main.postDelayed(refresh, 150); });
+        dialog.findViewById(R.id.fullPrevious).setOnClickListener(v -> { if(controller!=null)controller.seekToPreviousMediaItem(); });
+        dialog.findViewById(R.id.fullNext).setOnClickListener(v -> { if(controller!=null)controller.seekToNextMediaItem(); });
         dialog.findViewById(R.id.fullQueue).setOnClickListener(v -> showQueue());
         dialog.findViewById(R.id.fullLyrics).setOnClickListener(v -> { Track current = currentTrack(); if (current != null) showLyrics(current); });
         dialog.findViewById(R.id.fullPlaylist).setOnClickListener(v -> { Track current = currentTrack(); if (current != null) addTrackToPlaylist(current); });
         artist.setOnClickListener(v -> showArtistPage(artist.getText().toString()));
         fullSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) { if (fromUser && controller.getDuration() > 0) controller.seekTo(controller.getDuration() * progress / 1000); }
+            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) { if (fromUser && controller!=null && controller.getDuration() > 0) controller.seekTo(controller.getDuration() * progress / 1000); }
             @Override public void onStartTrackingTouch(SeekBar bar) { }
             @Override public void onStopTrackingTouch(SeekBar bar) { }
         });
-        Player.Listener dialogListener = new Player.Listener() { @Override public void onEvents(Player player, Player.Events events) { refresh.run(); } };
-        controller.addListener(dialogListener); dialog.setOnDismissListener(ignored -> { main.removeCallbacks(progressTicker[0]); if (controller != null) controller.removeListener(dialogListener); });
-        dialog.show(); main.post(progressTicker[0]); if (dialog.getWindow() != null) { dialog.getWindow().setLayout(-1, -1); makeImmersive(dialog.getWindow()); }
-    }
-
-    private static void makeImmersive(android.view.Window window) {
-        if (Build.VERSION.SDK_INT >= 30) {
-            android.view.WindowInsetsController controller = window.getInsetsController();
-            if (controller != null) {
-                controller.hide(android.view.WindowInsets.Type.navigationBars());
-                controller.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-            }
-        } else {
-            window.getDecorView().setSystemUiVisibility(android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    | android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
-                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | android.view.View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                    | android.view.View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
-        }
+        livePlayerViews.add(refresh); dialog.setOnDismissListener(ignored -> { main.removeCallbacks(progressTicker[0]); livePlayerViews.remove(refresh); });
+        dialog.show(); main.post(progressTicker[0]); if (dialog.getWindow() != null) { dialog.getWindow().setLayout(-1, -1); }
     }
 
     private static String formatTime(long milliseconds) {
@@ -540,6 +534,8 @@ public final class MainActivity extends Activity {
     }
 
     private void loadListeningList(boolean mix) {
+        libraryGeneration++;libraryPaged=false;loading=false;searchHandler.removeCallbacksAndMessages(null);
+        selectTab(R.id.songs);
         List<Track> found = mix ? ListeningHistory.dailyMix(this, 50) : ListeningHistory.recent(this, 50);
         group = ""; tracks.clear(); tracks.addAll(found); adapter.clear();
         for (Track track : found) adapter.add(track.title + "\n" + track.artist + " · " + track.album);
@@ -547,8 +543,14 @@ public final class MainActivity extends Activity {
     }
 
     private void showForYou() {
-        ForYouDialog.show(this, track -> playMixTracks(java.util.Collections.singletonList(track), 0), this::showSeedMix,
+        libraryGeneration++;libraryPaged=false;loading=false;
+        searchHandler.removeCallbacksAndMessages(null);
+        android.widget.FrameLayout frame=findViewById(R.id.libraryContent);
+        if(forYouContent!=null)frame.removeView(forYouContent);
+        showingForYou=true;findViewById(R.id.tracks).setVisibility(View.GONE);permissionPanel.setVisibility(View.GONE);status.setVisibility(View.GONE);
+        forYouContent=ForYouDialog.create(this, track -> playMixTracks(java.util.Collections.singletonList(track), 0), this::showSeedMix,
                 () -> loadListeningList(false), () -> loadSavedTracks("favorites", "Favorites"));
+        frame.addView(forYouContent,new android.widget.FrameLayout.LayoutParams(-1,-1));selectTab(R.id.forYou);
     }
 
     private final java.util.Map<String,List<Track>> personalMixes = new java.util.HashMap<>();
@@ -600,6 +602,7 @@ public final class MainActivity extends Activity {
 
     private void playMixTracks(List<Track> mix, int position) {
         if(controller==null||position<0||position>=mix.size())return;
+        stopRadio();
         List<Track> ordered = new ArrayList<>(mix.subList(position,mix.size())); int request=streamRequest.incrementAndGet();
         status.setText("Preparing " + ordered.get(0).title + "…");
         streamIo.execute(() -> {
@@ -618,6 +621,7 @@ public final class MainActivity extends Activity {
     }
 
     private void loadDownloads() {
+        selectTab(R.id.songs);libraryGeneration++;libraryPaged=false;loading=false;searchHandler.removeCallbacksAndMessages(null);
         List<Track> found = DownloadStore.all(this); group = ""; tracks.clear(); tracks.addAll(found); adapter.clear();
         for (Track track : found) adapter.add(track.title + "\n" + track.artist + " · " + track.album);
         status.setText(found.isEmpty() ? "No offline downloads yet" : found.size() + " downloads · " + Math.max(1, DownloadStore.bytes(this) / (1024 * 1024)) + " MB");
@@ -819,7 +823,6 @@ public final class MainActivity extends Activity {
 
     private void showQueue() {
         if (controller == null) return;
-        final MediaController observed = controller;
         final android.app.Dialog dialog = new android.app.Dialog(this);
         android.widget.LinearLayout sheet = new android.widget.LinearLayout(this); sheet.setOrientation(android.widget.LinearLayout.VERTICAL); sheet.setPadding(queueDp(18), queueDp(16), queueDp(18), queueDp(18)); sheet.setBackgroundColor(0xff121111);
         android.widget.LinearLayout header = new android.widget.LinearLayout(this); header.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -829,6 +832,7 @@ public final class MainActivity extends Activity {
         boolean[] dragging = {false};
         Runnable render = () -> {
             if (dragging[0] || controller == null) return;
+            MediaController observed = controller;
             int y = scroll.getScrollY(); rows.removeAllViews(); int current = observed.getCurrentMediaItemIndex(); String last = "";
             for (int i=0;i<observed.getMediaItemCount();i++) {
                 String section=queueSection(i,current,observed.getMediaItemAt(i).mediaId);
@@ -838,8 +842,7 @@ public final class MainActivity extends Activity {
             if(observed.getMediaItemCount()==0) {TextView empty=new TextView(this);empty.setText("Queue is empty");empty.setTextColor(0xffaaa6a0);rows.addView(empty);}
             scroll.post(() -> scroll.scrollTo(0,y));
         };
-        Player.Listener listener = new Player.Listener(){@Override public void onEvents(Player player,Player.Events events){if(events.containsAny(Player.EVENT_TIMELINE_CHANGED,Player.EVENT_MEDIA_ITEM_TRANSITION,Player.EVENT_MEDIA_METADATA_CHANGED,Player.EVENT_IS_PLAYING_CHANGED))render.run();}};
-        observed.addListener(listener); dialog.setOnDismissListener(v -> observed.removeListener(listener));
+        livePlayerViews.add(render); dialog.setOnDismissListener(v -> livePlayerViews.remove(render));
         dialog.setContentView(sheet); installSwipeBack(sheet,dialog::dismiss); dialog.show();
         if(dialog.getWindow()!=null){dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);dialog.getWindow().setLayout(-1,(int)(getResources().getDisplayMetrics().heightPixels*.84f));dialog.getWindow().setGravity(android.view.Gravity.BOTTOM);}
         render.run();
@@ -1011,6 +1014,8 @@ public final class MainActivity extends Activity {
     }
 
     private void loadSavedTracks(String key, String label) {
+        selectTab(R.id.songs);libraryGeneration++;libraryPaged=false;loading=false;searchHandler.removeCallbacksAndMessages(null);
+        int generation=libraryGeneration;
         android.content.SharedPreferences library = getSharedPreferences("library", MODE_PRIVATE);
         java.util.List<String> ids = new ArrayList<>(); String order = key.startsWith("playlist:") ? library.getString("playlist_order:" + key.substring(9), "") : "";
         if (!order.isEmpty()) try { org.json.JSONArray values = new org.json.JSONArray(order); for (int i = 0; i < values.length(); i++) ids.add(values.getString(i)); } catch (Exception ignored) { }
@@ -1036,7 +1041,7 @@ public final class MainActivity extends Activity {
                     if (c != null && c.moveToFirst()) found.add(new Track(c.getLong(0), c.getString(1), c.getString(2), c.getString(3), c.getLong(4)));
                 } catch (RuntimeException ignored) { }
             }
-            main.post(() -> { group = ""; tracks.clear(); tracks.addAll(found); adapter.clear(); for (Track t : found) adapter.add(t.title + "\n" + t.artist + " · " + t.album); status.setText(found.size() + " " + label.toLowerCase()); });
+            main.post(() -> { if(generation!=libraryGeneration||isDestroyed())return; group = ""; tracks.clear(); tracks.addAll(found); adapter.clear(); for (Track t : found) adapter.add(t.title + "\n" + t.artist + " · " + t.album); status.setText(found.size() + " " + label.toLowerCase()); });
         });
     }
 

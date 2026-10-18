@@ -74,7 +74,7 @@ final class OnlineCatalogSource implements CatalogSource {
         String title = value.toLowerCase(java.util.Locale.ROOT), wanted = query.toLowerCase(java.util.Locale.ROOT);
         String[] spoken = {"reaction", "interview", "podcast", "documentary", "news", "trailer", "review", "explained"};
         for (String term : spoken) if (title.contains(term) && !wanted.contains(term)) return true;
-        return avoidCleanVersions && (title.contains("clean") || title.contains("radio edit")) && !wanted.contains("clean") && !wanted.contains("radio edit");
+        return avoidCleanVersions && VersionPolicy.exclude(value,query);
     }
 
     /** Music-specific cloud search is faster and avoids general-video false negatives. */
@@ -127,7 +127,7 @@ final class OnlineCatalogSource implements CatalogSource {
         if (uploader.endsWith(" - topic") || uploader.contains("vevo")) score += 55;
         if (title.contains("official audio") || title.contains("audio")) score += 40;
         if (title.contains("official music video") || title.contains("music video")) score -= 70;
-        if (title.contains("clean") || title.contains("radio edit")) score -= 100;
+        if (VersionPolicy.exclude(item.getName(),query)) score -= 100;
         if (title.contains("reaction") || title.contains("interview")) score -= 100;
         return score;
     }
@@ -138,7 +138,7 @@ final class OnlineCatalogSource implements CatalogSource {
         if (item.getDuration() > 15 * 60 || (item.getDuration() > 0 && item.getDuration() < 45)) return true;
         String[] variants = {"instrumental", "karaoke", "reaction", "nightcore", "slowed", "sped up", "live", "remix", "interview", "podcast", "documentary", "news", "trailer", "review", "explained"};
         for (String variant : variants) if (title.contains(variant) && !wanted.contains(variant)) return true;
-        if (avoidCleanVersions && (title.contains("clean") || title.contains("radio edit")) && !wanted.contains("clean") && !wanted.contains("radio edit")) return true;
+        if (avoidCleanVersions && VersionPolicy.exclude(item.getName(),query)) return true;
         return title.contains("music video") && !title.contains("official audio");
     }
 
