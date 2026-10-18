@@ -160,6 +160,8 @@ final class OnlineCatalogSource implements CatalogSource {
         return trustedMusicChannel || labelledMusic || artistMatch || normalSongLength;
     }
 
+    static void invalidate(String id) { synchronized (RESOLVED) { RESOLVED.remove(id); } }
+
     Track resolve(Track track) {
         synchronized (RESOLVED) {
             CachedTrack cached = RESOLVED.get(track.stableId);
@@ -213,6 +215,31 @@ final class OnlineCatalogSource implements CatalogSource {
         left.removeIf(word -> word.length() < 3); right.removeIf(word -> word.length() < 3); if (left.isEmpty() || right.isEmpty()) return false;
         Set<String> overlap = new HashSet<>(left); overlap.retainAll(right);
         return overlap.size() >= 2 && overlap.size() * 1.0 / Math.min(left.size(), right.size()) >= .72;
+    }
+
+    PlaylistImporter.Result importPlaylist(String url, PlaylistImporter.Progress progress) throws Exception {
+        ensureInitialized();
+        String host = new java.net.URI(url).getHost();
+        if (host == null || !(host.equals("youtube.com") || host.endsWith(".youtube.com") || host.equals("youtu.be") || host.equals("soundcloud.com") || host.equals("www.soundcloud.com")))
+            throw new IllegalArgumentException("Use a public YouTube or SoundCloud playlist link. For Spotify or Apple Music, import an exported CSV or paste the track names.");
+        StreamingService service = NewPipe.getServiceByUrl(url);
+        org.schabi.newpipe.extractor.playlist.PlaylistInfo info = org.schabi.newpipe.extractor.playlist.PlaylistInfo.getInfo(service, url);
+        List<Track> tracks = new ArrayList<>(); Set<String> seen = new HashSet<>();
+        List<StreamInfoItem> page = info.getRelatedItems(); org.schabi.newpipe.extractor.Page next = info.getNextPage();
+        int pages = 0;
+        while (true) {
+            for (StreamInfoItem item : page) {
+                Track track = unresolved(service, item);
+                if (seen.add(track.stableId)) tracks.add(track);
+                if (tracks.size() > PlaylistText.MAX_TRACKS) throw new IllegalArgumentException("Import up to 500 tracks at a time.");
+            }
+            if (!progress.update(tracks.size(), Math.max(tracks.size(), (int)Math.min(500, info.getStreamCount())))) throw new java.util.concurrent.CancellationException();
+            if (!org.schabi.newpipe.extractor.Page.isValid(next)) break;
+            if (++pages > 30) throw new IllegalArgumentException("This playlist is too large. Try a smaller playlist.");
+            org.schabi.newpipe.extractor.ListExtractor.InfoItemsPage<StreamInfoItem> more = org.schabi.newpipe.extractor.playlist.PlaylistInfo.getMoreItems(service, url, next);
+            page = more.getItems(); next = more.getNextPage();
+        }
+        return new PlaylistImporter.Result(info.getName(), tracks, 0);
     }
 
     private static Track unresolved(StreamingService service, StreamInfoItem stream) {

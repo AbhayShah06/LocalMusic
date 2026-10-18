@@ -53,5 +53,12 @@ final class Track {
         return item.build();
     }
 
+    static String originalId(String value) {
+        if(value==null)return "";
+        if(value.startsWith("auto:"))value=value.substring(5);
+        if(value.startsWith("jam:")){int at=value.indexOf(':',4);if(at>=0)value=value.substring(at+1);}
+        return value;
+    }
+    Track original() {return new Track(originalId(stableId),playbackUri,title,artist,album,artworkUri);}
     static String clean(String value, String fallback) { return value == null || value.trim().isEmpty() ? fallback : value; }
 }

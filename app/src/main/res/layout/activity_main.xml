@@ -11,6 +11,7 @@
     <EditText android:id="@+id/search" android:layout_width="match_parent" android:layout_height="50dp" android:layout_marginStart="@dimen/page_gutter" android:layout_marginTop="2dp" android:layout_marginEnd="@dimen/page_gutter" android:background="@drawable/bg_search" android:hint="Find a song, artist, or album" android:inputType="text" android:paddingStart="16dp" android:paddingEnd="16dp" android:singleLine="true" android:textColor="#F6F1E8" android:textColorHint="#77736D" android:textSize="15sp" />
     <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="14dp" android:scrollbars="none">
         <LinearLayout android:id="@+id/tabs" android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:paddingStart="@dimen/page_gutter" android:paddingEnd="@dimen/page_gutter">
+            <TextView android:id="@+id/forYou" style="@style/LibraryTab" android:text="For You" />
             <TextView android:id="@+id/songs" style="@style/LibraryTab" android:text="Songs" />
             <TextView android:id="@+id/albums" style="@style/LibraryTab" android:text="Albums" />
             <TextView android:id="@+id/artists" style="@style/LibraryTab" android:text="Artists" />

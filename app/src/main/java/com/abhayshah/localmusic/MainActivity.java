@@ -75,8 +75,9 @@ public final class MainActivity extends Activity {
     private final java.util.Set<String> seenJamControls = new java.util.HashSet<>();
     private volatile String lastJamPlayback = "";
     private final Player.Listener uiPlayerListener = new Player.Listener() {
-        @Override public void onMediaItemTransition(androidx.media3.common.MediaItem item, int reason) { updateNowPlaying(); }
-        @Override public void onIsPlayingChanged(boolean isPlaying) { updateNowPlaying(); }
+        @Override public void onEvents(Player player, Player.Events events) {
+            if (events.containsAny(Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_MEDIA_METADATA_CHANGED, Player.EVENT_TIMELINE_CHANGED, Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAY_WHEN_READY_CHANGED)) updateNowPlaying();
+        }
     };
 
     @Override public void onCreate(Bundle state) {
@@ -117,6 +118,7 @@ public final class MainActivity extends Activity {
             @Override public void onStopTrackingTouch(SeekBar bar) { }
         });
         findViewById(R.id.songs).setOnClickListener(v -> { selectTab(R.id.songs); setGroup(""); });
+        findViewById(R.id.forYou).setOnClickListener(v -> showForYou());
         findViewById(R.id.albums).setOnClickListener(v -> { selectTab(R.id.albums); showGroups(false); });
         findViewById(R.id.artists).setOnClickListener(v -> { selectTab(R.id.artists); showGroups(true); });
         findViewById(R.id.playlists).setOnClickListener(v -> { selectTab(R.id.playlists); showPlaylists(); });
@@ -133,6 +135,8 @@ public final class MainActivity extends Activity {
         permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE);
         ((TextView)findViewById(R.id.source)).setText("Stream  ▾");
         status.setText("Search for any song, artist, or album");
+        handlePlaylistShare(getIntent());
+        if (getIntent().getBooleanExtra("show_download_activity",false)) showDownloadActivity();
     }
 
     private void connect() {
@@ -318,15 +322,21 @@ public final class MainActivity extends Activity {
         }));
     }
 
+    private androidx.media3.common.MediaMetadata displayMetadata() {
+        if (controller == null) return androidx.media3.common.MediaMetadata.EMPTY;
+        androidx.media3.common.MediaItem item = controller.getCurrentMediaItem();
+        return item != null && item.mediaMetadata.title != null ? item.mediaMetadata : controller.getMediaMetadata();
+    }
+
     private void updateNowPlaying() {
-        if (controller == null || controller.getMediaMetadata().title == null) {
+        if (controller == null || displayMetadata().title == null) {
             nowPlaying.setText("Nothing playing"); nowPlayingArtist.setText("Choose a song");
         } else {
             adapter.clearPending();
-            nowPlaying.setText(controller.getMediaMetadata().title);
-            nowPlayingArtist.setText(Track.clean(String.valueOf(controller.getMediaMetadata().artist), "Unknown artist"));
+            nowPlaying.setText(displayMetadata().title);
+            nowPlayingArtist.setText(Track.clean(String.valueOf(displayMetadata().artist), "Unknown artist"));
         }
-        ArtworkLoader.into(findViewById(R.id.miniArtwork), controller == null ? null : controller.getMediaMetadata().artworkUri, android.R.drawable.ic_media_play);
+        ArtworkLoader.into(findViewById(R.id.miniArtwork), controller == null ? null : displayMetadata().artworkUri, android.R.drawable.ic_media_play);
         ((android.widget.ImageButton)findViewById(R.id.playPause)).setImageResource(controller != null && controller.isPlaying() ? R.drawable.ic_pause : R.drawable.ic_play);
         refreshProgress();
         publishJamPlayback();
@@ -344,11 +354,11 @@ public final class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 31) backgroundArtwork.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(44f, 44f, android.graphics.Shader.TileMode.CLAMP));
         Runnable refresh = () -> {
             if (controller == null || controller.getCurrentMediaItem() == null) return;
-            title.setText(Track.clean(String.valueOf(controller.getMediaMetadata().title), "Now playing"));
-            artist.setText(Track.clean(String.valueOf(controller.getMediaMetadata().artist), "Unknown artist"));
+            title.setText(Track.clean(String.valueOf(displayMetadata().title), "Now playing"));
+            artist.setText(Track.clean(String.valueOf(displayMetadata().artist), "Unknown artist"));
             play.setImageResource(controller.isPlaying() ? R.drawable.ic_pause : R.drawable.ic_play);
-            ArtworkLoader.into(artwork, controller.getMediaMetadata().artworkUri, android.R.drawable.ic_media_play);
-            ArtworkLoader.into(backgroundArtwork, controller.getMediaMetadata().artworkUri, android.R.drawable.ic_media_play);
+            ArtworkLoader.into(artwork, displayMetadata().artworkUri, android.R.drawable.ic_media_play);
+            ArtworkLoader.into(backgroundArtwork, displayMetadata().artworkUri, android.R.drawable.ic_media_play);
             long duration = controller.getDuration(), position = controller.getCurrentPosition(); fullSeek.setProgress(duration > 0 ? (int)Math.min(1000, position * 1000 / duration) : 0);
             elapsed.setText(formatTime(position)); durationLabel.setText(formatTime(duration));
         };
@@ -436,6 +446,22 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private void showFeedback() {
+        final String email = FeedbackDraft.EMAIL;
+        new AlertDialog.Builder(this).setTitle("Feedback").setItems(new String[]{"Email Abhay", "Copy email address"}, (dialog, which) -> {
+            if (which == 1) { copySupportEmail(email); return; }
+            String body = FeedbackDraft.body(BuildConfig.VERSION_NAME, java.time.Instant.now(), java.time.ZoneId.systemDefault());
+            Intent draft = new Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:" + email + "?subject=" + Uri.encode(FeedbackDraft.subject(BuildConfig.VERSION_NAME)) + "&body=" + Uri.encode(body)));
+            try { startActivity(draft); }
+            catch (android.content.ActivityNotFoundException unavailable) { copySupportEmail(email); Toast.makeText(this, "No email app installed. Address copied.", Toast.LENGTH_LONG).show(); }
+        }).setNegativeButton("Close", null).show();
+    }
+
+    private void copySupportEmail(String email) {
+        ((android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE)).setPrimaryClip(android.content.ClipData.newPlainText("Feedback email", email));
+        Toast.makeText(this, "Email address copied", Toast.LENGTH_SHORT).show();
+    }
+
     private void showMoreMenu() {
         String[] actions = {"Your mix", "Recently played", "Downloads", "Start a Jam", "Favorites", "Playlists", "Sleep timer", "Settings"};
         new AlertDialog.Builder(this).setTitle("Local Music").setItems(actions, (d, which) -> {
@@ -472,12 +498,14 @@ public final class MainActivity extends Activity {
 
         content.addView(settingsHeading("Library"));
         content.addView(settingsAction("Music source", "Choose online streaming, phone files, Backblaze, or Navidrome", this::chooseSource));
-        content.addView(settingsAction("Import playlists", "Import Spotify, Apple Music, Soundiiz, TuneMyMusic CSV, or M3U files", this::choosePlaylistFile));
+        content.addView(settingsAction("Import playlists", "Paste YouTube links, Spotify / Apple Music exports, or a song list", this::showImportOptions));
         content.addView(settingsAction("Equalizer", "Open your phone's audio effects", this::openEqualizer));
         content.addView(settingsAction("Music permission", hasAudioPermission() ? "Allowed for on-device songs" : "Tap to allow on-device songs", () -> { if (hasAudioPermission()) openAppSettings(); else requestAudioPermission(); }));
 
         long downloads = DownloadStore.bytes(this), streams = PlaybackCache.bytes(), artwork = ArtworkLoader.bytes(this);
         content.addView(settingsHeading("Storage"));
+        content.addView(settingsAction("Download activity", "", this::showDownloadActivity));
+        content.addView(settingsAction("Feedback", "", this::showFeedback));
         content.addView(settingsAction("Offline downloads", formatBytes(downloads) + " saved permanently", this::loadDownloads));
         content.addView(settingsAction("Clear temporary cache", formatBytes(streams + artwork) + " of streams and artwork. Downloads stay.", () -> {
             PlaybackCache.clear(); ArtworkLoader.clear(this); LyricsClient.clear(this);
@@ -518,6 +546,77 @@ public final class MainActivity extends Activity {
         status.setText(found.isEmpty() ? "Play a few songs first" : mix ? "Your daily mix · built on this phone" : "Recently played");
     }
 
+    private void showForYou() {
+        ForYouDialog.show(this, track -> playMixTracks(java.util.Collections.singletonList(track), 0), this::showSeedMix,
+                () -> loadListeningList(false), () -> loadSavedTracks("favorites", "Favorites"));
+    }
+
+    private final java.util.Map<String,List<Track>> personalMixes = new java.util.HashMap<>();
+    private void showSeedMix(Track seed, boolean artistMix) {
+        String name = (artistMix ? seed.artist.replaceAll("(?i)\\s*-\\s*topic$", "").trim() : seed.title) + " Mix";
+        String key = seed.stableId + ":" + artistMix;
+        if (personalMixes.containsKey(key)) { previewPersonalMix(name, personalMixes.get(key)); return; }
+        TextView progress = new TextView(this); progress.setText("Finding related songs…"); progress.setPadding(queueDp(20),queueDp(20),queueDp(20),queueDp(20));
+        AlertDialog loadingMix = new AlertDialog.Builder(this).setTitle(name).setView(progress).setNegativeButton("Cancel", null).show();
+        streamIo.execute(() -> {
+            List<Track> candidates = new ArrayList<>(); candidates.add(seed);
+            // Known music remains available if discovery cannot reach its source.
+            for (Track track : ListeningHistory.recent(this, 100)) if (artistMix && track.artist.equalsIgnoreCase(seed.artist)) candidates.add(track.original());
+            boolean discoveryAvailable = true;
+            try {
+                OnlineCatalogSource source = onlineSource();
+                Track onlineSeed = seed;
+                if (!seed.stableId.startsWith("online:")) {
+                    List<Track> matches = source.page(seed.artist + " " + seed.title, 0, 5);
+                    if (matches.isEmpty()) throw new IllegalStateException();
+                    onlineSeed = matches.get(0);
+                }
+                candidates.addAll(source.resolveWithRadio(onlineSeed).radio);
+                if (artistMix) candidates.addAll(source.page(seed.artist, 0, 15));
+            } catch (RuntimeException unavailable) { discoveryAvailable = false; }
+            java.util.Set<String> known = new java.util.HashSet<>(); List<Track> mix = new ArrayList<>();
+            for (Track candidate : candidates) {
+                String identity = OnlineCatalogSource.identity(candidate.title) + "|" + candidate.artist.toLowerCase(java.util.Locale.ROOT);
+                if (known.add(identity)) mix.add(candidate.original());
+                if (mix.size() >= 20) break;
+            }
+            boolean available = discoveryAvailable;
+            main.post(() -> {
+                if (isDestroyed() || !loadingMix.isShowing()) return;
+                loadingMix.dismiss();
+                if (!available) Toast.makeText(this,"Discovery is unavailable. Showing known songs.",Toast.LENGTH_LONG).show();
+                else personalMixes.put(key, mix);
+                previewPersonalMix(name, mix);
+            });
+        });
+    }
+
+    private void previewPersonalMix(String name, List<Track> mix) {
+        String[] labels = new String[mix.size()]; for(int i=0;i<mix.size();i++) labels[i]=mix.get(i).title+"\n"+mix.get(i).artist;
+        new AlertDialog.Builder(this).setTitle(name).setItems(labels,(dialog,position)->playMixTracks(mix,position))
+            .setPositiveButton("Play",(dialog,which)->playMixTracks(mix,0))
+            .setNeutralButton("Save playlist",(dialog,which)->saveImportedPlaylist(name,mix)).setNegativeButton("Close",null).show();
+    }
+
+    private void playMixTracks(List<Track> mix, int position) {
+        if(controller==null||position<0||position>=mix.size())return;
+        List<Track> ordered = new ArrayList<>(mix.subList(position,mix.size())); int request=streamRequest.incrementAndGet();
+        status.setText("Preparing " + ordered.get(0).title + "…");
+        streamIo.execute(() -> {
+            boolean started=false; int missed=0;
+            for(Track track:ordered){
+                if(streamRequest.get()!=request||isDestroyed())return;
+                try {
+                    Track playable=DownloadStore.offline(this,track);
+                    if(playable==null)playable=track.stableId.startsWith("online:")?onlineSource().resolve(track):track;
+                    androidx.media3.common.MediaItem item=playable.toMediaItem();boolean first=!started;started=true;
+                    main.post(()->{if(controller==null||streamRequest.get()!=request)return;if(first){controller.setMediaItem(item);controller.prepare();controller.play();}else controller.addMediaItem(item);updateNowPlaying();status.setText("Playing mix");});
+                }catch(RuntimeException unavailable){missed++;}
+            }
+            int skipped=missed; if(skipped>0)main.post(()->{if(streamRequest.get()==request)Toast.makeText(this,skipped+" songs could not be prepared",Toast.LENGTH_LONG).show();});
+        });
+    }
+
     private void loadDownloads() {
         List<Track> found = DownloadStore.all(this); group = ""; tracks.clear(); tracks.addAll(found); adapter.clear();
         for (Track track : found) adapter.add(track.title + "\n" + track.artist + " · " + track.album);
@@ -535,7 +634,7 @@ public final class MainActivity extends Activity {
                 jamCatalog.clear(); for (Track track : catalog) jamCatalog.put(track.stableId, track);
                 seenJamEntries.clear(); seenJamSearches.clear(); seenJamControls.clear(); lastJamPlayback = ""; activeJam = room;
                 Intent jam = new Intent(this, PlaybackService.class).setAction(PlaybackService.ACTION_START_JAM)
-                        .putExtra(PlaybackService.EXTRA_JAM_CODE, room.code).putExtra(PlaybackService.EXTRA_JAM_TOKEN, room.hostToken);
+                        .putExtra(PlaybackService.EXTRA_JAM_CODE, room.code).putExtra(PlaybackService.EXTRA_JAM_TOKEN, room.hostToken).putExtra(PlaybackService.EXTRA_JAM_CATALOG, JamClient.hostCatalog(catalog));
                 startService(jam);
                 main.post(() -> { status.setText(catalog.size() + " SONGS READY FOR JAM"); showJam(room); });
             } catch (Exception error) { main.post(() -> { status.setText("JAM COULD NOT START"); Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show(); }); }
@@ -569,69 +668,85 @@ public final class MainActivity extends Activity {
         }).setNegativeButton("End Jam", (d, w) -> endJam()).setPositiveButton("Done", null).show();
     }
 
-    private void pollJam() {
-        jamTicker.removeCallbacksAndMessages(null);
-        if (activeJam == null) return;
-        jamSyncIo.execute(() -> {
-            try {
-                JamClient.Room room = activeJam; if (room == null) return; JamClient.State state = new JamClient().state(room);
-                List<JamClient.Entry> entries = state.entries;
-                List<JamClient.Entry> fresh = new ArrayList<>();
-                for (JamClient.Entry entry : entries) if (!seenJamEntries.contains(entry.id)) fresh.add(entry);
-                List<JamClient.Control> controls = new ArrayList<>(); for (JamClient.Control control : state.controls) if (!seenJamControls.contains(control.id)) controls.add(control);
-                main.post(() -> {
-                    if (controller != null) for (JamClient.Entry entry : fresh) if (seenJamEntries.add(entry.id)) addJamEntry(entry);
-                    if (controller != null) for (JamClient.Control control : controls) if (seenJamControls.add(control.id)) applyJamControl(control);
-                    if (activeJam != null) jamTicker.postDelayed(this::pollJam, 650);
-                });
-                for (JamClient.Search search : state.searches) if (search.pending && seenJamSearches.add(search.id)) jamSearchIo.execute(() -> {
-                    try { List<Track> results = onlineSource().page(search.query, 0, 35); for (Track track : results) jamCatalog.put(track.stableId, track); JamClient.Room active = activeJam; if (active != null) new JamClient().publish(active, search.id, results); }
-                    catch (Exception error) { seenJamSearches.remove(search.id); }
-                });
-            } catch (Exception error) { main.post(() -> { if (activeJam != null) jamTicker.postDelayed(this::pollJam, 1500); }); }
-        });
-    }
-
-    private void applyJamControl(JamClient.Control control) {
-        if (controller == null) return;
-        if ("previous".equals(control.action)) controller.seekToPreviousMediaItem();
-        else if ("next".equals(control.action)) controller.seekToNextMediaItem();
-        else if ("toggle".equals(control.action)) togglePlayback();
-        else if ("move".equals(control.action) && control.index >= 0 && Math.abs(control.direction) == 1) {
-            int from = controller.getCurrentMediaItemIndex() + 1 + control.index, to = from + control.direction;
-            if (from >= 0 && from < controller.getMediaItemCount() && to > controller.getCurrentMediaItemIndex() && to < controller.getMediaItemCount()) controller.moveMediaItem(from, to);
-        }
-        Toast.makeText(this, control.guest + " used " + control.action, Toast.LENGTH_SHORT).show();
-        main.postDelayed(this::publishJamPlayback, 150);
-    }
-
+    // PlaybackService is the only writer of playback snapshots. Activity-only
+    // snapshots used to overwrite its full queue with an incomplete list.
     private void publishJamPlayback() {
-        JamClient.Room room = activeJam; if (room == null || controller == null || controller.getCurrentMediaItem() == null) return;
-        androidx.media3.common.MediaMetadata current = controller.getMediaMetadata(); String title = Track.clean(String.valueOf(current.title), "Unknown title"), artist = Track.clean(String.valueOf(current.artist), "Unknown artist");
-        List<String[]> upcoming = new ArrayList<>(); int start = Math.max(0, controller.getCurrentMediaItemIndex() + 1);
-        for (int i = start; i < Math.min(controller.getMediaItemCount(), start + 20); i++) { androidx.media3.common.MediaMetadata item = controller.getMediaItemAt(i).mediaMetadata; upcoming.add(new String[]{Track.clean(String.valueOf(item.title), "Unknown title"), Track.clean(String.valueOf(item.artist), "Unknown artist")}); }
-        StringBuilder key = new StringBuilder(title).append('|').append(artist).append('|').append(controller.isPlaying()); for (String[] item : upcoming) key.append('|').append(item[0]).append('/').append(item[1]);
-        boolean playing = controller.isPlaying();
-        if (key.toString().equals(lastJamPlayback)) return; lastJamPlayback = key.toString();
-        jamSyncIo.execute(() -> { try { new JamClient().publishPlayback(room, title, artist, "", playing, upcoming); } catch (Exception ignored) { lastJamPlayback = ""; } });
+        if (activeJam != null) startService(new Intent(this, PlaybackService.class).setAction(PlaybackService.ACTION_PUBLISH_JAM));
     }
-
-    private void addJamEntry(JamClient.Entry entry) {
-        Track track = jamCatalog.get(entry.trackId);
-        if (track != null) { if (track.stableId.startsWith("online:")) enqueueOnline(track, false); else { controller.addMediaItem(track.toMediaItem()); publishJamPlayback(); } Toast.makeText(this, entry.guest + " added " + track.title, Toast.LENGTH_SHORT).show(); return; }
-        streamIo.execute(() -> {
-            List<Track> matches = onlineSource().page(entry.title + " " + entry.artist, 0, 8);
-            if (matches.isEmpty()) return; Track found = matches.get(0); jamCatalog.put(entry.trackId, found);
-            main.post(() -> { enqueueOnline(found, false); Toast.makeText(this, entry.guest + " added " + found.title, Toast.LENGTH_SHORT).show(); });
-        });
-    }
-
     private void endJam() {
         JamClient.Room room = activeJam; activeJam = null; jamTicker.removeCallbacksAndMessages(null);
         startService(new Intent(this, PlaybackService.class).setAction(PlaybackService.ACTION_STOP_JAM));
         if (room != null) io.execute(() -> { try { new JamClient().close(room); } catch (Exception ignored) { } });
         Toast.makeText(this, "Jam ended", Toast.LENGTH_SHORT).show();
     }
+
+    private final ExecutorService importIo = Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.atomic.AtomicBoolean importCancelled = new java.util.concurrent.atomic.AtomicBoolean();
+    private boolean importingPlaylist;
+
+    private void showImportOptions() {
+        new AlertDialog.Builder(this).setTitle("Import a playlist").setItems(new String[]{"Paste YouTube / SoundCloud playlist link", "Choose Spotify / Apple Music CSV or M3U", "Paste song names"}, (dialog, which) -> {
+            if (which == 1) choosePlaylistFile(); else showPlaylistPaste("");
+        }).setNegativeButton("Cancel", null).show();
+    }
+
+    private void showPlaylistPaste(String initial) {
+        EditText input = new EditText(this); input.setHint("Public playlist link, or one Artist - Song per line"); input.setMinLines(4); input.setText(initial);
+        new AlertDialog.Builder(this).setTitle("Import playlist").setMessage("YouTube / SoundCloud link, or Spotify / Apple Music track list.").setView(input)
+            .setPositiveButton("Import", (dialog, which) -> {
+                String text = input.getText().toString().trim();
+                if (text.isEmpty()) return;
+                java.util.regex.Matcher link = java.util.regex.Pattern.compile("https?://[^\\s<>]+", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(text);
+                if (link.find()) { String url = link.group(); runPlaylistImport(progress -> new OnlineCatalogSource().importPlaylist(url, progress)); }
+                else runPlaylistImport(progress -> new PlaylistImporter(getContentResolver()).importText("Imported playlist", text, progress));
+            }).setNeutralButton("Choose file", (dialog, which) -> choosePlaylistFile()).setNegativeButton("Cancel", null).show();
+    }
+
+    private interface PlaylistImportWork { PlaylistImporter.Result run(PlaylistImporter.Progress progress) throws Exception; }
+
+    private void runPlaylistImport(PlaylistImportWork work) {
+        if (importingPlaylist) { Toast.makeText(this, "An import is already running", Toast.LENGTH_SHORT).show(); return; }
+        importingPlaylist = true; importCancelled.set(false);
+        TextView progressLabel = new TextView(this); progressLabel.setPadding(40, 30, 40, 30); progressLabel.setText("Reading playlist…");
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Importing playlist").setView(progressLabel).setCancelable(false).setNegativeButton("Cancel", (d, w) -> importCancelled.set(true)).show();
+        importIo.execute(() -> {
+            try {
+                PlaylistImporter.Result result = work.run((done, total) -> {
+                    main.post(() -> { if (dialog.isShowing()) progressLabel.setText("Matched / read " + done + " of " + total + " tracks…"); });
+                    return !importCancelled.get() && !isDestroyed();
+                });
+                main.post(() -> {
+                    importingPlaylist = false; dialog.dismiss();
+                    if (importCancelled.get() || isDestroyed()) return;
+                    if (result.tracks.isEmpty()) { new AlertDialog.Builder(this).setTitle("No matching tracks").setMessage("No songs could be matched. Check the artist/title columns or try a public playlist link.").setPositiveButton("OK", null).show(); return; }
+                    EditText name = new EditText(this); name.setText(result.name);
+                    new AlertDialog.Builder(this).setTitle("Save imported playlist").setMessage(result.tracks.size() + " songs ready" + (result.missed > 0 ? " · " + result.missed + " could not be matched" : "") + ". Order is preserved; existing playlists will not be replaced.").setView(name)
+                        .setPositiveButton("Save", (d, w) -> saveImportedPlaylist(name.getText().toString(), result.tracks)).setNegativeButton("Cancel", null).show();
+                });
+            } catch (Exception error) {
+                main.post(() -> { importingPlaylist = false; dialog.dismiss(); if (!importCancelled.get() && !isDestroyed()) new AlertDialog.Builder(this).setTitle("Could not import playlist").setMessage(error.getMessage() == null ? "Try a public playlist link, a CSV/M3U export, or pasted Artist - Song lines." : error.getMessage()).setPositiveButton("OK", null).show(); });
+            }
+        });
+    }
+
+    private void saveImportedPlaylist(String requested, List<Track> imported) {
+        android.content.SharedPreferences library = getSharedPreferences("library", MODE_PRIVATE);
+        String base = requested.trim().isEmpty() ? "Imported playlist" : requested.trim(); String name = base; int suffix = 2;
+        while (library.contains("playlist:" + name)) name = base + " (" + suffix++ + ")";
+        java.util.Set<String> entries = new java.util.LinkedHashSet<>(); org.json.JSONArray order = new org.json.JSONArray();
+        for (Track track : imported) { String item = savedMediaItem(track.toMediaItem()); if (!item.isEmpty() && entries.add(item)) order.put(item); }
+        library.edit().putStringSet("playlist:" + name, entries).putString("playlist_order:" + name, order.toString()).putString("last_playlist", name).apply();
+        loadPlaylist(name); Toast.makeText(this, "Imported " + entries.size() + " songs into " + name, Toast.LENGTH_LONG).show();
+    }
+
+    private void handlePlaylistShare(Intent intent) {
+        if (!Intent.ACTION_SEND.equals(intent.getAction())) return;
+        Uri stream = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+        if (stream != null && "content".equals(stream.getScheme())) { runPlaylistImport(progress -> new PlaylistImporter(getContentResolver()).importFile(stream, progress)); return; }
+        String text = intent.getStringExtra(Intent.EXTRA_TEXT); if (text != null && !text.trim().isEmpty()) showPlaylistPaste(text);
+    }
+
+    @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); handlePlaylistShare(intent); if (intent.getBooleanExtra("show_download_activity", false)) showDownloadActivity(); }
 
     private void choosePlaylistFile() {
         Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE)
@@ -642,15 +757,8 @@ public final class MainActivity extends Activity {
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode != IMPORT_PLAYLIST_REQUEST || resultCode != RESULT_OK || data == null || data.getData() == null) return;
-        Uri file = data.getData(); status.setText("Importing playlist…");
-        io.execute(() -> {
-            try {
-                PlaylistImporter.Result result = new PlaylistImporter(getContentResolver()).importFile(file);
-                android.content.SharedPreferences prefs = getSharedPreferences("library", MODE_PRIVATE);
-                prefs.edit().putStringSet("playlist:" + result.name, new java.util.LinkedHashSet<>(result.localIds)).putString("last_playlist", result.name).apply();
-                main.post(() -> { status.setText(result.matched + " matched · " + result.missed + " not found"); Toast.makeText(this, "Imported " + result.name, Toast.LENGTH_LONG).show(); });
-            } catch (Exception error) { main.post(() -> { status.setText("Import failed"); Toast.makeText(this, "Use a Spotify, Apple Music, Soundiiz, TuneMyMusic CSV, or M3U playlist.", Toast.LENGTH_LONG).show(); }); }
-        });
+        Uri file = data.getData();
+        runPlaylistImport(progress -> new PlaylistImporter(getContentResolver()).importFile(file, progress));
     }
 
     private void refreshProgress() {
@@ -671,7 +779,7 @@ public final class MainActivity extends Activity {
         if (!group.isEmpty() || position < 0 || position >= tracks.size()) return;
         Track track = tracks.get(position);
         boolean online = track.stableId.startsWith("online:");
-        String[] actions = online ? new String[]{"Play now", "Play next", "Add to queue", DownloadStore.contains(this, track.stableId) ? "Remove download" : "Download", "Add to playlist", "Open artist"} : new String[]{"Play now", "Play next", "Add to queue", "Add to favorites", "Add to playlist"};
+        String[] actions = online ? new String[]{"Play now", "Play next", "Add to queue", DownloadStore.contains(this, track.stableId) ? "Remove download" : "Download", "Add to playlist", "Open artist", FavoriteStore.contains(this,track) ? "Remove favorite" : "Add to favorites", "Start song mix"} : new String[]{"Play now", "Play next", "Add to queue", FavoriteStore.contains(this,track) ? "Remove favorite" : "Add to favorites", "Add to playlist", "Start song mix"};
         new AlertDialog.Builder(this).setTitle(track.title).setItems(actions, (d, which) -> {
             if (controller == null) return;
             String action = actions[which];
@@ -683,11 +791,12 @@ public final class MainActivity extends Activity {
                 if (action.equals("Play next") && controller.getMediaItemCount() > 0) controller.addMediaItem(Math.min(controller.getCurrentMediaItemIndex() + 1, controller.getMediaItemCount()), item);
                 else controller.addMediaItem(item);
                 Toast.makeText(this, action.equals("Play next") ? "Queued next" : "Added to queue", Toast.LENGTH_SHORT).show();
-            } else if (action.equals("Download")) { OfflineDownloadService.enqueue(this, track); Toast.makeText(this, "Download started", Toast.LENGTH_SHORT).show(); }
+            } else if (action.equals("Download")) { requestDownload(track); }
             else if (action.equals("Remove download")) new AlertDialog.Builder(this).setTitle("Remove download?").setMessage(track.title + " will remain available to stream.").setNegativeButton("Cancel", null).setPositiveButton("Remove", (dialog, button) -> { DownloadStore.remove(this, track.stableId); Toast.makeText(this, "Download removed", Toast.LENGTH_SHORT).show(); }).show();
             else if (action.equals("Add to playlist")) addTrackToPlaylist(track);
             else if (action.equals("Open artist")) showArtistPage(track.artist);
-            else if (action.equals("Add to favorites")) toggleFavorite(track.id);
+            else if (action.equals("Add to favorites") || action.equals("Remove favorite")) toggleTrackFavorite(track);
+            else if (action.equals("Start song mix")) showSeedMix(track,false);
         }).show();
     }
 
@@ -709,61 +818,102 @@ public final class MainActivity extends Activity {
     }
 
     private void showQueue() {
-        if (controller == null || controller.getMediaItemCount() == 0) { Toast.makeText(this, "Queue is empty", Toast.LENGTH_SHORT).show(); return; }
+        if (controller == null) return;
+        final MediaController observed = controller;
         final android.app.Dialog dialog = new android.app.Dialog(this);
-        android.widget.LinearLayout sheet = new android.widget.LinearLayout(this); sheet.setOrientation(android.widget.LinearLayout.VERTICAL);
-        int pad = queueDp(20); sheet.setPadding(pad, queueDp(14), pad, queueDp(22));
-        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable(); background.setColor(android.graphics.Color.rgb(18, 17, 17)); background.setCornerRadii(new float[]{queueDp(26),queueDp(26),queueDp(26),queueDp(26),0,0,0,0}); sheet.setBackground(background);
-        View grip = new View(this); android.graphics.drawable.GradientDrawable gripBg = new android.graphics.drawable.GradientDrawable(); gripBg.setColor(android.graphics.Color.rgb(92, 87, 82)); gripBg.setCornerRadius(queueDp(4)); grip.setBackground(gripBg);
-        android.widget.LinearLayout.LayoutParams gripParams = new android.widget.LinearLayout.LayoutParams(queueDp(42), queueDp(4)); gripParams.gravity = android.view.Gravity.CENTER_HORIZONTAL; gripParams.bottomMargin = queueDp(18); sheet.addView(grip, gripParams);
-        TextView eyebrow = new TextView(this); eyebrow.setText("PLAYBACK"); eyebrow.setTextColor(android.graphics.Color.rgb(255, 128, 95)); eyebrow.setTextSize(10); eyebrow.setLetterSpacing(.16f); eyebrow.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); sheet.addView(eyebrow);
-        android.widget.LinearLayout heading = new android.widget.LinearLayout(this); heading.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        TextView title = new TextView(this); title.setText("Your queue"); title.setTextColor(android.graphics.Color.rgb(246, 241, 232)); title.setTextSize(28); title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); title.setPadding(0, queueDp(4), 0, queueDp(2)); heading.addView(title, new android.widget.LinearLayout.LayoutParams(0, -2, 1));
-        TextView save = new TextView(this); save.setText("SAVE"); save.setGravity(android.view.Gravity.CENTER); save.setTextColor(android.graphics.Color.rgb(255, 128, 95)); save.setTextSize(11); save.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); save.setLetterSpacing(.12f); save.setBackgroundResource(R.drawable.bg_player_action); save.setContentDescription("Save queue as playlist");
-        heading.addView(save, new android.widget.LinearLayout.LayoutParams(queueDp(72), queueDp(42))); sheet.addView(heading); save.setOnClickListener(v -> saveQueueAsPlaylist(dialog));
-        TextView hint = new TextView(this); hint.setText("Tap a song to play. Drag the rail to reorder."); hint.setTextColor(android.graphics.Color.rgb(150, 144, 137)); hint.setTextSize(13); hint.setPadding(0, 0, 0, queueDp(12)); sheet.addView(hint);
-        android.widget.ScrollView scroll = new android.widget.ScrollView(this); scroll.setFillViewport(true);
-        android.widget.LinearLayout rows = new android.widget.LinearLayout(this); rows.setOrientation(android.widget.LinearLayout.VERTICAL); scroll.addView(rows);
-        int current = controller.getCurrentMediaItemIndex();
-        String previousSection = "";
-        for (int i = 0; i < controller.getMediaItemCount(); i++) {
-            String section = queueSection(i, current, controller.getMediaItemAt(i).mediaId);
-            if (!section.equals(previousSection)) { rows.addView(queueSectionHeader(section)); previousSection = section; }
-            rows.addView(queueRow(dialog, i, current));
-        }
-        sheet.addView(scroll, new android.widget.LinearLayout.LayoutParams(-1, 0, 1));
-        dialog.setContentView(sheet); installSwipeBack(sheet, dialog::dismiss); installSwipeBack(scroll, dialog::dismiss); android.view.Window window = dialog.getWindow();
-        if (window != null) { window.setBackgroundDrawableResource(android.R.color.transparent); window.setLayout(-1, -1); window.setGravity(android.view.Gravity.BOTTOM); window.setDimAmount(.62f); window.addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND); }
-        dialog.setOnShowListener(ignored -> { android.view.Window w = dialog.getWindow(); if (w != null) { w.setLayout(-1, (int)(getResources().getDisplayMetrics().heightPixels * .82f)); w.setGravity(android.view.Gravity.BOTTOM); } });
-        dialog.show();
+        android.widget.LinearLayout sheet = new android.widget.LinearLayout(this); sheet.setOrientation(android.widget.LinearLayout.VERTICAL); sheet.setPadding(queueDp(18), queueDp(16), queueDp(18), queueDp(18)); sheet.setBackgroundColor(0xff121111);
+        android.widget.LinearLayout header = new android.widget.LinearLayout(this); header.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView title = new TextView(this); title.setText("Queue"); title.setTextColor(0xfff6f1e8); title.setTextSize(28); title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); header.addView(title, new android.widget.LinearLayout.LayoutParams(0, -2, 1));
+        android.widget.Button save = new android.widget.Button(this); save.setText("Save"); save.setContentDescription("Save queue as playlist"); save.setOnClickListener(v -> saveQueueAsPlaylist(dialog)); header.addView(save); sheet.addView(header);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this); android.widget.LinearLayout rows = new android.widget.LinearLayout(this); rows.setOrientation(android.widget.LinearLayout.VERTICAL); scroll.addView(rows); sheet.addView(scroll, new android.widget.LinearLayout.LayoutParams(-1,0,1));
+        boolean[] dragging = {false};
+        Runnable render = () -> {
+            if (dragging[0] || controller == null) return;
+            int y = scroll.getScrollY(); rows.removeAllViews(); int current = observed.getCurrentMediaItemIndex(); String last = "";
+            for (int i=0;i<observed.getMediaItemCount();i++) {
+                String section=queueSection(i,current,observed.getMediaItemAt(i).mediaId);
+                if (!section.equals(last)) { rows.addView(queueSectionHeader(section)); last=section; }
+                rows.addView(queueRow(dialog,i,current,dragging));
+            }
+            if(observed.getMediaItemCount()==0) {TextView empty=new TextView(this);empty.setText("Queue is empty");empty.setTextColor(0xffaaa6a0);rows.addView(empty);}
+            scroll.post(() -> scroll.scrollTo(0,y));
+        };
+        Player.Listener listener = new Player.Listener(){@Override public void onEvents(Player player,Player.Events events){if(events.containsAny(Player.EVENT_TIMELINE_CHANGED,Player.EVENT_MEDIA_ITEM_TRANSITION,Player.EVENT_MEDIA_METADATA_CHANGED,Player.EVENT_IS_PLAYING_CHANGED))render.run();}};
+        observed.addListener(listener); dialog.setOnDismissListener(v -> observed.removeListener(listener));
+        dialog.setContentView(sheet); installSwipeBack(sheet,dialog::dismiss); dialog.show();
+        if(dialog.getWindow()!=null){dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);dialog.getWindow().setLayout(-1,(int)(getResources().getDisplayMetrics().heightPixels*.84f));dialog.getWindow().setGravity(android.view.Gravity.BOTTOM);}
+        render.run();
     }
 
-    private View queueRow(android.app.Dialog dialog, int index, int current) {
-        androidx.media3.common.MediaMetadata metadata = controller.getMediaItemAt(index).mediaMetadata;
-        android.widget.LinearLayout row = new android.widget.LinearLayout(this); row.setGravity(android.view.Gravity.CENTER_VERTICAL); row.setPadding(queueDp(5), queueDp(8), 0, queueDp(8)); row.setMinimumHeight(queueDp(66));
-        if (index == current) { android.graphics.drawable.GradientDrawable selected = new android.graphics.drawable.GradientDrawable(); selected.setColor(android.graphics.Color.rgb(39, 31, 28)); selected.setCornerRadius(queueDp(14)); row.setBackground(selected); }
-        TextView rail = new TextView(this); rail.setText("≡"); rail.setGravity(android.view.Gravity.CENTER); rail.setTextColor(index == current ? android.graphics.Color.rgb(91, 86, 81) : android.graphics.Color.rgb(173, 164, 156)); rail.setTextSize(24); rail.setContentDescription("Drag to reorder");
-        android.widget.LinearLayout.LayoutParams railParams = new android.widget.LinearLayout.LayoutParams(queueDp(42), queueDp(50)); row.addView(rail, railParams);
-        android.widget.LinearLayout meta = new android.widget.LinearLayout(this); meta.setOrientation(android.widget.LinearLayout.VERTICAL); meta.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        TextView name = new TextView(this); name.setText(Track.clean(String.valueOf(metadata.title), "Unknown title")); name.setSingleLine(true); name.setEllipsize(android.text.TextUtils.TruncateAt.END); name.setTextColor(android.graphics.Color.rgb(246, 241, 232)); name.setTextSize(15); name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); meta.addView(name);
-        TextView artist = new TextView(this); artist.setText(index == current ? "NOW PLAYING  ·  " + Track.clean(String.valueOf(metadata.artist), "Unknown artist") : Track.clean(String.valueOf(metadata.artist), "Unknown artist")); artist.setSingleLine(true); artist.setEllipsize(android.text.TextUtils.TruncateAt.END); artist.setTextColor(index == current ? android.graphics.Color.rgb(255, 128, 95) : android.graphics.Color.rgb(145, 139, 132)); artist.setTextSize(12); artist.setPadding(0, queueDp(4), 0, 0); meta.addView(artist);
-        row.addView(meta, new android.widget.LinearLayout.LayoutParams(0, -1, 1));
-        TextView remove = new TextView(this); remove.setText("×"); remove.setGravity(android.view.Gravity.CENTER); remove.setTextColor(android.graphics.Color.rgb(150, 144, 137)); remove.setTextSize(22); remove.setContentDescription("Remove from queue"); row.addView(remove, new android.widget.LinearLayout.LayoutParams(queueDp(44), queueDp(48)));
-        row.setOnClickListener(v -> { controller.seekTo(index, 0); controller.play(); dialog.dismiss(); });
-        remove.setOnClickListener(v -> { controller.removeMediaItem(index); dialog.dismiss(); main.postDelayed(this::showQueue, 100); });
-        if (index != current) {
-            final float[] down = new float[1]; final boolean[] dragging = new boolean[1];
-            rail.setOnTouchListener((v, event) -> {
-                if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) { down[0] = event.getRawY(); dragging[0] = true; v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS); row.animate().scaleX(1.02f).scaleY(1.02f).setDuration(80).start(); return true; }
-                if (event.getActionMasked() == android.view.MotionEvent.ACTION_MOVE && dragging[0]) { row.setTranslationY(event.getRawY() - down[0]); return true; }
-                if ((event.getActionMasked() == android.view.MotionEvent.ACTION_UP || event.getActionMasked() == android.view.MotionEvent.ACTION_CANCEL) && dragging[0]) {
-                    dragging[0] = false; int delta = Math.round((event.getRawY() - down[0]) / Math.max(1f, row.getHeight())); int target = Math.max(current + 1, Math.min(controller.getMediaItemCount() - 1, index + delta)); row.setTranslationY(0); row.setScaleX(1); row.setScaleY(1);
-                    if (target != index) controller.moveMediaItem(index, target); dialog.dismiss(); main.postDelayed(this::showQueue, 100); return true;
-                }
-                return false;
-            });
-        }
+    private int queueIndex(androidx.media3.common.MediaItem item,int hint) {
+        if(controller==null)return -1;
+        if(hint>=0&&hint<controller.getMediaItemCount()&&controller.getMediaItemAt(hint).mediaId.equals(item.mediaId))return hint;
+        for(int i=0;i<controller.getMediaItemCount();i++)if(controller.getMediaItemAt(i).mediaId.equals(item.mediaId))return i;
+        return -1;
+    }
+    private Track queueTrack(androidx.media3.common.MediaItem item) {
+        androidx.media3.common.MediaMetadata m=item.mediaMetadata;
+        return new Track(Track.originalId(item.mediaId),item.localConfiguration==null?Uri.EMPTY:item.localConfiguration.uri,Track.clean(m.title==null?null:m.title.toString(),"Unknown title"),Track.clean(m.artist==null?null:m.artist.toString(),"Unknown artist"),m.albumTitle==null?"":m.albumTitle.toString(),m.artworkUri);
+    }
+    private View queueRow(android.app.Dialog dialog,int index,int current,boolean[] draggingQueue) {
+        androidx.media3.common.MediaItem item=controller.getMediaItemAt(index); Track track=queueTrack(item);
+        android.widget.LinearLayout row=new android.widget.LinearLayout(this);row.setGravity(android.view.Gravity.CENTER_VERTICAL);row.setPadding(0,queueDp(8),0,queueDp(8));
+        if(index==current)row.setBackgroundColor(0xff271f1c);
+        TextView rail=new TextView(this);rail.setText(index>current?"\u2630":index==current?"\u25b6":"");rail.setTextColor(0xff969089);rail.setGravity(android.view.Gravity.CENTER);rail.setTextSize(20);rail.setContentDescription("Reorder "+track.title);row.addView(rail,new android.widget.LinearLayout.LayoutParams(queueDp(40),queueDp(52)));
+        android.widget.LinearLayout labels=new android.widget.LinearLayout(this);labels.setOrientation(android.widget.LinearLayout.VERTICAL);
+        TextView title=new TextView(this);title.setText(track.title);title.setTextColor(0xfff6f1e8);title.setTextSize(15);title.setSingleLine(true);title.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(title);
+        TextView artist=new TextView(this);artist.setText(track.artist);artist.setTextColor(index==current?0xffff805f:0xff969089);artist.setTextSize(12);artist.setSingleLine(true);artist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(artist);row.addView(labels,new android.widget.LinearLayout.LayoutParams(0,-2,1));
+        TextView more=new TextView(this);more.setText("\u22ee");more.setTextSize(26);more.setTextColor(0xffc7c0b9);more.setGravity(android.view.Gravity.CENTER);more.setContentDescription("More options for "+track.title);more.setClickable(true);row.addView(more,new android.widget.LinearLayout.LayoutParams(queueDp(48),queueDp(52)));
+        more.setOnClickListener(v -> showQueueActions(item,index));
+        row.setOnClickListener(v -> {int at=queueIndex(item,index);if(at>=0){controller.seekTo(at,0);controller.play();}});
+        if(index>current){float[] down={0};rail.setOnTouchListener((v,event)->{
+            if(event.getActionMasked()==android.view.MotionEvent.ACTION_DOWN){down[0]=event.getRawY();draggingQueue[0]=true;v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);return true;}
+            if(event.getActionMasked()==android.view.MotionEvent.ACTION_MOVE&&draggingQueue[0]){row.setTranslationY(event.getRawY()-down[0]);return true;}
+            if(event.getActionMasked()==android.view.MotionEvent.ACTION_UP||event.getActionMasked()==android.view.MotionEvent.ACTION_CANCEL){boolean commit=event.getActionMasked()==android.view.MotionEvent.ACTION_UP;draggingQueue[0]=false;row.setTranslationY(0);int from=queueIndex(item,index);if(commit&&from>=0){int target=Math.max(controller.getCurrentMediaItemIndex()+1,Math.min(controller.getMediaItemCount()-1,from+Math.round((event.getRawY()-down[0])/Math.max(1f,row.getHeight()))));if(target!=from)controller.moveMediaItem(from,target);}return true;}return false;
+        });}
         return row;
+    }
+    private void showQueueActions(androidx.media3.common.MediaItem item,int hint) {
+        Track track=queueTrack(item);
+        String download=DownloadStore.contains(this,track.stableId)?"Remove download":DownloadTasks.active(this,track.stableId)?"Download activity":"Download";
+        new AlertDialog.Builder(this).setTitle(track.title).setItems(new String[]{"Play", "Play next", download, "Add to playlist", "Artist", "Remove from queue"},(d,which)->{
+            int at=queueIndex(item,hint);
+            if(which==0&&at>=0){controller.seekTo(at,0);controller.play();}
+            else if(which==1&&at>=0){int next=Math.min(controller.getCurrentMediaItemIndex()+1,controller.getMediaItemCount()-1);controller.moveMediaItem(at,next);}
+            else if(which==2){if(download.equals("Remove download")){DownloadStore.remove(this,track.stableId);Toast.makeText(this,"Download removed",Toast.LENGTH_SHORT).show();}else requestDownload(track);}
+            else if(which==3)addTrackToPlaylist(track);
+            else if(which==4)showArtistPage(track.artist);
+            else if(which==5&&at>=0)controller.removeMediaItem(at);
+        }).show();
+    }
+
+    private void requestDownload(Track input) {
+        Track track=input.original();String scheme=track.playbackUri.getScheme();
+        if(DownloadStore.contains(this,track.stableId)||"content".equals(scheme)||"file".equals(scheme)){Toast.makeText(this,"Already on this device",Toast.LENGTH_SHORT).show();return;}
+        if(DownloadTasks.active(this,track.stableId)){showDownloadActivity();return;}
+        OfflineDownloadService.enqueue(this,track);Toast.makeText(this,"Saved for offline download",Toast.LENGTH_SHORT).show();
+    }
+
+    private void showDownloadActivity() {
+        android.app.Dialog dialog=new android.app.Dialog(this);android.widget.LinearLayout root=new android.widget.LinearLayout(this);root.setOrientation(android.widget.LinearLayout.VERTICAL);root.setPadding(queueDp(16),queueDp(16),queueDp(16),queueDp(16));root.setBackgroundColor(0xff121111);
+        TextView heading=new TextView(this);heading.setText("Downloads");heading.setTextSize(26);heading.setTextColor(0xfff6f1e8);root.addView(heading);
+        android.widget.Button saved=new android.widget.Button(this);saved.setText("Offline library");saved.setOnClickListener(v->{dialog.dismiss();loadDownloads();});root.addView(saved);
+        android.widget.ScrollView scroll=new android.widget.ScrollView(this);android.widget.LinearLayout rows=new android.widget.LinearLayout(this);rows.setOrientation(android.widget.LinearLayout.VERTICAL);scroll.addView(rows);root.addView(scroll,new android.widget.LinearLayout.LayoutParams(-1,0,1));
+        java.util.Map<String,TextView> texts=new java.util.HashMap<>();java.util.Map<String,android.widget.Button> actions=new java.util.HashMap<>();final Runnable[] refresh=new Runnable[1];
+        refresh[0]=()->{
+            List<org.json.JSONObject> records=DownloadTasks.all(this);
+            for(org.json.JSONObject record:records){String id=record.optString("id");Track track=DownloadTasks.track(record);TextView text=texts.get(id);android.widget.Button action=actions.get(id);
+                if(text==null){android.widget.LinearLayout row=new android.widget.LinearLayout(this);row.setPadding(0,queueDp(12),0,queueDp(12));text=new TextView(this);text.setTextColor(0xfff6f1e8);text.setTextSize(14);row.addView(text,new android.widget.LinearLayout.LayoutParams(0,-2,1));action=new android.widget.Button(this);row.addView(action);rows.addView(row);texts.put(id,text);actions.put(id,action);}
+                long bytes=record.optLong("bytes"),total=record.optLong("total",-1);String state=record.optString("state");String progress=total>0?" · "+Math.min(100,bytes*100/total)+"%":bytes>0?" · "+formatBytes(bytes):"";
+                String label=state.equals("waiting")||state.equals("queued")?"Waiting for connection / background retry":state.equals("completed")?"Downloaded":state.equals("failed")?"Failed":state.equals("cancelled")?"Cancelled":"Downloading";
+                text.setText(track.title+"\n"+label+progress+(record.optString("error").isEmpty()?"":"\n"+record.optString("error")));
+                boolean active=DownloadTasks.active(record);action.setText(active?"Cancel":state.equals("completed")?"Saved":"Retry");action.setEnabled(!state.equals("completed"));action.setContentDescription((active?"Cancel download of ":"Retry download of ")+track.title);
+                action.setOnClickListener(v->{if(active)OfflineDownloadService.cancel(this,track);else OfflineDownloadService.enqueue(this,track);});
+            }
+            if(records.isEmpty()&&rows.getChildCount()==0){TextView empty=new TextView(this);empty.setText("No downloads");empty.setTextColor(0xffaaa6a0);rows.addView(empty);}
+            if(dialog.isShowing())main.postDelayed(refresh[0],1000);
+        };
+        dialog.setContentView(root);dialog.setOnDismissListener(v->main.removeCallbacks(refresh[0]));dialog.show();if(dialog.getWindow()!=null)dialog.getWindow().setLayout(-1,(int)(getResources().getDisplayMetrics().heightPixels*.85f));refresh[0].run();
     }
 
     private String queueSection(int index, int current, String mediaId) {
@@ -869,7 +1019,7 @@ public final class MainActivity extends Activity {
             List<Track> found = new ArrayList<>();
             int loaded = 0;
             for (String id : ids) {
-                if (loaded++ >= 200) break;
+                if (loaded++ >= 500) break;
                 if (id.startsWith("{")) {
                     try {
                         org.json.JSONObject saved = new org.json.JSONObject(id); String stableId = saved.getString("id");
@@ -892,14 +1042,12 @@ public final class MainActivity extends Activity {
 
     private void toggleCurrentFavorite() {
         if (controller == null || controller.getCurrentMediaItem() == null) return;
-        String mediaId = controller.getCurrentMediaItem().mediaId;
-        if (!mediaId.startsWith("local:")) { Toast.makeText(this, "Remote favorites are managed by Navidrome.", Toast.LENGTH_SHORT).show(); return; }
-        android.content.SharedPreferences prefs = getSharedPreferences("library", MODE_PRIVATE);
-        java.util.Set<String> ids = new java.util.HashSet<>(prefs.getStringSet("favorites", new java.util.HashSet<>()));
-        String id = mediaId.substring(6);
-        if (ids.remove(id)) Toast.makeText(this, "Removed from favorites", Toast.LENGTH_SHORT).show();
-        else { ids.add(id); Toast.makeText(this, "Added to favorites", Toast.LENGTH_SHORT).show(); }
-        prefs.edit().putStringSet("favorites", ids).apply();
+        toggleTrackFavorite(queueTrack(controller.getCurrentMediaItem()));
+    }
+
+    private void toggleTrackFavorite(Track track) {
+        boolean saved = FavoriteStore.toggle(this,track);
+        Toast.makeText(this,saved ? "Added to favorites" : "Removed from favorites",Toast.LENGTH_SHORT).show();
     }
 
     private void addTrackToPlaylist(Track track) {
@@ -938,10 +1086,11 @@ public final class MainActivity extends Activity {
     private void showPlaylists() {
         android.content.SharedPreferences prefs = getSharedPreferences("library", MODE_PRIVATE);
         List<String> names = playlistNames(prefs);
+        names.add("+ Import playlist");
         names.add("+ Create playlist");
         new AlertDialog.Builder(this).setTitle("Playlists").setItems(names.toArray(new String[0]), (d, which) -> {
             String name = names.get(which);
-            if (name.startsWith("+")) createPlaylist(); else loadPlaylist(name);
+            if (name.equals("+ Import playlist")) showImportOptions(); else if (name.equals("+ Create playlist")) createPlaylist(); else loadPlaylist(name);
         }).show();
     }
 

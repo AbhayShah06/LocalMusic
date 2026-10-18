@@ -30,6 +30,8 @@ import org.json.JSONObject;
 
 @androidx.media3.common.util.UnstableApi
 public final class PlaybackService extends MediaSessionService {
+    private static volatile boolean bufferingForDownloads;
+    static boolean isBufferingForDownloads() { return bufferingForDownloads; }
     static final String PREFS = "playback_state";
     static final String ACTION_SET_SLEEP_TIMER = "com.abhayshah.localmusic.SET_SLEEP_TIMER";
     static final String EXTRA_SLEEP_MINUTES = "sleep_minutes";
@@ -37,6 +39,11 @@ public final class PlaybackService extends MediaSessionService {
     static final String ACTION_STOP_JAM = "com.abhayshah.localmusic.STOP_JAM";
     static final String EXTRA_JAM_CODE = "jam_code";
     static final String EXTRA_JAM_TOKEN = "jam_token";
+    static final String EXTRA_JAM_CATALOG = "jam_catalog";
+    static final String ACTION_PUBLISH_JAM = "com.abhayshah.localmusic.PUBLISH_JAM";
+    private final Map<String, Track> jamCatalog = new ConcurrentHashMap<>();
+    private final Set<String> jamSearches = ConcurrentHashMap.newKeySet();
+    private volatile boolean destroyed;
     private ExoPlayer player;
     private MediaSession session;
     private SharedPreferences prefs;
@@ -71,8 +78,13 @@ public final class PlaybackService extends MediaSessionService {
                 try {
                     JamClient.State state = new JamClient().state(room);
                     stateHandler.post(() -> {
+                        if (jamRoom != room || destroyed) return;
                         for (JamClient.Entry entry : state.entries) if (jamEntries.add(entry.id)) addJamTrack(entry);
                         for (JamClient.Control control : state.controls) if (jamControls.add(control.id)) applyJamControl(control);
+                        for (JamClient.Search search : state.searches) if (search.pending && jamSearches.add(search.id)) jamIo.execute(() -> {
+                            try { List<Track> found = new OnlineCatalogSource().page(search.query, 0, 35); for (Track track : found) jamCatalog.put(track.stableId, track); if (jamRoom == room) new JamClient().publish(room, search.id, found); }
+                            catch (Exception error) { jamSearches.remove(search.id); }
+                        });
                         publishJamPlayback();
                     });
                 } catch (Exception ignored) { }
@@ -97,6 +109,8 @@ public final class PlaybackService extends MediaSessionService {
         }
         @Override public void onPlayerError(PlaybackException error) { recoverExpiredOnlineStream(); }
         @Override public void onEvents(Player player, Player.Events events) {
+            if (destroyed) return;
+            bufferingForDownloads = player.getPlayWhenReady() && player.getPlaybackState() == Player.STATE_BUFFERING;
             stateHandler.removeCallbacks(debouncedSave);
             stateHandler.postDelayed(debouncedSave, 750);
             if (jamRoom != null) stateHandler.postDelayed(PlaybackService.this::publishJamPlayback, 120);
@@ -128,10 +142,17 @@ public final class PlaybackService extends MediaSessionService {
             jamEntries.clear(); jamControls.clear();
             jamRequesters.clear();
             jamEntryOrder.clear(); jamResolved.clear(); jamCommitCursor = 0;
+            jamCatalog.clear(); jamSearches.clear();
+            try {
+                JSONArray catalog = new JSONArray(intent.getStringExtra(EXTRA_JAM_CATALOG));
+                for (int i = 0; i < catalog.length(); i++) { JSONObject item = catalog.getJSONObject(i); String art = item.optString("artwork"); Track track = new Track(item.getString("id"), Uri.parse(item.getString("uri")), item.optString("title"), item.optString("artist"), item.optString("album"), art.isEmpty() ? null : Uri.parse(art)); jamCatalog.put(track.stableId, track); }
+            } catch (Exception ignored) { }
             jamRoom = new JamClient.Room(intent.getStringExtra(EXTRA_JAM_CODE), intent.getStringExtra(EXTRA_JAM_TOKEN));
             stateHandler.removeCallbacks(jamPoll); stateHandler.post(jamPoll);
         } else if (intent != null && ACTION_STOP_JAM.equals(intent.getAction())) {
             jamRoom = null; stateHandler.removeCallbacks(jamPoll);
+        } else if (intent != null && ACTION_PUBLISH_JAM.equals(intent.getAction())) {
+            publishJamPlayback();
         }
         return super.onStartCommand(intent, flags, startId);
     }
@@ -141,7 +162,7 @@ public final class PlaybackService extends MediaSessionService {
     private void restoreQueue() {
         String saved = prefs.getString("queue", "");
         if (saved.isEmpty()) return;
-        if (saved.contains("\"id\":\"b2:") || saved.contains("\"id\":\"online:")) {
+        if (!saved.isEmpty()) {
             new Thread(() -> {
                 List<MediaItem> restored = buildRestoredItems(saved);
                 stateHandler.post(() -> applyRestoredItems(restored));
@@ -201,7 +222,7 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     private void applyRestoredItems(List<MediaItem> items) {
-        if (!items.isEmpty() && player != null) {
+        if (!items.isEmpty() && player != null && player.getMediaItemCount() == 0) {
             int index = Math.min(Math.max(0, prefs.getInt("index", 0)), items.size() - 1);
             player.setMediaItems(items, index, Math.max(0, prefs.getLong("position", 0)));
             player.setShuffleModeEnabled(prefs.getBoolean("shuffle", false));
@@ -247,15 +268,22 @@ public final class PlaybackService extends MediaSessionService {
 
     private void addJamTrack(JamClient.Entry entry) {
         if (player == null) return;
-        if (!entry.trackId.startsWith("online:")) return;
         jamEntryOrder.add(entry.id);
-        Track unresolved = new Track(entry.trackId, Uri.EMPTY, entry.title, entry.artist, "YouTube Music");
+        JamClient.Room requestedRoom = jamRoom;
+        Track known = jamCatalog.get(entry.trackId);
+        Track unresolved = known != null ? known : new Track(entry.trackId, Uri.EMPTY, entry.title, entry.artist, "YouTube Music");
         jamIo.execute(() -> {
             try {
-                Track resolved = new OnlineCatalogSource().resolve(unresolved);
+                Track resolved;
+                if (entry.trackId.startsWith("online:")) resolved = new OnlineCatalogSource().resolve(unresolved);
+                else if (entry.trackId.startsWith("b2:")) resolved = new Track(entry.trackId, new B2CatalogClient(new B2Settings(this)).playbackUri(entry.trackId.substring(3)), entry.title, entry.artist, unresolved.album, unresolved.artworkUri);
+                else if (known != null) resolved = known;
+                else throw new IllegalStateException("Requested song is no longer in the host library");
+                if (jamRoom != requestedRoom || destroyed) return;
                 jamResolved.put(entry.id, new ResolvedJamTrack(entry, resolved));
                 stateHandler.post(this::flushResolvedJamTracks);
-            } catch (RuntimeException ignored) {
+            } catch (Exception ignored) {
+                if (jamRoom != requestedRoom || destroyed) return;
                 jamResolved.put(entry.id, new ResolvedJamTrack(entry, null));
                 stateHandler.post(this::flushResolvedJamTracks);
             }
@@ -268,7 +296,8 @@ public final class PlaybackService extends MediaSessionService {
             ResolvedJamTrack item = jamResolved.remove(jamEntryOrder.get(jamCommitCursor));
             if (item == null) return;
             jamCommitCursor += 1;
-            if (player == null || item.track == null) continue;
+            if (player == null || destroyed) continue;
+            if (item.track == null) { android.widget.Toast.makeText(this, "Could not queue " + item.entry.title + ". Try another version.", android.widget.Toast.LENGTH_LONG).show(); continue; }
             String mediaId = "jam:" + item.entry.id + ":" + item.track.stableId;
             MediaItem media = item.track.toMediaItem().buildUpon().setMediaId(mediaId).setCustomCacheKey(item.track.stableId).build();
             jamRequesters.put(mediaId, item.entry.guest);
@@ -280,6 +309,7 @@ public final class PlaybackService extends MediaSessionService {
             }
             preloadIo.execute(() -> { try { PlaybackCache.preload(media); } catch (Exception ignored) { } });
         }
+        if (player != null && player.getMediaItemCount() > 0 && player.getPlaybackState() == Player.STATE_IDLE) player.prepare();
         publishJamPlayback();
     }
 
@@ -305,7 +335,7 @@ public final class PlaybackService extends MediaSessionService {
 
     private void publishJamPlayback() {
         JamClient.Room room = jamRoom;
-        if (room == null || player == null || player.getCurrentMediaItem() == null) return;
+        if (room == null || player == null || destroyed) return;
         androidx.media3.common.MediaMetadata current = player.getMediaMetadata();
         String title = Track.clean(String.valueOf(current.title), "Unknown title"), artist = Track.clean(String.valueOf(current.artist), "Unknown artist"), artwork = current.artworkUri == null ? "" : current.artworkUri.toString();
         List<String[]> queue = new ArrayList<>(); int currentIndex = player.getCurrentMediaItemIndex();
@@ -346,9 +376,10 @@ public final class PlaybackService extends MediaSessionService {
         preloadIo.execute(() -> {
             try {
                 Track unresolved = new Track(sourceId, Uri.EMPTY, String.valueOf(failed.mediaMetadata.title), String.valueOf(failed.mediaMetadata.artist), String.valueOf(failed.mediaMetadata.albumTitle));
+                OnlineCatalogSource.invalidate(sourceId);
                 Track resolved = new OnlineCatalogSource().resolve(unresolved);
                 MediaItem replacement = resolved.toMediaItem().buildUpon().setMediaId(failed.mediaId).setCustomCacheKey(sourceId).build();
-                stateHandler.post(() -> { if (player == null || index < 0 || index >= player.getMediaItemCount()) return; player.replaceMediaItem(index, replacement); player.seekTo(index, position); player.prepare(); player.play(); });
+                stateHandler.post(() -> { if (player == null || destroyed || index != player.getCurrentMediaItemIndex() || index < 0 || index >= player.getMediaItemCount() || !player.getMediaItemAt(index).mediaId.equals(failed.mediaId)) return; boolean resume = player.getPlayWhenReady(); player.replaceMediaItem(index, replacement); player.seekTo(index, position); player.prepare(); player.setPlayWhenReady(resume); });
             } catch (RuntimeException ignored) { }
         });
     }
@@ -372,6 +403,9 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     @Override public void onDestroy() {
+        destroyed = true;
+        bufferingForDownloads = false;
+        stateHandler.removeCallbacksAndMessages(null);
         stateHandler.removeCallbacks(periodicSave);
         stateHandler.removeCallbacks(debouncedSave);
         stateHandler.removeCallbacks(recordCurrentItem);

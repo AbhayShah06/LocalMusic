@@ -17,6 +17,12 @@ final class JamClient {
     static final String API_BASE = "https://localmusic-jam.localmusic-jam-worker.workers.dev";
     static final String SITE_BASE = "https://localmusic-jam.vercel.app/";
 
+    static String hostCatalog(List<Track> catalog) throws Exception {
+        JSONArray values = new JSONArray();
+        for (Track track : catalog) values.put(new JSONObject().put("id", track.stableId).put("uri", track.playbackUri.toString()).put("title", track.title).put("artist", track.artist).put("album", track.album).put("artwork", track.artworkUri == null ? "" : track.artworkUri.toString()));
+        return values.toString();
+    }
+
     Room create(List<Track> catalog) throws Exception {
         JSONArray values = new JSONArray();
         for (Track track : catalog) values.put(new JSONObject().put("id", track.stableId).put("title", track.title)

@@ -20,12 +20,12 @@ final class ListeningHistory {
             int plays = 1; JSONArray next = new JSONArray();
             for (int i = 0; i < old.length(); i++) {
                 JSONObject value = old.getJSONObject(i);
-                if (item.mediaId.equals(value.optString("id"))) plays += value.optInt("plays", 1);
+                if (Track.originalId(item.mediaId).equals(Track.originalId(value.optString("id")))) plays += value.optInt("plays", 1);
                 else if (next.length() < 99) next.put(value);
             }
-            JSONObject value = new JSONObject().put("id", item.mediaId).put("plays", plays).put("last", System.currentTimeMillis())
-                    .put("title", String.valueOf(item.mediaMetadata.title)).put("artist", String.valueOf(item.mediaMetadata.artist))
-                    .put("album", String.valueOf(item.mediaMetadata.albumTitle)).put("artwork", item.mediaMetadata.artworkUri == null ? "" : item.mediaMetadata.artworkUri.toString())
+            JSONObject value = new JSONObject().put("id", Track.originalId(item.mediaId)).put("plays", plays).put("last", System.currentTimeMillis())
+                    .put("title", text(item.mediaMetadata.title)).put("artist", text(item.mediaMetadata.artist))
+                    .put("album", text(item.mediaMetadata.albumTitle)).put("artwork", item.mediaMetadata.artworkUri == null ? "" : item.mediaMetadata.artworkUri.toString())
                     .put("uri", item.localConfiguration == null ? "" : item.localConfiguration.uri.toString());
             JSONArray saved = new JSONArray().put(value); for (int i = 0; i < next.length(); i++) saved.put(next.getJSONObject(i));
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, saved.toString()).apply();
@@ -58,5 +58,6 @@ final class ListeningHistory {
         return new Track(id, uri.isEmpty() ? Uri.EMPTY : Uri.parse(uri), value.optString("title"), value.optString("artist"), value.optString("album"), artwork.isEmpty() ? null : Uri.parse(artwork));
     }
     private static final class Entry { final Track track; final int plays; Entry(Track track, int plays) { this.track = track; this.plays = plays; } }
+    private static String text(CharSequence value) { return value == null ? "" : value.toString(); }
     private ListeningHistory() { }
 }
