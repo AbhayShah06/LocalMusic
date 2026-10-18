@@ -1,7 +1,7 @@
 {
-  "versionCode": 21,
-  "versionName": "0.12.4",
-  "notes": "Faster, more resilient playback with bounded queue preloading and automatic recovery from expired online streams. Save a full queue as an ordered playlist. Jam now shows who requested each track and distinguishes requests from autoplay. Playback controls use clear icons and correctly handle headphones, audio focus, and device sleep.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.4/LocalMusic-0.12.4.apk",
-  "sha256": "DCF4156519F9D20B52C6081850A908E796B7DB9F83254B82099CAE8004DB0452"
+  "versionCode": 22,
+  "versionName": "0.12.5",
+  "notes": "Adds the missing WAKE_LOCK permission required by playback and a new Local Music app and launcher logo. Queue-crash fix still needs confirmation on a physical device.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.5/LocalMusic-0.12.5.apk",
+  "sha256": "D481954502CE6BABCFC66D0EF50371FA83A87CE053417CB44D5BDE03FF3DCFF0"
 }
