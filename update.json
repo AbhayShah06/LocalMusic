@@ -1,7 +1,7 @@
 {
-  "versionCode": 22,
-  "versionName": "0.12.5",
-  "notes": "Adds the missing WAKE_LOCK permission required by playback and a new Local Music app and launcher logo. Queue-crash fix still needs confirmation on a physical device.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.5/LocalMusic-0.12.5.apk",
-  "sha256": "D481954502CE6BABCFC66D0EF50371FA83A87CE053417CB44D5BDE03FF3DCFF0"
+  "versionCode": 23,
+  "versionName": "0.12.6",
+  "notes": "Queue refresh, rolling autoplay, background downloads and library fixes.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.6/LocalMusic-0.12.6.apk",
+  "sha256": "9CC8AA9D2CBBB9544F152B14F049EFF2A30157C61F3BF207E54E665C36255232"
 }
