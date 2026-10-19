@@ -178,6 +178,56 @@ public class FeatureRuntimeTest {
         }
     }
     static int autoplayAhead(MediaController controller){int count=0;for(int i=controller.getCurrentMediaItemIndex()+1;i<controller.getMediaItemCount();i++)if(controller.getMediaItemAt(i).mediaId.startsWith("auto:"))count++;return count;}
+    @Test public void j_mixPlaysExactlyItsPreviewAndSelectedSongsCanBeAdded()throws Exception{
+        Track base=fixture("collection");List<Track> songs=new ArrayList<>();for(int n=0;n<6;n++)songs.add(new Track("fixture:collection-"+n,base.playbackUri,"Collection Song "+n,"Runtime Artist","Collection"));
+        String name="QA Selection "+System.nanoTime();
+        try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
+            MediaController controller=connect();main(()->{controller.setShuffleModeEnabled(true);controller.setRepeatMode(Player.REPEAT_MODE_ALL);});
+            activity.onActivity(a->a.previewPersonalMix("Collection Mix",songs));onView(withText("Save playlist")).check(doesNotExist());onView(withText("Play")).perform(click());
+            await("Mix did not start",()->value(()->controller.getMediaItemCount()==6&&controller.getCurrentMediaItem().mediaId.equals(songs.get(0).stableId)),15000);
+            for(int n=0;n<6;n++){int index=n;assertEquals(songs.get(n).stableId,value(()->controller.getMediaItemAt(index).mediaId));}
+            assertFalse(value(controller::getShuffleModeEnabled));assertEquals(Integer.valueOf(Player.REPEAT_MODE_OFF),value(controller::getRepeatMode));
+            activity.onActivity(a->a.previewPersonalMix("Collection Mix",songs));onView(withText("Select")).perform(click());
+            for(int index:new int[]{1,3,4})onView(withContentDescription("Select Collection Song "+index)).perform(click());
+            onView(withText("Add 3 to playlist")).perform(click());onView(withText("+ New playlist")).perform(click());onView(isAssignableFrom(android.widget.EditText.class)).perform(typeText(name),androidx.test.espresso.action.ViewActions.closeSoftKeyboard());onView(withText("Add")).perform(click());
+            org.json.JSONArray saved=new org.json.JSONArray(context.getSharedPreferences("library",0).getString("playlist_order:"+name,"[]"));assertEquals(3,saved.length());
+            for(int n=0;n<3;n++)assertEquals(songs.get(new int[]{1,3,4}[n]).stableId,new org.json.JSONObject(saved.getString(n)).getString("id"));
+            onView(withText("Play")).perform(click());await("Selected songs did not become exact queue",()->value(()->controller.getMediaItemCount()==3&&controller.getCurrentMediaItem().mediaId.equals(songs.get(1).stableId)),10000);
+            for(int n=0;n<3;n++){int index=n;assertEquals(songs.get(new int[]{1,3,4}[n]).stableId,value(()->controller.getMediaItemAt(index).mediaId));}
+            main(()->{controller.pause();controller.release();});
+        }finally{context.getSharedPreferences("library",0).edit().remove("playlist:"+name).remove("playlist_order:"+name).apply();}
+    }
+    @Test public void k_homeRefreshAndBothDirectionsDismissSheets()throws Exception{
+        try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
+            onView(withId(R.id.forYou)).perform(click());Track fresh=fixture("fresh-home");ListeningHistory.record(context,fresh.toMediaItem());
+            onView(withContentDescription("Refresh home")).perform(swipeDown());waitForText("Test Song fresh-home");onView(withText("Artist mixes")).check(doesNotExist());
+            activity.onActivity(a->a.previewPersonalMix("Gesture Mix",Arrays.asList(fresh)));onView(withContentDescription("Dismiss panel")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(swipeLeft());onView(withContentDescription("Close mix")).check(doesNotExist());
+            MediaController controller=connect();main(()->{controller.setMediaItem(fresh.toMediaItem());controller.prepare();controller.play();});await("Playback did not start",()->value(controller::isPlaying),10000);
+            onView(withId(R.id.miniPlayer)).perform(click());onView(withId(R.id.fullQueue)).perform(click());
+            onView(withContentDescription("Dismiss panel")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(swipeLeft());onView(withContentDescription("Close queue")).check(doesNotExist());
+            onView(withContentDescription("Dismiss panel")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(swipeRight());onView(withId(R.id.miniPlayer)).check(matches(isDisplayed()));main(()->{controller.pause();controller.release();});
+        }
+    }
+    @Test public void l_downloadedRecordingIsPreferredAcrossSourceIdsAndFormats()throws Exception{
+        Track audio=fixture("offline-original");Track stored=new Track("online:0:owned-upload",audio.playbackUri,"Summer","Calvin Harris","Motion");File file=DownloadStore.destination(context,stored.stableId);Files.copy(new File(audio.playbackUri.getPath()).toPath(),file.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);DownloadStore.put(context,stored,file);
+        try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
+            Track recommendation=new Track("online:0:other-upload",Uri.EMPTY,"Summer (Official Audio)","Calvin Harris - Topic","Motion");assertNotNull(DownloadStore.offline(context,recommendation));assertEquals("file",StreamPlayback.item(context,recommendation).localConfiguration.uri.getScheme());
+            MediaController controller=connect();PlaybackCollection.request(context,Collections.singletonList(recommendation),0);await("Downloaded alternate upload did not play",()->value(controller::isPlaying),10000);assertNull(value(controller::getPlayerError));main(()->{controller.pause();controller.release();});
+        }finally{DownloadStore.remove(context,stored.stableId);}
+        VolumeAudioProcessor processor=new VolumeAudioProcessor(()->false);processor.reset();processor.configure(new androidx.media3.common.audio.AudioProcessor.AudioFormat(8000,2,androidx.media3.common.C.ENCODING_PCM_16BIT));processor.flush();
+        byte[] pcm=new byte[]{1,0,2,0,3,0,4,0};processor.queueInput(java.nio.ByteBuffer.wrap(Arrays.copyOfRange(pcm,0,3)));assertEquals(0,processor.getOutput().remaining());processor.queueInput(java.nio.ByteBuffer.wrap(Arrays.copyOfRange(pcm,3,8)));java.nio.ByteBuffer output=processor.getOutput();byte[] actual=new byte[output.remaining()];output.get(actual);assertArrayEquals(pcm,actual);processor.reset();
+    }
+    @Test public void m_liveSongMixAndLazyOnlinePlayback()throws Exception{
+        try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
+            OnlineCatalogSource source=new OnlineCatalogSource();List<Track> matches=source.page("Calvin Harris Summer",0,5);assertFalse(matches.isEmpty());Track seed=matches.get(0);
+            List<Track> mix=source.songMix(seed);assertTrue("Song mix returned fewer than three songs",mix.size()>=3);Set<String> artists=new HashSet<>();
+            for(Track track:mix){assertFalse("Video returned in mix",VersionPolicy.isMusicVideo(track.title));assertFalse("Edited version returned in mix",VersionPolicy.isEditedVersion(track.title));artists.add(RecordingIdentity.artist(track.artist));}
+            assertTrue("Song mix collapsed to one artist",artists.size()>1);
+            MediaController controller=connect();PlaybackCollection.request(context,mix,0);await("Lazy online mix did not start playback",()->value(controller::isPlaying),45000);
+            assertEquals(Integer.valueOf(mix.size()),value(controller::getMediaItemCount));for(int n=0;n<mix.size();n++){int index=n;assertEquals(mix.get(n).stableId,value(()->controller.getMediaItemAt(index).mediaId));}
+            assertNull(value(controller::getPlayerError));main(()->{controller.pause();controller.release();});
+        }
+    }
     @Test public void z_actualAndroidJamHostAndBrowserFriend()throws Exception{
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
             Track one=fixture("host"),two=fixture("friend");MediaController controller=connect();

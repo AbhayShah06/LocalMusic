@@ -32,11 +32,11 @@ final class AutoplayQueue {
             List<Track> ready=new ArrayList<>(),remaining=new ArrayList<>();
             try{
                 OnlineCatalogSource source=null;
-                if(candidates.isEmpty()&&originalSeed.stableId.startsWith("online:")){source=new OnlineCatalogSource(context.getSharedPreferences("settings",0).getBoolean("avoid_clean",true));candidates.addAll(source.resolveWithRadio(originalSeed).radio);candidates.addAll(source.page(originalSeed.artist,0,50));}
+                if(candidates.isEmpty()&&originalSeed.stableId.startsWith("online:")){source=new OnlineCatalogSource(context.getSharedPreferences("settings",0).getBoolean("avoid_clean",true));candidates.addAll(source.songMix(originalSeed,known));}
                 Set<String> picked=new HashSet<>(known);
                 for(Track track:candidates){
                     if(closed||request!=generation)return;
-                    String id=Track.originalId(track.stableId);if(!picked.add(id))continue;
+                    String id=Track.originalId(track.stableId);if(VersionPolicy.isMusicVideo(track.title)||context.getSharedPreferences("settings",0).getBoolean("avoid_clean",true)&&VersionPolicy.exclude(track.title,originalSeed.title)||!picked.add(id))continue;
                     if(ready.size()>=needed){remaining.add(track.original());continue;}
                     try{Track playable=DownloadStore.offline(context,track.original());if(playable==null){if(id.startsWith("online:")){if(source==null)source=new OnlineCatalogSource();playable=source.resolve(track.original());}else playable=track.original();}ready.add(playable);}catch(RuntimeException unavailable){remaining.add(track.original());}
                 }

@@ -2,6 +2,7 @@ name: Security
 on:
   push:
     branches: [main]
+    paths-ignore: [update.json, README.md]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -28,6 +29,8 @@ jobs:
           java-version: '17'
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
         if: matrix.mode == 'manual'
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
       - uses: github/codeql-action/init@f051dc808ef3645eb0d08647ec751634ec2304ac
         with:
           languages: ${{ matrix.language }}

@@ -483,6 +483,8 @@ public final class MainActivity extends Activity {
         content.setPadding(pad, pad / 2, pad, pad);
 
         TextView playback = settingsHeading("Playback"); content.addView(playback);
+        android.widget.Switch leveling=settingsSwitch("Volume leveling","Reduce loudness jumps between songs",prefs.getBoolean("volume_leveling",true));
+        leveling.setOnCheckedChangeListener((button,checked)->prefs.edit().putBoolean("volume_leveling",checked).apply());content.addView(leveling);
         android.widget.Switch haptics = settingsSwitch("Touch feedback", "Vibrate briefly when a tap is registered", prefs.getBoolean("haptics", true));
         haptics.setOnCheckedChangeListener((button, checked) -> prefs.edit().putBoolean("haptics", checked).apply()); content.addView(haptics);
         android.widget.Switch autoplay = settingsSwitch("Autoplay recommendations", "Keep the queue moving with related music", prefs.getBoolean("autoplay", true));
@@ -507,7 +509,8 @@ public final class MainActivity extends Activity {
         }));
 
         android.widget.ScrollView scroll = new android.widget.ScrollView(this); scroll.addView(content);
-        new AlertDialog.Builder(this).setTitle("Settings").setView(scroll).setPositiveButton("Done", null).show();
+        AlertDialog settingsDialog=new AlertDialog.Builder(this).setTitle("Settings").setView(scroll).setPositiveButton("Done", null).show();
+        installSwipeBack(settingsDialog.findViewById(android.R.id.content),settingsDialog::dismiss);
     }
 
     private TextView settingsHeading(String label) {
@@ -542,6 +545,7 @@ public final class MainActivity extends Activity {
         status.setText(found.isEmpty() ? "Play a few songs first" : mix ? "Your daily mix · built on this phone" : "Recently played");
     }
 
+    private long homeRefreshSeed=System.currentTimeMillis()/86_400_000L;
     private void showForYou() {
         libraryGeneration++;libraryPaged=false;loading=false;
         searchHandler.removeCallbacksAndMessages(null);
@@ -549,7 +553,7 @@ public final class MainActivity extends Activity {
         if(forYouContent!=null)frame.removeView(forYouContent);
         showingForYou=true;findViewById(R.id.tracks).setVisibility(View.GONE);permissionPanel.setVisibility(View.GONE);status.setVisibility(View.GONE);
         forYouContent=ForYouDialog.create(this, track -> playMixTracks(java.util.Collections.singletonList(track), 0), this::showSeedMix,
-                () -> loadListeningList(false), () -> loadSavedTracks("favorites", "Favorites"));
+                () -> loadListeningList(false), () -> loadSavedTracks("favorites", "Favorites"), ()->{personalMixes.clear();homeRefreshSeed=System.nanoTime();showForYou();forYouContent.announceForAccessibility("Home refreshed");}, homeRefreshSeed);
         frame.addView(forYouContent,new android.widget.FrameLayout.LayoutParams(-1,-1));selectTab(R.id.forYou);
     }
 
@@ -573,12 +577,12 @@ public final class MainActivity extends Activity {
                     if (matches.isEmpty()) throw new IllegalStateException();
                     onlineSeed = matches.get(0);
                 }
-                candidates.addAll(source.resolveWithRadio(onlineSeed).radio);
+                candidates.addAll(source.songMix(onlineSeed));
                 if (artistMix) candidates.addAll(source.page(seed.artist, 0, 15));
             } catch (RuntimeException unavailable) { discoveryAvailable = false; }
             java.util.Set<String> known = new java.util.HashSet<>(); List<Track> mix = new ArrayList<>();
             for (Track candidate : candidates) {
-                String identity = OnlineCatalogSource.identity(candidate.title) + "|" + candidate.artist.toLowerCase(java.util.Locale.ROOT);
+                String identity = RecordingIdentity.title(candidate.title,candidate.artist) + "|" + RecordingIdentity.artist(candidate.artist);
                 if (known.add(identity)) mix.add(candidate.original());
                 if (mix.size() >= 20) break;
             }
@@ -593,31 +597,32 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private void previewPersonalMix(String name, List<Track> mix) {
-        String[] labels = new String[mix.size()]; for(int i=0;i<mix.size();i++) labels[i]=mix.get(i).title+"\n"+mix.get(i).artist;
-        new AlertDialog.Builder(this).setTitle(name).setItems(labels,(dialog,position)->playMixTracks(mix,position))
-            .setPositiveButton("Play",(dialog,which)->playMixTracks(mix,0))
-            .setNeutralButton("Save playlist",(dialog,which)->saveImportedPlaylist(name,mix)).setNegativeButton("Close",null).show();
+    void previewPersonalMix(String name, List<Track> mix) {
+        MixDialog.show(this,name,mix,this::playMixTracks,this::addTracksToPlaylist,this::showCollectionTrackActions);
+    }
+
+    private void showCollectionTrackActions(Track track) {
+        new AlertDialog.Builder(this).setTitle(track.title).setItems(new String[]{"Play next","Download","Add to playlist"},(dialog,index)->{
+            if(index==0){if(track.stableId.startsWith("online:"))enqueueOnline(track,true);else if(controller!=null)controller.addMediaItem(Math.min(controller.getCurrentMediaItemIndex()+1,controller.getMediaItemCount()),track.toMediaItem());}
+            else if(index==1)requestDownload(track);else addTracksToPlaylist(java.util.Collections.singletonList(track));
+        }).show();
+    }
+
+    private boolean savingBatch;
+    private void saveTracksToPlaylist(String name,List<Track> tracks){savingBatch=true;try{for(Track track:tracks)saveTrackToPlaylist(name,track);}finally{savingBatch=false;}Toast.makeText(this,"Added "+tracks.size()+" songs to "+name,Toast.LENGTH_SHORT).show();}
+
+    private void addTracksToPlaylist(List<Track> selected) {
+        android.content.SharedPreferences prefs=getSharedPreferences("library",MODE_PRIVATE);List<String> names=playlistNames(prefs);names.add("+ New playlist");
+        new AlertDialog.Builder(this).setTitle("Add to playlist").setItems(names.toArray(new String[0]),(dialog,index)->{
+            if(index==names.size()-1){EditText input=new EditText(this);input.setHint("Playlist name");new AlertDialog.Builder(this).setTitle("New playlist").setView(input).setPositiveButton("Add",(d,w)->{String name=input.getText().toString().trim();if(!name.isEmpty())saveTracksToPlaylist(name,selected);}).setNegativeButton("Cancel",null).show();}
+            else saveTracksToPlaylist(names.get(index),selected);
+        }).show();
     }
 
     private void playMixTracks(List<Track> mix, int position) {
         if(controller==null||position<0||position>=mix.size())return;
-        stopRadio();
-        List<Track> ordered = new ArrayList<>(mix.subList(position,mix.size())); int request=streamRequest.incrementAndGet();
-        status.setText("Preparing " + ordered.get(0).title + "…");
-        streamIo.execute(() -> {
-            boolean started=false; int missed=0;
-            for(Track track:ordered){
-                if(streamRequest.get()!=request||isDestroyed())return;
-                try {
-                    Track playable=DownloadStore.offline(this,track);
-                    if(playable==null)playable=track.stableId.startsWith("online:")?onlineSource().resolve(track):track;
-                    androidx.media3.common.MediaItem item=playable.toMediaItem();boolean first=!started;started=true;
-                    main.post(()->{if(controller==null||streamRequest.get()!=request)return;if(first){controller.setMediaItem(item);controller.prepare();controller.play();}else controller.addMediaItem(item);updateNowPlaying();status.setText("Playing mix");});
-                }catch(RuntimeException unavailable){missed++;}
-            }
-            int skipped=missed; if(skipped>0)main.post(()->{if(streamRequest.get()==request)Toast.makeText(this,skipped+" songs could not be prepared",Toast.LENGTH_LONG).show();});
-        });
+        streamRequest.incrementAndGet();PlaybackCollection.request(this,mix,position);
+        status.setText("Playing mix");
     }
 
     private void loadDownloads() {
@@ -808,7 +813,7 @@ public final class MainActivity extends Activity {
         status.setText("Preparing " + track.title + "…");
         streamIo.execute(() -> {
             try {
-                Track resolved = onlineSource().resolve(track);
+                Track offline = DownloadStore.offline(this,track); Track resolved=offline!=null?offline:onlineSource().resolve(track);
                 main.post(() -> {
                     if (controller == null) return;
                     int target = Math.min(controller.getCurrentMediaItemIndex() + 1, controller.getMediaItemCount());
@@ -827,6 +832,7 @@ public final class MainActivity extends Activity {
         android.widget.LinearLayout sheet = new android.widget.LinearLayout(this); sheet.setOrientation(android.widget.LinearLayout.VERTICAL); sheet.setPadding(queueDp(18), queueDp(16), queueDp(18), queueDp(18)); sheet.setBackgroundColor(0xff121111);
         android.widget.LinearLayout header = new android.widget.LinearLayout(this); header.setGravity(android.view.Gravity.CENTER_VERTICAL);
         TextView title = new TextView(this); title.setText("Queue"); title.setTextColor(0xfff6f1e8); title.setTextSize(28); title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); header.addView(title, new android.widget.LinearLayout.LayoutParams(0, -2, 1));
+        android.widget.Button close=new android.widget.Button(this);close.setText("Close");close.setContentDescription("Close queue");close.setOnClickListener(v->dialog.dismiss());header.addView(close);
         android.widget.Button save = new android.widget.Button(this); save.setText("Save"); save.setContentDescription("Save queue as playlist"); save.setOnClickListener(v -> saveQueueAsPlaylist(dialog)); header.addView(save); sheet.addView(header);
         android.widget.ScrollView scroll = new android.widget.ScrollView(this); android.widget.LinearLayout rows = new android.widget.LinearLayout(this); rows.setOrientation(android.widget.LinearLayout.VERTICAL); scroll.addView(rows); sheet.addView(scroll, new android.widget.LinearLayout.LayoutParams(-1,0,1));
         boolean[] dragging = {false};
@@ -916,7 +922,7 @@ public final class MainActivity extends Activity {
             if(records.isEmpty()&&rows.getChildCount()==0){TextView empty=new TextView(this);empty.setText("No downloads");empty.setTextColor(0xffaaa6a0);rows.addView(empty);}
             if(dialog.isShowing())main.postDelayed(refresh[0],1000);
         };
-        dialog.setContentView(root);dialog.setOnDismissListener(v->main.removeCallbacks(refresh[0]));dialog.show();if(dialog.getWindow()!=null)dialog.getWindow().setLayout(-1,(int)(getResources().getDisplayMetrics().heightPixels*.85f));refresh[0].run();
+        dialog.setContentView(root);installSwipeBack(root,dialog::dismiss);dialog.setOnDismissListener(v->main.removeCallbacks(refresh[0]));dialog.show();if(dialog.getWindow()!=null)dialog.getWindow().setLayout(-1,(int)(getResources().getDisplayMetrics().heightPixels*.85f));refresh[0].run();
     }
 
     private String queueSection(int index, int current, String mediaId) {
@@ -947,9 +953,7 @@ public final class MainActivity extends Activity {
 
     private String savedMediaItem(androidx.media3.common.MediaItem item) {
         try {
-            String stableId = item.mediaId;
-            if (stableId.startsWith("auto:")) stableId = stableId.substring(5);
-            int marker = stableId.indexOf(":online:"); if (stableId.startsWith("jam:") && marker >= 0) stableId = stableId.substring(marker + 1);
+            String stableId = Track.originalId(item.mediaId);
             org.json.JSONObject value = new org.json.JSONObject(); value.put("id", stableId); value.put("uri", item.localConfiguration == null ? "" : item.localConfiguration.uri.toString());
             value.put("title", String.valueOf(item.mediaMetadata.title)); value.put("artist", String.valueOf(item.mediaMetadata.artist)); value.put("album", String.valueOf(item.mediaMetadata.albumTitle)); value.put("artwork", item.mediaMetadata.artworkUri == null ? "" : item.mediaMetadata.artworkUri.toString()); return value.toString();
         } catch (Exception ignored) { return ""; }
@@ -957,22 +961,10 @@ public final class MainActivity extends Activity {
 
     private int queueDp(int value) { return (int)(value * getResources().getDisplayMetrics().density + .5f); }
 
-    /** Edge swipe follows the familiar iOS gesture without stealing ordinary list scrolling. */
     private void installSwipeBack(View view, Runnable back) {
-        if (view == null) return;
-        final float[] startX = new float[1], startY = new float[1]; final boolean[] tracking = new boolean[1], fired = new boolean[1];
-        view.setOnTouchListener((target, event) -> {
-            if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
-                startX[0] = event.getX(); startY[0] = event.getY(); tracking[0] = startX[0] <= queueDp(28); fired[0] = false; return false;
-            }
-            if (tracking[0] && event.getActionMasked() == android.view.MotionEvent.ACTION_MOVE && !fired[0]) {
-                float dx = event.getX() - startX[0], dy = Math.abs(event.getY() - startY[0]);
-                if (dx > queueDp(96) && dy < dx * .6f) { fired[0] = true; target.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK); back.run(); return true; }
-                if (dy > queueDp(48) || dx < -queueDp(12)) tracking[0] = false;
-            }
-            if (event.getActionMasked() == android.view.MotionEvent.ACTION_UP || event.getActionMasked() == android.view.MotionEvent.ACTION_CANCEL) tracking[0] = false;
-            return false;
-        });
+        if(view==null||view instanceof DismissSwipeLayout||!(view.getParent() instanceof android.view.ViewGroup))return;
+        android.view.ViewGroup parent=(android.view.ViewGroup)view.getParent();int index=parent.indexOfChild(view);android.view.ViewGroup.LayoutParams params=view.getLayoutParams();
+        parent.removeView(view);DismissSwipeLayout swipe=new DismissSwipeLayout(this,back);swipe.addView(view,new android.widget.FrameLayout.LayoutParams(-1,-1));parent.addView(swipe,index,params);
     }
 
     private void togglePlayback() {
@@ -1041,7 +1033,7 @@ public final class MainActivity extends Activity {
                     if (c != null && c.moveToFirst()) found.add(new Track(c.getLong(0), c.getString(1), c.getString(2), c.getString(3), c.getLong(4)));
                 } catch (RuntimeException ignored) { }
             }
-            main.post(() -> { if(generation!=libraryGeneration||isDestroyed())return; group = ""; tracks.clear(); tracks.addAll(found); adapter.clear(); for (Track t : found) adapter.add(t.title + "\n" + t.artist + " · " + t.album); status.setText(found.size() + " " + label.toLowerCase()); });
+            main.post(() -> { if(generation!=libraryGeneration||isDestroyed())return; group = ""; tracks.clear(); tracks.addAll(found); adapter.clear(); for (Track t : found) adapter.add(t.title + "\n" + t.artist + " · " + t.album); status.setText(found.size() + " " + label.toLowerCase()); if(key.startsWith("playlist:"))previewPersonalMix(key.substring(9),found); });
         });
     }
 
@@ -1085,7 +1077,7 @@ public final class MainActivity extends Activity {
         org.json.JSONArray order; try { order = new org.json.JSONArray(prefs.getString("playlist_order:" + playlist, "[]")); } catch (Exception ignored) { order = new org.json.JSONArray(); }
         String added = null; for (String entry : entries) if (entry.contains("\"id\":\"" + track.stableId.replace("\"", "") + "\"")) added = entry;
         if (added != null) { boolean present = false; for (int i = 0; i < order.length(); i++) if (added.equals(order.optString(i))) present = true; if (!present) order.put(added); }
-        prefs.edit().putStringSet(key, entries).putString("playlist_order:" + playlist, order.toString()).putString("last_playlist", playlist).apply(); Toast.makeText(this, "Added to " + playlist, Toast.LENGTH_SHORT).show();
+        prefs.edit().putStringSet(key, entries).putString("playlist_order:" + playlist, order.toString()).putString("last_playlist", playlist).apply(); if(!savingBatch)Toast.makeText(this, "Added to " + playlist, Toast.LENGTH_SHORT).show();
     }
 
     private void showPlaylists() {

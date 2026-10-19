@@ -34,7 +34,7 @@ final class PlaybackCache {
         synchronized (PlaybackCache.class) { current = factory; }
         if (current == null || item.localConfiguration == null) return;
         String scheme = item.localConfiguration.uri.getScheme();
-        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) return;
+        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme) && !"localmusic".equals(scheme)) return;
         String key = item.localConfiguration.customCacheKey == null ? item.mediaId : item.localConfiguration.customCacheKey;
         DataSpec spec = new DataSpec.Builder().setUri(item.localConfiguration.uri).setKey(key).build();
         new CacheWriter(current.createDataSource(), spec, null, null).cache();

@@ -74,7 +74,7 @@ final class OnlineCatalogSource implements CatalogSource {
         String title = value.toLowerCase(java.util.Locale.ROOT), wanted = query.toLowerCase(java.util.Locale.ROOT);
         String[] spoken = {"reaction", "interview", "podcast", "documentary", "news", "trailer", "review", "explained"};
         for (String term : spoken) if (title.contains(term) && !wanted.contains(term)) return true;
-        return avoidCleanVersions && VersionPolicy.exclude(value,query);
+        return VersionPolicy.isMusicVideo(value) || avoidCleanVersions && VersionPolicy.exclude(value,query);
     }
 
     /** Music-specific cloud search is faster and avoids general-video false negatives. */
@@ -139,7 +139,7 @@ final class OnlineCatalogSource implements CatalogSource {
         String[] variants = {"instrumental", "karaoke", "reaction", "nightcore", "slowed", "sped up", "live", "remix", "interview", "podcast", "documentary", "news", "trailer", "review", "explained"};
         for (String variant : variants) if (title.contains(variant) && !wanted.contains(variant)) return true;
         if (avoidCleanVersions && VersionPolicy.exclude(item.getName(),query)) return true;
-        return title.contains("music video") && !title.contains("official audio");
+        return VersionPolicy.isMusicVideo(item.getName());
     }
 
     private static boolean isLikelySong(StreamInfoItem item, String seedArtist) {
@@ -168,7 +168,13 @@ final class OnlineCatalogSource implements CatalogSource {
             if (cached != null && System.currentTimeMillis() - cached.createdAt < RESOLUTION_TTL_MS) return cached.track;
             if (cached != null) RESOLVED.remove(track.stableId);
         }
-        Track resolved = resolveWithRadio(track).playable;
+        Track resolved;
+        try {
+            String[] pieces=track.stableId.split(":",3);String url=new String(Base64.decode(pieces[2],Base64.URL_SAFE),StandardCharsets.UTF_8);
+            StreamInfo info=StreamInfo.getInfo(NewPipe.getService(Integer.parseInt(pieces[1])),url);
+            AudioStream stream=info.getAudioStreams().stream().filter(AudioStream::isUrl).max(Comparator.comparingInt(AudioStream::getAverageBitrate)).orElseThrow(()->new IllegalStateException("No playable audio stream"));
+            resolved=new Track(track.stableId,Uri.parse(stream.getContent()),track.title,track.artist,track.album,track.artworkUri);
+        }catch(Exception failure){throw new IllegalStateException("Could not start this stream",failure);}
         synchronized (RESOLVED) { RESOLVED.put(track.stableId, new CachedTrack(resolved)); }
         return resolved;
     }
@@ -200,6 +206,32 @@ final class OnlineCatalogSource implements CatalogSource {
             Uri resolvedArtwork = bestArtwork(info.getThumbnails());
             return new Resolution(new Track(track.stableId, Uri.parse(stream.getContent()), track.title, track.artist, track.album, resolvedArtwork == null ? track.artworkUri : resolvedArtwork), radio);
         } catch (Exception error) { throw new IllegalStateException("Could not start this stream", error); }
+    }
+
+    List<Track> songMix(Track seed) {return songMix(seed,java.util.Collections.emptySet());}
+    List<Track> songMix(Track seed,Set<String> excludedIds) {
+        List<Track> candidates=new ArrayList<>();candidates.add(seed.original());
+        try {
+            String[] parts=seed.stableId.split(":",3);String page=new String(Base64.decode(parts[2],Base64.URL_SAFE),StandardCharsets.UTF_8);
+            if(Integer.parseInt(parts[1])==0){String video=Uri.parse(page).getQueryParameter("v");if(video!=null){
+                org.schabi.newpipe.extractor.playlist.PlaylistInfo info=org.schabi.newpipe.extractor.playlist.PlaylistInfo.getInfo(ServiceList.YouTube,"https://www.youtube.com/watch?v="+video+"&list=RD"+video);
+                for(StreamInfoItem item:info.getRelatedItems())if(!isUnwantedVersion(item,seed.title+" "+seed.artist)&&isLikelySong(item,seed.artist))candidates.add(unresolved(ServiceList.YouTube,item));
+                org.schabi.newpipe.extractor.Page next=info.getNextPage();
+                for(int pageNumber=0;pageNumber<3&&org.schabi.newpipe.extractor.Page.isValid(next)&&candidates.size()<120;pageNumber++){
+                    org.schabi.newpipe.extractor.ListExtractor.InfoItemsPage<StreamInfoItem> more=org.schabi.newpipe.extractor.playlist.PlaylistInfo.getMoreItems(ServiceList.YouTube,info.getUrl(),next);
+                    for(StreamInfoItem item:more.getItems())if(!isUnwantedVersion(item,seed.title+" "+seed.artist)&&isLikelySong(item,seed.artist))candidates.add(unresolved(ServiceList.YouTube,item));next=more.getNextPage();
+                }
+            }}
+        }catch(Exception unavailable){}
+        if(candidates.size()<8)try{candidates.addAll(resolveWithRadio(seed).radio);}catch(RuntimeException unavailable){}
+        List<Track> result=new ArrayList<>();Set<String> known=new HashSet<>();java.util.Map<String,Integer> artistCounts=new java.util.HashMap<>();
+        for(Track candidate:candidates){
+            if(excludedIds.contains(candidate.stableId)||VersionPolicy.isMusicVideo(candidate.title)||avoidCleanVersions&&VersionPolicy.exclude(candidate.title,seed.title))continue;
+            String artist=RecordingIdentity.artist(candidate.artist),key=artist+"|"+RecordingIdentity.title(candidate.title,candidate.artist);
+            if(artistCounts.getOrDefault(artist,0)>=3||!known.add(key))continue;
+            artistCounts.put(artist,artistCounts.getOrDefault(artist,0)+1);result.add(candidate.original());if(result.size()==20)break;
+        }
+        return result;
     }
 
     static String identity(String title) {

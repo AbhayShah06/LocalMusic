@@ -127,8 +127,14 @@ public final class PlaybackService extends MediaSessionService {
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setUserAgent("LocalMusic/0.5");
         DefaultDataSource.Factory upstream = new DefaultDataSource.Factory(this, http);
-        player = new ExoPlayer.Builder(this).setMediaSourceFactory(
-                new DefaultMediaSourceFactory(PlaybackCache.dataSourceFactory(this, upstream)))
+        androidx.media3.exoplayer.DefaultRenderersFactory renderers=new androidx.media3.exoplayer.DefaultRenderersFactory(this){
+            @Override protected androidx.media3.exoplayer.audio.AudioSink buildAudioSink(android.content.Context context,boolean enableFloatOutput,boolean enablePlaybackParams){
+                return new androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context).setEnableFloatOutput(false).setEnableAudioTrackPlaybackParams(enablePlaybackParams)
+                    .setAudioProcessors(new androidx.media3.common.audio.AudioProcessor[]{new VolumeAudioProcessor(()->getSharedPreferences("settings",MODE_PRIVATE).getBoolean("volume_leveling",true))}).build();
+            }
+        };
+        player = new ExoPlayer.Builder(this,renderers).setMediaSourceFactory(
+                new DefaultMediaSourceFactory(PlaybackCache.dataSourceFactory(this, StreamPlayback.resolving(this,upstream))))
                 .setWakeMode(C.WAKE_MODE_NETWORK).setHandleAudioBecomingNoisy(true).build();
         prefs.edit().putInt("audio_session_id", player.getAudioSessionId()).apply();
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true);
@@ -141,7 +147,12 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     @Override public int onStartCommand(android.content.Intent intent, int flags, int startId) {
-        if(intent!=null && ACTION_SET_RADIO.equals(intent.getAction())){
+        if(intent!=null && PlaybackCollection.ACTION.equals(intent.getAction())){
+            try{
+                List<MediaItem> collection=PlaybackCollection.items(this,intent.getStringExtra("tracks"));
+                if(!collection.isEmpty()){autoplayQueue.stop();player.setShuffleModeEnabled(false);player.setRepeatMode(Player.REPEAT_MODE_OFF);player.setMediaItems(collection,Math.max(0,Math.min(collection.size()-1,intent.getIntExtra("position",0))),0);player.prepare();player.play();}
+            }catch(Exception invalid){android.widget.Toast.makeText(this,"Could not open this collection",android.widget.Toast.LENGTH_SHORT).show();}
+        } else if(intent!=null && ACTION_SET_RADIO.equals(intent.getAction())){
             autoplayQueue.configure(intent.getStringExtra("radio_seed"),intent.getStringExtra("radio_candidates"));
         } else if(intent!=null && ACTION_STOP_RADIO.equals(intent.getAction())){
             autoplayQueue.stop();
@@ -194,20 +205,9 @@ public final class PlaybackService extends MediaSessionService {
                         if (!settings.configured()) continue;
                         Uri uri = new B2CatalogClient(settings).playbackUri(id.substring(3));
                         items.add(remoteItem(item, id, uri));
-                    } else if (id.startsWith("online:")) {
-                        Track unresolved = new Track(id, Uri.EMPTY, item.optString("title"), item.optString("artist"), item.optString("album"));
-                        Track resolved = new OnlineCatalogSource().resolve(unresolved);
-                        items.add(remoteItem(item, id, resolved.playbackUri));
-                    } else if (id.startsWith("auto:online:")) {
-                        String sourceId = id.substring(5);
-                        Track unresolved = new Track(sourceId, Uri.EMPTY, item.optString("title"), item.optString("artist"), item.optString("album"));
-                        Track resolved = new OnlineCatalogSource().resolve(unresolved);
-                        items.add(remoteItem(item, id, resolved.playbackUri));
-                    } else if (id.startsWith("jam:") && item.optString("sourceId").startsWith("online:")) {
-                        String sourceId = item.optString("sourceId");
-                        Track unresolved = new Track(sourceId, Uri.EMPTY, item.optString("title"), item.optString("artist"), item.optString("album"));
-                        Track resolved = new OnlineCatalogSource().resolve(unresolved);
-                        items.add(remoteItem(item, id, resolved.playbackUri));
+                    } else if (originalOnlineId(id)!=null) {
+                        String art=item.optString("artwork");Track track=new Track(id,Uri.EMPTY,item.optString("title"),item.optString("artist"),item.optString("album"),art.isEmpty()?null:Uri.parse(art));
+                        items.add(StreamPlayback.item(this,track));
                     } else if (!id.startsWith("local:")) items.add(remoteItem(item, id, Uri.parse(item.getString("uri"))));
                     else addLocalItem(items, resolver, Long.parseLong(id.substring(6)));
                 }

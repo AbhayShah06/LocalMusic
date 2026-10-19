@@ -27,7 +27,11 @@ final class DownloadStore {
     }
 
     static synchronized Track offline(Context context, Track source) {
-        for (Track track : all(context)) if (track.stableId.equals(source.stableId)) return track; return null;
+        List<Track> downloads=all(context);
+        for (Track track : downloads) if (track.stableId.equals(Track.originalId(source.stableId))) return track;
+        if(VersionPolicy.isEditedVersion(source.title))return null;
+        for(Track track:downloads)if(RecordingIdentity.same(source.title,source.artist,track.title,track.artist))return track;
+        return null;
     }
     static synchronized boolean contains(Context context, String stableId) {
         try { JSONArray values = values(context); for (int i = 0; i < values.length(); i++) if (stableId.equals(values.getJSONObject(i).optString("id")) && new File(values.getJSONObject(i).optString("file")).isFile()) return true; }

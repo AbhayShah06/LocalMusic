@@ -8,10 +8,10 @@ import java.util.function.*;
 
 /** Personal listening shortcuts; opening a section never changes playback. */
 final class ForYouDialog {
-    static View create(Activity activity,Consumer<Track> play,BiConsumer<Track,Boolean> mix,Runnable recent,Runnable favorites){
+    static View create(Activity activity,Consumer<Track> play,BiConsumer<Track,Boolean> mix,Runnable recent,Runnable favorites,Runnable refresh,long refreshSeed){
         LinearLayout root=new LinearLayout(activity);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(0xff0b0b0c);root.setPadding(dp(activity,20),dp(activity,20),dp(activity,20),dp(activity,12));
         TextView title=label(activity,"For You",26);root.addView(title);
-        ScrollView scroll=new ScrollView(activity);LinearLayout sections=new LinearLayout(activity);sections.setOrientation(LinearLayout.VERTICAL);scroll.addView(sections);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        ScrollView scroll=new ScrollView(activity);LinearLayout sections=new LinearLayout(activity);sections.setOrientation(LinearLayout.VERTICAL);scroll.addView(sections);androidx.swiperefreshlayout.widget.SwipeRefreshLayout pull=new androidx.swiperefreshlayout.widget.SwipeRefreshLayout(activity);pull.setContentDescription("Refresh home");pull.setColorSchemeColors(0xffff5c35);pull.setProgressBackgroundColorSchemeColor(0xff24201e);pull.addView(scroll);pull.setOnChildScrollUpCallback((parent,child)->scroll.canScrollVertically(-1));pull.setOnRefreshListener(refresh::run);root.addView(pull,new LinearLayout.LayoutParams(-1,0,1));
         sections.addView(action(activity,"Favorites",()->{favorites.run();}));
         List<Track> history=ListeningHistory.recent(activity,50);
         sections.addView(action(activity,"Recently played",()->{recent.run();}));
@@ -20,14 +20,11 @@ final class ForYouDialog {
         List<Track> seeds=new ArrayList<>(FavoriteStore.remoteTracks(activity));
         seeds.addAll(ListeningHistory.dailyMix(activity,50));Set<String> ids=new HashSet<>(),artists=new HashSet<>();
         List<Track> unique=new ArrayList<>();for(Track seed:seeds)if(ids.add(Track.originalId(seed.stableId)))unique.add(seed.original());
+        Collections.shuffle(unique,new Random(refreshSeed));
         if(!unique.isEmpty()){
             sections.addView(label(activity,"Song mixes",20));
             sections.addView(rail(activity,unique.subList(0,Math.min(4,unique.size())),track->track.title+" Mix",track->{mix.accept(track,false);}));
-            sections.addView(label(activity,"Artist mixes",20));
-            List<Track> artistSeeds=new ArrayList<>();for(Track seed:unique){String artist=seed.artist.replaceAll("(?i)\\s*-\\s*topic$","").trim();if(artist.equalsIgnoreCase("Unknown artist")||!artists.add(artist.toLowerCase(Locale.ROOT)))continue;
-                artistSeeds.add(seed);if(artistSeeds.size()==4)break;
-            }
-            sections.addView(rail(activity,artistSeeds,track->track.artist.replaceAll("(?i)\\s*-\\s*topic$","").trim()+" Mix",track->{mix.accept(track,true);}));
+
         }
         return root;
     }
