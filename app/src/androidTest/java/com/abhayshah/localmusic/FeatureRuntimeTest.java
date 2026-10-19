@@ -183,13 +183,13 @@ public class FeatureRuntimeTest {
         String name="QA Selection "+System.nanoTime();
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
             MediaController controller=connect();main(()->{controller.setShuffleModeEnabled(true);controller.setRepeatMode(Player.REPEAT_MODE_ALL);});
-            activity.onActivity(a->a.previewPersonalMix("Collection Mix",songs));onView(withText("Save playlist")).check(doesNotExist());onView(withText("Play")).perform(click());
+            activity.onActivity(a->a.previewPersonalMix("Collection Mix",songs));onView(withText("Save playlist")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).check(doesNotExist());onView(withText("Play")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
             await("Mix did not start",()->value(()->controller.getMediaItemCount()==6&&controller.getCurrentMediaItem().mediaId.equals(songs.get(0).stableId)),15000);
             for(int n=0;n<6;n++){int index=n;assertEquals(songs.get(n).stableId,value(()->controller.getMediaItemAt(index).mediaId));}
             assertFalse(value(controller::getShuffleModeEnabled));assertEquals(Integer.valueOf(Player.REPEAT_MODE_OFF),value(controller::getRepeatMode));
             activity.onActivity(a->a.previewPersonalMix("Collection Mix",songs));onView(withText("Select")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
             for(int index:new int[]{1,3,4})onView(withContentDescription("Select Collection Song "+index)).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
-            onView(withText("Add 3 to playlist")).perform(click());onView(withText("+ New playlist")).perform(click());onView(isAssignableFrom(android.widget.EditText.class)).perform(typeText(name),androidx.test.espresso.action.ViewActions.closeSoftKeyboard());onView(withText("Add")).perform(click());
+            onView(withText("Add 3 to playlist")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());onView(withText("+ New playlist")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());onView(isAssignableFrom(android.widget.EditText.class)).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(typeText(name),androidx.test.espresso.action.ViewActions.closeSoftKeyboard());onView(withText("Add")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
             org.json.JSONArray saved=new org.json.JSONArray(context.getSharedPreferences("library",0).getString("playlist_order:"+name,"[]"));assertEquals(3,saved.length());
             for(int n=0;n<3;n++)assertEquals(songs.get(new int[]{1,3,4}[n]).stableId,new org.json.JSONObject(saved.getString(n)).getString("id"));
             onView(withText("Play")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());await("Selected songs did not become exact queue",()->value(()->controller.getMediaItemCount()==3&&controller.getCurrentMediaItem().mediaId.equals(songs.get(1).stableId)),10000);

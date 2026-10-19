@@ -7,19 +7,24 @@ import android.widget.*;
 final class DismissSwipeLayout extends FrameLayout {
     private final Runnable dismiss;private float x,y;private boolean blocked,dragging;
     DismissSwipeLayout(Context context,Runnable dismiss){super(context);this.dismiss=dismiss;setContentDescription("Dismiss panel");}
-    @Override public boolean onInterceptTouchEvent(MotionEvent event){
-        if(event.getPointerCount()!=1)return false;
-        if(event.getActionMasked()==MotionEvent.ACTION_DOWN){x=event.getX();y=event.getY();dragging=false;blocked=protectedTarget(this,x,y);return false;}
-        if(!blocked&&event.getActionMasked()==MotionEvent.ACTION_MOVE){float dx=event.getX()-x,dy=event.getY()-y;if(Math.abs(dx)>dp(28)&&Math.abs(dx)>Math.abs(dy)*1.8f){dragging=true;return true;}}
-        return false;
+    @Override public boolean dispatchTouchEvent(MotionEvent event){
+        int action=event.getActionMasked();
+        if(action==MotionEvent.ACTION_DOWN){x=event.getX();y=event.getY();dragging=false;blocked=protectedTarget(this,x,y);}
+        if(event.getPointerCount()!=1)blocked=true;
+        float dx=event.getX()-x,dy=event.getY()-y;
+        // Observe the complete gesture even when a child list disallows interception.
+        if(!blocked&&(action==MotionEvent.ACTION_MOVE||action==MotionEvent.ACTION_UP)
+                &&Math.abs(dx)>dp(28)&&Math.abs(dx)>Math.abs(dy)*1.8f){
+            if(!dragging){MotionEvent cancel=MotionEvent.obtain(event);cancel.setAction(MotionEvent.ACTION_CANCEL);super.dispatchTouchEvent(cancel);cancel.recycle();dragging=true;}
+        }
+        if(dragging){
+            if(action==MotionEvent.ACTION_UP){dragging=false;if(Math.abs(dx)>dp(64))dismiss.run();}
+            else if(action==MotionEvent.ACTION_CANCEL)dragging=false;
+            return true;
+        }
+        return super.dispatchTouchEvent(event);
     }
-    @Override public boolean onTouchEvent(MotionEvent event){
-        if(event.getActionMasked()==MotionEvent.ACTION_DOWN)return true;
-        if(!dragging&&!blocked&&event.getActionMasked()==MotionEvent.ACTION_MOVE){float dx=event.getX()-x,dy=event.getY()-y;dragging=Math.abs(dx)>dp(28)&&Math.abs(dx)>Math.abs(dy)*1.8f;}
-        if(!dragging){if(event.getActionMasked()==MotionEvent.ACTION_UP)performClick();return true;}
-        if(event.getActionMasked()==MotionEvent.ACTION_UP){dragging=false;if(Math.abs(event.getX()-x)>dp(64))dismiss.run();return true;}
-        if(event.getActionMasked()==MotionEvent.ACTION_CANCEL)dragging=false;return true;
-    }
+    @Override public boolean onTouchEvent(MotionEvent event){if(event.getActionMasked()==MotionEvent.ACTION_UP)performClick();return true;}
     @Override public boolean performClick(){return super.performClick();}
     private boolean protectedTarget(View view,float x,float y){
         if(view instanceof SeekBar||view instanceof EditText||view instanceof HorizontalScrollView||view instanceof CompoundButton)return true;
