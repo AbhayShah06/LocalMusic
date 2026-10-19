@@ -200,7 +200,10 @@ public class FeatureRuntimeTest {
     @Test public void k_homeRefreshAndBothDirectionsDismissSheets()throws Exception{
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
             onView(withId(R.id.forYou)).perform(click());Track fresh=fixture("fresh-home");ListeningHistory.record(context,fresh.toMediaItem());
-            onView(withContentDescription("Refresh home")).perform(swipeDown());onView(withText("Test Song fresh-home")).perform(scrollTo()).check(matches(isDisplayed()));onView(withText("Artist mixes")).check(doesNotExist());
+            onView(withContentDescription("Refresh home")).perform(swipeDown());
+            onView(org.hamcrest.Matchers.allOf(withText("Test Song fresh-home"),
+                    isDescendantOfA(withContentDescription("Refresh home")))).perform(scrollTo()).check(matches(isDisplayed()));
+            onView(withText("Artist mixes")).check(doesNotExist());
             activity.onActivity(a->a.previewPersonalMix("Gesture Mix",Arrays.asList(fresh)));onView(withContentDescription("Dismiss panel")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(swipeLeft());onView(withContentDescription("Close mix")).check(doesNotExist());
             MediaController controller=connect();main(()->{controller.setMediaItem(fresh.toMediaItem());controller.prepare();controller.play();});await("Playback did not start",()->value(controller::isPlaying),10000);
             onView(withId(R.id.miniPlayer)).perform(click());onView(withId(R.id.fullQueue)).perform(click());
