@@ -172,7 +172,7 @@ public final class MainActivity extends Activity {
         }
     }
 
-    @Override protected void onResume() { super.onResume(); refreshPermissionState(); }
+    @Override protected void onResume() { super.onResume(); refreshPermissionState(); UpdateManager.refresh(this,findViewById(R.id.root),false); }
 
     private String audioPermission() { return Build.VERSION.SDK_INT >= 33 ? Manifest.permission.READ_MEDIA_AUDIO : Manifest.permission.READ_EXTERNAL_STORAGE; }
 
@@ -502,6 +502,8 @@ public final class MainActivity extends Activity {
         content.addView(settingsHeading("Storage"));
         content.addView(settingsAction("Download activity", "", this::showDownloadActivity));
         content.addView(settingsAction("Feedback", "", this::showFeedback));
+        content.addView(settingsAction("Check for updates", "LocalMusic " + BuildConfig.VERSION_NAME, () -> UpdateManager.refresh(this,findViewById(R.id.root),true)));
+        content.addView(settingsAction("GitHub releases", "", () -> startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/AbhayShah06/LocalMusic/releases/latest")))));
         content.addView(settingsAction("Offline downloads", formatBytes(downloads) + " saved permanently", this::loadDownloads));
         content.addView(settingsAction("Clear temporary cache", formatBytes(streams + artwork) + " of streams and artwork. Downloads stay.", () -> {
             PlaybackCache.clear(); ArtworkLoader.clear(this); LyricsClient.clear(this);

@@ -118,7 +118,7 @@ public class FeatureRuntimeTest {
             activity.moveToState(androidx.lifecycle.Lifecycle.State.CREATED);
             main(()->controller.addMediaItem(incoming.toMediaItem().buildUpon().setMediaId("auto:"+incoming.stableId).build()));
             activity.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED);
-            waitForText("Test Song incoming");
+            onView(withText("Test Song incoming")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).check(matches(isDisplayed()));
             onView(withContentDescription("More options for Test Song incoming")).perform(click());onView(withText("Download")).check(matches(isDisplayed()));
             androidx.test.espresso.Espresso.pressBack();androidx.test.espresso.Espresso.pressBack();
             onView(withId(R.id.fullTitle)).check(matches(withText("Test Song transition-two")));
@@ -236,6 +236,17 @@ public class FeatureRuntimeTest {
             MediaController controller=connect();PlaybackCollection.request(context,mix,0);await("Lazy online mix did not start playback",()->value(controller::isPlaying),45000);
             assertEquals(Integer.valueOf(mix.size()),value(controller::getMediaItemCount));for(int n=0;n<mix.size();n++){int index=n;assertEquals(mix.get(n).stableId,value(()->controller.getMediaItemAt(index).mediaId));}
             assertNull(value(controller::getPlayerError));main(()->{controller.pause();controller.release();});
+        }
+    }
+    @Test public void n_githubUpdateBannerIsVisibleDismissibleAndNotDuplicated()throws Exception{
+        try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
+            org.json.JSONObject update=new org.json.JSONObject().put("versionCode",9999).put("versionName","QA").put("notes","Update available");
+            activity.onActivity(a->{UpdateManager.show(a,a.findViewById(R.id.root),update);UpdateManager.show(a,a.findViewById(R.id.root),update);});
+            onView(withContentDescription("GitHub update available")).check(matches(isDisplayed()));
+            onView(withText("Update now")).check(matches(isDisplayed()));onView(withText("Later")).perform(click());
+            onView(withContentDescription("GitHub update available")).check(doesNotExist());
+            onView(withId(R.id.songs)).perform(click());onView(withId(R.id.more)).perform(click());onView(withText("Settings")).perform(click());
+            onView(withText(org.hamcrest.Matchers.startsWith("Check for updates"))).perform(scrollTo()).check(matches(isDisplayed()));
         }
     }
     @Test public void z_actualAndroidJamHostAndBrowserFriend()throws Exception{
