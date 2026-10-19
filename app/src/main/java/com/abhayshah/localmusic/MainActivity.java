@@ -292,6 +292,8 @@ public final class MainActivity extends Activity {
     }
 
     void resolveAndPlayOnline(List<Track> sourceTracks, int position) {
+        if(sourceTracks==null||position<0||position>=sourceTracks.size()){status.setText("Refresh the song list and try again.");return;}
+        if(controller==null){status.setText("Player is starting. Try again.");return;}
         Track selected = sourceTracks.get(position);
         long now = android.os.SystemClock.elapsedRealtime();
         if (selected.stableId.equals(lastTrackTapId) && now - lastTrackTapAt < 900) return;
@@ -299,7 +301,6 @@ public final class MainActivity extends Activity {
         lastTrackTapId = selected.stableId; lastTrackTapAt = now;
         int request = streamRequest.incrementAndGet();
         status.setText("Starting " + selected.title + "…");
-        if(controller==null){status.setText("Player is starting. Try again.");return;}
         Track offline = DownloadStore.offline(this, selected);
         controller.setMediaItem(StreamPlayback.item(this,selected));controller.prepare();controller.play();updateNowPlaying();
         status.setText(offline!=null?"Playing downloaded copy":"Streaming");
