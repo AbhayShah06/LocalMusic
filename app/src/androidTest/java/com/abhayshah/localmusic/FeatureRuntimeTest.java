@@ -52,6 +52,11 @@ public class FeatureRuntimeTest {
     static void awaitDismissed(String description)throws Exception{
         await(description+" remained open",()->!value(()->{for(android.view.View root:android.view.inspector.WindowInspector.getGlobalWindowViews())if(hasDescription(root,description))return true;return false;}),5000);
     }
+    static androidx.test.espresso.ViewAction swipeFromMiddle(boolean right){
+        return new androidx.test.espresso.action.GeneralSwipeAction(androidx.test.espresso.action.Swipe.SLOW,
+                androidx.test.espresso.action.GeneralLocation.CENTER,right?androidx.test.espresso.action.GeneralLocation.CENTER_RIGHT:androidx.test.espresso.action.GeneralLocation.CENTER_LEFT,
+                androidx.test.espresso.action.Press.FINGER);
+    }
     MediaController connect()throws Exception{
         AtomicReference<com.google.common.util.concurrent.ListenableFuture<MediaController>> future=new AtomicReference<>();
         main(()->future.set(new MediaController.Builder(context,new SessionToken(context,new android.content.ComponentName(context,PlaybackService.class))).buildAsync()));
@@ -225,11 +230,11 @@ public class FeatureRuntimeTest {
             onView(org.hamcrest.Matchers.allOf(withText("Test Song fresh-home"),
                     isDescendantOfA(withContentDescription("Refresh home")))).perform(scrollTo()).check(matches(isDisplayed()));
             onView(withText("Artist mixes")).check(doesNotExist());
-            activity.onActivity(a->a.previewPersonalMix("Gesture Mix",Arrays.asList(fresh)));onView(withContentDescription("Dismiss panel")).inRoot(focusedDialog()).perform(swipeLeft());awaitDismissed("Close mix");
+            activity.onActivity(a->a.previewPersonalMix("Gesture Mix",Arrays.asList(fresh)));onView(withContentDescription("Dismiss panel")).inRoot(focusedDialog()).perform(swipeFromMiddle(false));awaitDismissed("Close mix");
             MediaController controller=connect();main(()->{controller.setMediaItem(fresh.toMediaItem());controller.prepare();controller.play();});await("Playback did not start",()->value(controller::isPlaying),10000);waitForPlayerTitle("Test Song fresh-home");
             onView(withId(R.id.miniArtwork)).perform(click());onView(withId(R.id.fullQueue)).inRoot(focusedDialog()).perform(click());
-            onView(withContentDescription("Dismiss panel")).inRoot(focusedDialog()).perform(swipeLeft());awaitDismissed("Close queue");
-            onView(withContentDescription("Dismiss panel")).inRoot(focusedDialog()).perform(swipeRight());onView(withId(R.id.miniPlayer)).check(matches(isDisplayed()));main(()->{controller.pause();controller.release();});
+            onView(withContentDescription("Dismiss panel")).inRoot(focusedDialog()).perform(swipeFromMiddle(false));awaitDismissed("Close queue");
+            onView(withId(R.id.fullArtwork)).inRoot(focusedDialog()).perform(swipeFromMiddle(true));onView(withId(R.id.miniPlayer)).check(matches(isDisplayed()));main(()->{controller.pause();controller.release();});
         }
     }
     @Test public void l_downloadedRecordingIsPreferredAcrossSourceIdsAndFormats()throws Exception{
