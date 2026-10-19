@@ -36,6 +36,21 @@ public class FeatureRuntimeTest {
     static void main(Runnable action){InstrumentationRegistry.getInstrumentation().runOnMainSync(action);}
     static <T>T value(Supplier<T> read){AtomicReference<T> result=new AtomicReference<>();main(()->result.set(read.get()));return result.get();}
     static void await(String message,Supplier<Boolean> condition,long timeout)throws Exception {long until=System.currentTimeMillis()+timeout;while(System.currentTimeMillis()<until){if(condition.get())return;Thread.sleep(150);}fail(message);}
+    static org.hamcrest.Matcher<androidx.test.espresso.Root> focusedDialog(){
+        return new org.hamcrest.TypeSafeMatcher<androidx.test.espresso.Root>(){
+            @Override protected boolean matchesSafely(androidx.test.espresso.Root root){return androidx.test.espresso.matcher.RootMatchers.isDialog().matches(root)&&root.getDecorView().hasWindowFocus();}
+            @Override public void describeTo(org.hamcrest.Description description){description.appendText("the focused dialog");}
+        };
+    }
+    static boolean hasDescription(android.view.View view,String description){
+        if(!view.isShown()||!view.isAttachedToWindow())return false;
+        if(description.contentEquals(view.getContentDescription()==null?"":view.getContentDescription()))return true;
+        if(view instanceof android.view.ViewGroup){android.view.ViewGroup group=(android.view.ViewGroup)view;for(int i=0;i<group.getChildCount();i++)if(hasDescription(group.getChildAt(i),description))return true;}
+        return false;
+    }
+    static void awaitDismissed(String description)throws Exception{
+        await(description+" remained open",()->!value(()->{for(android.view.View root:android.view.inspector.WindowInspector.getGlobalWindowViews())if(hasDescription(root,description))return true;return false;}),5000);
+    }
     MediaController connect()throws Exception{
         AtomicReference<com.google.common.util.concurrent.ListenableFuture<MediaController>> future=new AtomicReference<>();
         main(()->future.set(new MediaController.Builder(context,new SessionToken(context,new android.content.ComponentName(context,PlaybackService.class))).buildAsync()));
@@ -112,13 +127,13 @@ public class FeatureRuntimeTest {
             Track one=fixture("transition-one"),two=fixture("transition-two"),incoming=fixture("incoming");MediaController controller=connect();
             main(()->{controller.setMediaItems(Arrays.asList(one.toMediaItem(),two.toMediaItem()));controller.prepare();controller.play();});
             await("Playback not ready",()->value(controller::isPlaying),10000);
-            onView(withId(R.id.miniPlayer)).perform(click());onView(withId(R.id.fullQueue)).perform(click());
+            onView(withId(R.id.miniArtwork)).perform(click());onView(withId(R.id.fullQueue)).inRoot(focusedDialog()).perform(click());
             main(()->controller.seekTo(299750));
             await("Automatic transition did not happen",()->value(()->controller.getCurrentMediaItem().mediaId).equals(two.stableId),10000);
             activity.moveToState(androidx.lifecycle.Lifecycle.State.CREATED);
             main(()->controller.addMediaItem(incoming.toMediaItem().buildUpon().setMediaId("auto:"+incoming.stableId).build()));
             activity.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED);
-            onView(withText("Test Song incoming")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).check(matches(isDisplayed()));
+            onView(withText("Test Song incoming")).inRoot(focusedDialog()).check(matches(isDisplayed()));
             onView(withContentDescription("More options for Test Song incoming")).perform(click());onView(withText("Download")).check(matches(isDisplayed()));
             androidx.test.espresso.Espresso.pressBack();androidx.test.espresso.Espresso.pressBack();
             onView(withId(R.id.fullTitle)).check(matches(withText("Test Song transition-two")));
@@ -138,6 +153,11 @@ public class FeatureRuntimeTest {
                 onView(withId(R.id.source)).perform(click());onView(withText("This phone")).perform(click());waitForText("Test Song navigation");
             }
         }finally{DownloadStore.remove(context,saved.stableId);}
+    }
+    static void waitForPlayerTitle(String text)throws Exception{
+        long until=System.currentTimeMillis()+10000;
+        while(System.currentTimeMillis()<until){try{onView(withId(R.id.nowPlaying)).check(matches(withText(text)));return;}catch(AssertionError|androidx.test.espresso.NoMatchingViewException waiting){Thread.sleep(150);}}
+        onView(withId(R.id.nowPlaying)).check(matches(withText(text)));
     }
     static void waitForText(String text)throws Exception{
         long until=System.currentTimeMillis()+10000;AssertionError last=null;
@@ -183,16 +203,16 @@ public class FeatureRuntimeTest {
         String name="QA Selection "+System.nanoTime();
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
             MediaController controller=connect();main(()->{controller.setShuffleModeEnabled(true);controller.setRepeatMode(Player.REPEAT_MODE_ALL);});
-            activity.onActivity(a->a.previewPersonalMix("Collection Mix",songs));onView(withText("Save playlist")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).check(doesNotExist());onView(withText("Play")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
+            activity.onActivity(a->a.previewPersonalMix("Collection Mix",songs));onView(withText("Save playlist")).inRoot(focusedDialog()).check(doesNotExist());onView(withText("Play")).inRoot(focusedDialog()).perform(click());
             await("Mix did not start",()->value(()->controller.getMediaItemCount()==6&&controller.getCurrentMediaItem().mediaId.equals(songs.get(0).stableId)),15000);
             for(int n=0;n<6;n++){int index=n;assertEquals(songs.get(n).stableId,value(()->controller.getMediaItemAt(index).mediaId));}
             assertFalse(value(controller::getShuffleModeEnabled));assertEquals(Integer.valueOf(Player.REPEAT_MODE_OFF),value(controller::getRepeatMode));
-            activity.onActivity(a->a.previewPersonalMix("Collection Mix",songs));onView(withText("Select")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
-            for(int index:new int[]{1,3,4})onView(withContentDescription("Select Collection Song "+index)).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
-            onView(withText("Add 3 to playlist")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());onView(withText("+ New playlist")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());onView(isAssignableFrom(android.widget.EditText.class)).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(typeText(name),androidx.test.espresso.action.ViewActions.closeSoftKeyboard());onView(withText("Add")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
+            activity.onActivity(a->a.previewPersonalMix("Collection Mix",songs));onView(withText("Select")).inRoot(focusedDialog()).perform(click());
+            for(int index:new int[]{1,3,4})onView(withContentDescription("Select Collection Song "+index)).inRoot(focusedDialog()).perform(click());
+            onView(withText("Add 3 to playlist")).inRoot(focusedDialog()).perform(click());onView(withText("+ New playlist")).inRoot(focusedDialog()).perform(click());onView(isAssignableFrom(android.widget.EditText.class)).inRoot(focusedDialog()).perform(typeText(name),androidx.test.espresso.action.ViewActions.closeSoftKeyboard());onView(withText("Add")).inRoot(focusedDialog()).perform(click());
             org.json.JSONArray saved=new org.json.JSONArray(context.getSharedPreferences("library",0).getString("playlist_order:"+name,"[]"));assertEquals(3,saved.length());
             for(int n=0;n<3;n++)assertEquals(songs.get(new int[]{1,3,4}[n]).stableId,new org.json.JSONObject(saved.getString(n)).getString("id"));
-            onView(withText("Play")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());await("Selected songs did not become exact queue",()->value(()->controller.getMediaItemCount()==3&&controller.getCurrentMediaItem().mediaId.equals(songs.get(1).stableId)),10000);
+            onView(withText("Play")).inRoot(focusedDialog()).perform(click());await("Selected songs did not become exact queue",()->value(()->controller.getMediaItemCount()==3&&controller.getCurrentMediaItem().mediaId.equals(songs.get(1).stableId)),10000);
             for(int n=0;n<3;n++){int index=n;assertEquals(songs.get(new int[]{1,3,4}[n]).stableId,value(()->controller.getMediaItemAt(index).mediaId));}
             main(()->{controller.pause();controller.release();});
         }finally{context.getSharedPreferences("library",0).edit().remove("playlist:"+name).remove("playlist_order:"+name).apply();}
@@ -204,11 +224,11 @@ public class FeatureRuntimeTest {
             onView(org.hamcrest.Matchers.allOf(withText("Test Song fresh-home"),
                     isDescendantOfA(withContentDescription("Refresh home")))).perform(scrollTo()).check(matches(isDisplayed()));
             onView(withText("Artist mixes")).check(doesNotExist());
-            activity.onActivity(a->a.previewPersonalMix("Gesture Mix",Arrays.asList(fresh)));onView(withContentDescription("Dismiss panel")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(swipeLeft());onView(withContentDescription("Close mix")).check(doesNotExist());
-            MediaController controller=connect();main(()->{controller.setMediaItem(fresh.toMediaItem());controller.prepare();controller.play();});await("Playback did not start",()->value(controller::isPlaying),10000);
-            onView(withId(R.id.miniPlayer)).perform(click());onView(withId(R.id.fullQueue)).perform(click());
-            onView(withContentDescription("Dismiss panel")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(swipeLeft());onView(withContentDescription("Close queue")).check(doesNotExist());
-            onView(withContentDescription("Dismiss panel")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(swipeRight());onView(withId(R.id.miniPlayer)).check(matches(isDisplayed()));main(()->{controller.pause();controller.release();});
+            activity.onActivity(a->a.previewPersonalMix("Gesture Mix",Arrays.asList(fresh)));onView(withContentDescription("Dismiss panel")).inRoot(focusedDialog()).perform(swipeLeft());awaitDismissed("Close mix");
+            MediaController controller=connect();main(()->{controller.setMediaItem(fresh.toMediaItem());controller.prepare();controller.play();});await("Playback did not start",()->value(controller::isPlaying),10000);waitForPlayerTitle("Test Song fresh-home");
+            onView(withId(R.id.miniArtwork)).perform(click());onView(withId(R.id.fullQueue)).inRoot(focusedDialog()).perform(click());
+            onView(withContentDescription("Dismiss panel")).inRoot(focusedDialog()).perform(swipeLeft());awaitDismissed("Close queue");
+            onView(withContentDescription("Dismiss panel")).inRoot(focusedDialog()).perform(swipeRight());onView(withId(R.id.miniPlayer)).check(matches(isDisplayed()));main(()->{controller.pause();controller.release();});
         }
     }
     @Test public void l_downloadedRecordingIsPreferredAcrossSourceIdsAndFormats()throws Exception{
