@@ -33,6 +33,7 @@ import static androidx.test.espresso.assertion.ViewAssertions.*;
 @androidx.media3.common.util.UnstableApi
 public class FeatureRuntimeTest {
     final Context context=InstrumentationRegistry.getInstrumentation().getTargetContext();
+    @org.junit.Before public void stopPreviousRadio(){main(()->context.startService(new Intent(context,PlaybackService.class).setAction(PlaybackService.ACTION_STOP_RADIO)));InstrumentationRegistry.getInstrumentation().waitForIdleSync();}
     static void main(Runnable action){InstrumentationRegistry.getInstrumentation().runOnMainSync(action);}
     static <T>T value(Supplier<T> read){AtomicReference<T> result=new AtomicReference<>();main(()->result.set(read.get()));return result.get();}
     static void await(String message,Supplier<Boolean> condition,long timeout)throws Exception {long until=System.currentTimeMillis()+timeout;while(System.currentTimeMillis()<until){if(condition.get())return;Thread.sleep(150);}fail(message);}
@@ -268,6 +269,35 @@ public class FeatureRuntimeTest {
             onView(withId(R.id.songs)).perform(click());onView(withId(R.id.more)).perform(click());onView(withText("Settings")).perform(click());
             onView(withText(org.hamcrest.Matchers.startsWith("Check for updates"))).perform(scrollTo()).check(matches(isDisplayed()));
         }
+    }
+    @Test public void o_autoplayQueuesUnresolvedSongsAndContinuesAfterCollection()throws Exception{
+        Track seed=fixture("collection-radio");List<Track> promised=new ArrayList<>(),recommendations=new ArrayList<>();
+        for(int n=0;n<7;n++)promised.add(new Track("fixture:promised-"+n,seed.playbackUri,"Promised "+n,"Collection Artist","Album"));
+        for(int n=0;n<8;n++)recommendations.add(new Track("online:0:unreachable-"+n,Uri.EMPTY,"Recommendation "+n,"Other Artist "+n,""));
+        String seedJson=JamClient.hostCatalog(Collections.singletonList(seed)),candidatesJson=JamClient.hostCatalog(recommendations);
+        AtomicReference<androidx.media3.exoplayer.ExoPlayer> player=new AtomicReference<>();AtomicReference<AutoplayQueue> radio=new AtomicReference<>();
+        boolean autoplay=context.getSharedPreferences("settings",0).getBoolean("autoplay",true);context.getSharedPreferences("settings",0).edit().putBoolean("autoplay",true).apply();
+        try{
+            main(()->{androidx.media3.exoplayer.ExoPlayer value=new androidx.media3.exoplayer.ExoPlayer.Builder(context).build();player.set(value);List<MediaItem> items=new ArrayList<>();for(Track track:promised)items.add(track.toMediaItem());value.setMediaItems(items);AutoplayQueue queue=new AutoplayQueue(context,value,new android.os.Handler(android.os.Looper.getMainLooper()));radio.set(queue);queue.configure(seedJson,candidatesJson,true);});
+            Thread.sleep(250);assertEquals(Integer.valueOf(7),value(()->player.get().getMediaItemCount()));
+            main(()->{player.get().seekTo(3,0);radio.get().refill();});
+            await("Recommendations waited on unavailable audio URLs",()->value(()->player.get().getMediaItemCount()==12),3000);
+            for(int n=0;n<7;n++){int index=n;assertEquals(promised.get(n).stableId,value(()->player.get().getMediaItemAt(index).mediaId));}
+            for(int n=7;n<12;n++){int index=n;assertTrue(value(()->player.get().getMediaItemAt(index).mediaId.startsWith("auto:")));assertEquals("localmusic",value(()->player.get().getMediaItemAt(index).localConfiguration.uri.getScheme()));}
+            main(()->{player.get().seekTo(9,0);radio.get().refill();});await("Rolling queue did not replenish after collection",()->value(()->autoplayAhead(player.get())==5),3000);
+            assertEquals(seed.stableId,new org.json.JSONArray(context.getSharedPreferences("radio",0).getString("seed","[]")).getJSONObject(0).getString("id"));
+        }finally{main(()->{if(radio.get()!=null){radio.get().stop();radio.get().close();}if(player.get()!=null)player.get().release();});context.getSharedPreferences("settings",0).edit().putBoolean("autoplay",autoplay).apply();}
+    }
+    static int autoplayAhead(androidx.media3.exoplayer.ExoPlayer player){int count=0;for(int i=player.getCurrentMediaItemIndex()+1;i<player.getMediaItemCount();i++)if(player.getMediaItemAt(i).mediaId.startsWith("auto:"))count++;return count;}
+    @Test public void p_secondTapDoesNotTurnOffAutoplay()throws Exception{
+        Track base=fixture("double-tap");Track selected=new Track("online:0:aW52YWxpZA",base.playbackUri,"Double Tap Song","Runtime Artist","");File saved=DownloadStore.destination(context,selected.stableId);Files.copy(new File(base.playbackUri.getPath()).toPath(),saved.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);DownloadStore.put(context,selected,saved);
+        try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
+            MediaController controller=connect();activity.onActivity(a->a.resolveAndPlayOnline(Collections.singletonList(selected),0));
+            await("First tap did not enable autoplay",()->context.getSharedPreferences("radio",0).getString("seed","").contains(selected.stableId),5000);
+            activity.onActivity(a->a.resolveAndPlayOnline(Collections.singletonList(selected),0));
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync();assertTrue(context.getSharedPreferences("radio",0).getString("seed","").contains(selected.stableId));
+            await("Downloaded song did not play",()->value(controller::isPlaying),10000);main(()->{controller.pause();controller.release();});
+        }finally{context.startService(new Intent(context,PlaybackService.class).setAction(PlaybackService.ACTION_STOP_RADIO));DownloadStore.remove(context,selected.stableId);}
     }
     @Test public void z_actualAndroidJamHostAndBrowserFriend()throws Exception{
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){

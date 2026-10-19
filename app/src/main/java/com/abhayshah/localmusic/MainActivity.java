@@ -291,33 +291,19 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void resolveAndPlayOnline(List<Track> sourceTracks, int position) {
-        stopRadio();
+    void resolveAndPlayOnline(List<Track> sourceTracks, int position) {
         Track selected = sourceTracks.get(position);
         long now = android.os.SystemClock.elapsedRealtime();
         if (selected.stableId.equals(lastTrackTapId) && now - lastTrackTapAt < 900) return;
+        stopRadio();
         lastTrackTapId = selected.stableId; lastTrackTapAt = now;
         int request = streamRequest.incrementAndGet();
         status.setText("Starting " + selected.title + "…");
-        if (controller != null) { controller.pause(); controller.clearMediaItems(); updateNowPlaying(); }
+        if(controller==null){status.setText("Player is starting. Try again.");return;}
         Track offline = DownloadStore.offline(this, selected);
-        if (offline != null && controller != null) {
-            controller.setMediaItem(offline.toMediaItem()); controller.prepare(); controller.play(); status.setText("Playing downloaded copy"); updateNowPlaying();
-        }
-        streamIo.execute(() -> {
-            OnlineCatalogSource source = onlineSource();
-            try {
-                OnlineCatalogSource.Resolution resolution = source.resolveWithRadio(selected);
-                Track first = resolution.playable;
-                main.post(() -> {
-                    if (controller == null || streamRequest.get() != request) return;
-                    if (offline == null) { controller.setMediaItem(first.toMediaItem()); controller.prepare(); controller.play(); status.setText("Streaming from " + first.album); updateNowPlaying(); }
-                });
-                appendRadio(source, sourceTracks, position, resolution.radio, request);
-            } catch (RuntimeException error) {
-                main.post(() -> { if (streamRequest.get() == request) { adapter.clearPending(); status.setText("Could not start this song"); Toast.makeText(this, "Try another result or search again.", Toast.LENGTH_LONG).show(); } });
-            }
-        });
+        controller.setMediaItem(StreamPlayback.item(this,selected));controller.prepare();controller.play();updateNowPlaying();
+        status.setText(offline!=null?"Playing downloaded copy":"Streaming");
+        appendRadio(onlineSource(),sourceTracks,position,java.util.Collections.emptyList(),request);
     }
 
     private void appendRadio(OnlineCatalogSource source, List<Track> sourceTracks, int position, List<Track> radio, int request) {
@@ -325,7 +311,7 @@ public final class MainActivity extends Activity {
             if(controller==null||streamRequest.get()!=request||!getSharedPreferences("settings",MODE_PRIVATE).getBoolean("autoplay",true))return;
             try{startService(new Intent(this,PlaybackService.class).setAction(PlaybackService.ACTION_SET_RADIO)
                 .putExtra("radio_seed",JamClient.hostCatalog(java.util.Collections.singletonList(sourceTracks.get(position).original())))
-                .putExtra("radio_candidates",JamClient.hostCatalog(radio)));}catch(Exception ignored){}
+                .putExtra("radio_candidates",JamClient.hostCatalog(radio)));}catch(Exception unavailable){status.setText("Autoplay couldn't start. Try playing the song again.");}
         });
     }
 

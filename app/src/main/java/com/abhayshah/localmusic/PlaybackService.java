@@ -9,6 +9,7 @@ import android.os.Looper;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -69,7 +70,7 @@ public final class PlaybackService extends MediaSessionService {
         if (prefs != null) prefs.edit().remove("sleep_deadline").apply();
     };
     private final Runnable periodicSave = new Runnable() {
-        @Override public void run() { saveState(); stateHandler.postDelayed(this, 15_000); }
+        @Override public void run() { saveState(); if(autoplayQueue!=null)autoplayQueue.refill(); stateHandler.postDelayed(this, 15_000); }
     };
     private final Runnable debouncedSave = this::saveState;
     private final Runnable jamPoll = new Runnable() {
@@ -150,7 +151,7 @@ public final class PlaybackService extends MediaSessionService {
         if(intent!=null && PlaybackCollection.ACTION.equals(intent.getAction())){
             try{
                 List<MediaItem> collection=PlaybackCollection.items(this,intent.getStringExtra("tracks"));
-                if(!collection.isEmpty()){autoplayQueue.stop();player.setShuffleModeEnabled(false);player.setRepeatMode(Player.REPEAT_MODE_OFF);player.setMediaItems(collection,Math.max(0,Math.min(collection.size()-1,intent.getIntExtra("position",0))),0);player.prepare();player.play();}
+                if(!collection.isEmpty()){autoplayQueue.stop();player.setShuffleModeEnabled(false);player.setRepeatMode(Player.REPEAT_MODE_OFF);int position=Math.max(0,Math.min(collection.size()-1,intent.getIntExtra("position",0)));player.setMediaItems(collection,position,0);player.prepare();player.play();MediaItem first=collection.get(position);MediaMetadata metadata=first.mediaMetadata;String id=Track.originalId(first.mediaId);if(id.startsWith("online:"))autoplayQueue.followCollection(new Track(id,Uri.EMPTY,String.valueOf(metadata.title),String.valueOf(metadata.artist),String.valueOf(metadata.albumTitle)));}
             }catch(Exception invalid){android.widget.Toast.makeText(this,"Could not open this collection",android.widget.Toast.LENGTH_SHORT).show();}
         } else if(intent!=null && ACTION_SET_RADIO.equals(intent.getAction())){
             autoplayQueue.configure(intent.getStringExtra("radio_seed"),intent.getStringExtra("radio_candidates"));

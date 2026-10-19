@@ -9,9 +9,9 @@ final class DismissSwipeLayout extends FrameLayout {
     DismissSwipeLayout(Context context,Runnable dismiss){super(context);this.dismiss=dismiss;setContentDescription("Dismiss panel");}
     @Override public boolean dispatchTouchEvent(MotionEvent event){
         int action=event.getActionMasked();
-        if(action==MotionEvent.ACTION_DOWN){x=event.getX();y=event.getY();dragging=false;blocked=protectedTarget(this,x,y);}
+        if(action==MotionEvent.ACTION_DOWN){x=event.getRawX();y=event.getRawY();dragging=false;blocked=protectedTarget(this,event.getX(),event.getY());}
         if(event.getPointerCount()!=1)blocked=true;
-        float dx=event.getX()-x,dy=event.getY()-y;
+        float dx=event.getRawX()-x,dy=event.getRawY()-y;
         // Observe the complete gesture even when a child list disallows interception.
         if(!blocked&&(action==MotionEvent.ACTION_MOVE||action==MotionEvent.ACTION_UP)
                 &&Math.abs(dx)>dp(28)&&Math.abs(dx)>Math.abs(dy)*1.8f){
