@@ -1,7 +1,7 @@
 {
-  "versionCode": 23,
-  "versionName": "0.12.6",
-  "notes": "Queue refresh, rolling autoplay, background downloads and library fixes.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.6/LocalMusic-0.12.6.apk",
-  "sha256": "9CC8AA9D2CBBB9544F152B14F049EFF2A30157C61F3BF207E54E665C36255232"
+  "versionCode": 24,
+  "versionName": "0.12.7",
+  "notes": "Song mixes, exact queues, offline copies, volume leveling and update checks.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.7/LocalMusic-0.12.7.apk",
+  "sha256": "23E3D6DD749A209C3692604865D2EFB8BF9F98AED12123FD53F1739A382E5488"
 }
