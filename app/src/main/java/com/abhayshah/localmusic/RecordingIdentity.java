@@ -15,6 +15,7 @@ final class RecordingIdentity {
         return !VersionPolicy.isEditedVersion(otherTitle)&&!VersionPolicy.isMusicVideo(otherTitle)
             &&!artist(artist).isEmpty()&&artist(artist).equals(artist(otherArtist))&&title(title,artist).equals(title(otherTitle,otherArtist));
     }
+    static String key(String title,String artist){return artist(artist)+"|"+title(title,artist);}
     private static String words(String value){return Normalizer.normalize(value,Normalizer.Form.NFKC).toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+"," ").trim().replaceAll("\\s+"," ");}
     private RecordingIdentity(){}
 }

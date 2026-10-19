@@ -187,12 +187,12 @@ public class FeatureRuntimeTest {
             await("Mix did not start",()->value(()->controller.getMediaItemCount()==6&&controller.getCurrentMediaItem().mediaId.equals(songs.get(0).stableId)),15000);
             for(int n=0;n<6;n++){int index=n;assertEquals(songs.get(n).stableId,value(()->controller.getMediaItemAt(index).mediaId));}
             assertFalse(value(controller::getShuffleModeEnabled));assertEquals(Integer.valueOf(Player.REPEAT_MODE_OFF),value(controller::getRepeatMode));
-            activity.onActivity(a->a.previewPersonalMix("Collection Mix",songs));onView(withText("Select")).perform(click());
-            for(int index:new int[]{1,3,4})onView(withContentDescription("Select Collection Song "+index)).perform(click());
+            activity.onActivity(a->a.previewPersonalMix("Collection Mix",songs));onView(withText("Select")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
+            for(int index:new int[]{1,3,4})onView(withContentDescription("Select Collection Song "+index)).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());
             onView(withText("Add 3 to playlist")).perform(click());onView(withText("+ New playlist")).perform(click());onView(isAssignableFrom(android.widget.EditText.class)).perform(typeText(name),androidx.test.espresso.action.ViewActions.closeSoftKeyboard());onView(withText("Add")).perform(click());
             org.json.JSONArray saved=new org.json.JSONArray(context.getSharedPreferences("library",0).getString("playlist_order:"+name,"[]"));assertEquals(3,saved.length());
             for(int n=0;n<3;n++)assertEquals(songs.get(new int[]{1,3,4}[n]).stableId,new org.json.JSONObject(saved.getString(n)).getString("id"));
-            onView(withText("Play")).perform(click());await("Selected songs did not become exact queue",()->value(()->controller.getMediaItemCount()==3&&controller.getCurrentMediaItem().mediaId.equals(songs.get(1).stableId)),10000);
+            onView(withText("Play")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(click());await("Selected songs did not become exact queue",()->value(()->controller.getMediaItemCount()==3&&controller.getCurrentMediaItem().mediaId.equals(songs.get(1).stableId)),10000);
             for(int n=0;n<3;n++){int index=n;assertEquals(songs.get(new int[]{1,3,4}[n]).stableId,value(()->controller.getMediaItemAt(index).mediaId));}
             main(()->{controller.pause();controller.release();});
         }finally{context.getSharedPreferences("library",0).edit().remove("playlist:"+name).remove("playlist_order:"+name).apply();}
@@ -200,7 +200,7 @@ public class FeatureRuntimeTest {
     @Test public void k_homeRefreshAndBothDirectionsDismissSheets()throws Exception{
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
             onView(withId(R.id.forYou)).perform(click());Track fresh=fixture("fresh-home");ListeningHistory.record(context,fresh.toMediaItem());
-            onView(withContentDescription("Refresh home")).perform(swipeDown());waitForText("Test Song fresh-home");onView(withText("Artist mixes")).check(doesNotExist());
+            onView(withContentDescription("Refresh home")).perform(swipeDown());onView(withText("Test Song fresh-home")).perform(scrollTo()).check(matches(isDisplayed()));onView(withText("Artist mixes")).check(doesNotExist());
             activity.onActivity(a->a.previewPersonalMix("Gesture Mix",Arrays.asList(fresh)));onView(withContentDescription("Dismiss panel")).inRoot(androidx.test.espresso.matcher.RootMatchers.isDialog()).perform(swipeLeft());onView(withContentDescription("Close mix")).check(doesNotExist());
             MediaController controller=connect();main(()->{controller.setMediaItem(fresh.toMediaItem());controller.prepare();controller.play();});await("Playback did not start",()->value(controller::isPlaying),10000);
             onView(withId(R.id.miniPlayer)).perform(click());onView(withId(R.id.fullQueue)).perform(click());
@@ -212,7 +212,14 @@ public class FeatureRuntimeTest {
         Track audio=fixture("offline-original");Track stored=new Track("online:0:owned-upload",audio.playbackUri,"Summer","Calvin Harris","Motion");File file=DownloadStore.destination(context,stored.stableId);Files.copy(new File(audio.playbackUri.getPath()).toPath(),file.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING);DownloadStore.put(context,stored,file);
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
             Track recommendation=new Track("online:0:other-upload",Uri.EMPTY,"Summer (Official Audio)","Calvin Harris - Topic","Motion");assertNotNull(DownloadStore.offline(context,recommendation));assertEquals("file",StreamPlayback.item(context,recommendation).localConfiguration.uri.getScheme());
-            MediaController controller=connect();PlaybackCollection.request(context,Collections.singletonList(recommendation),0);await("Downloaded alternate upload did not play",()->value(controller::isPlaying),10000);assertNull(value(controller::getPlayerError));main(()->{controller.pause();controller.release();});
+            MediaController controller=connect();PlaybackCollection.request(context,Collections.singletonList(recommendation),0);await("Downloaded alternate upload did not play",()->value(controller::isPlaying),10000);assertNull(value(controller::getPlayerError));
+            List<Track> candidates=new ArrayList<>();candidates.add(recommendation);candidates.add(new Track("online:0:duplicate-upload",Uri.EMPTY,"Summer","Calvin Harris","Motion"));
+            for(int n=0;n<4;n++)candidates.add(new Track("fixture:other-"+n,audio.playbackUri,"Other Song "+n,"Related Artist","Fixtures"));
+            main(()->{controller.setMediaItem(audio.toMediaItem());controller.prepare();controller.play();});
+            context.startService(new Intent(context,PlaybackService.class).setAction(PlaybackService.ACTION_SET_RADIO).putExtra("radio_seed",JamClient.hostCatalog(Collections.singletonList(audio))).putExtra("radio_candidates",JamClient.hostCatalog(candidates)));
+            await("Autoplay did not fill five distinct downloaded-first songs",()->value(()->autoplayAhead(controller))==5,15000);
+            assertEquals("auto:"+stored.stableId,value(()->controller.getMediaItemAt(1).mediaId));assertEquals("file",value(()->controller.getMediaItemAt(1).localConfiguration.uri.getScheme()));
+            context.startService(new Intent(context,PlaybackService.class).setAction(PlaybackService.ACTION_STOP_RADIO));main(()->{controller.pause();controller.release();});
         }finally{DownloadStore.remove(context,stored.stableId);}
         VolumeAudioProcessor processor=new VolumeAudioProcessor(()->false);processor.reset();processor.configure(new androidx.media3.common.audio.AudioProcessor.AudioFormat(8000,2,androidx.media3.common.C.ENCODING_PCM_16BIT));processor.flush();
         byte[] pcm=new byte[]{1,0,2,0,3,0,4,0};processor.queueInput(java.nio.ByteBuffer.wrap(Arrays.copyOfRange(pcm,0,3)));assertEquals(0,processor.getOutput().remaining());processor.queueInput(java.nio.ByteBuffer.wrap(Arrays.copyOfRange(pcm,3,8)));java.nio.ByteBuffer output=processor.getOutput();byte[] actual=new byte[output.remaining()];output.get(actual);assertArrayEquals(pcm,actual);processor.reset();

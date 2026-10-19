@@ -15,6 +15,7 @@ final class AutoplayQueue {
     private final Context context;private final ExoPlayer player;private final Handler main;
     private final ExecutorService io=Executors.newSingleThreadExecutor();
     private final List<Track> pool=new ArrayList<>();private final LinkedHashSet<String> used=new LinkedHashSet<>();
+    private final LinkedHashSet<String> usedSongs=new LinkedHashSet<>();
     private Track seed;private volatile int generation;private boolean busy;private volatile boolean closed;private final Runnable retry=this::refill;
     AutoplayQueue(Context context,ExoPlayer player,Handler main){this.context=context;this.player=player;this.main=main;
         try{String saved=context.getSharedPreferences("radio",0).getString("seed","");if(!saved.isEmpty()){seed=read(new JSONArray(saved)).get(0);used.add(seed.stableId);}}catch(Exception ignored){}
@@ -22,12 +23,13 @@ final class AutoplayQueue {
     void configure(String seedJson,String candidates){
         stop();try{seed=read(new JSONArray(seedJson)).get(0).original();pool.addAll(read(new JSONArray(candidates)));used.add(seed.stableId);context.getSharedPreferences("radio",0).edit().putString("seed",seedJson).apply();refill();}catch(Exception ignored){stop();}
     }
-    void stop(){generation++;seed=null;pool.clear();used.clear();busy=false;main.removeCallbacks(retry);context.getSharedPreferences("radio",0).edit().remove("seed").apply();}
+    void stop(){generation++;seed=null;pool.clear();used.clear();usedSongs.clear();busy=false;main.removeCallbacks(retry);context.getSharedPreferences("radio",0).edit().remove("seed").apply();}
     private int upcoming(){int count=0;for(int i=player.getCurrentMediaItemIndex()+1;i<player.getMediaItemCount();i++)if(player.getMediaItemAt(i).mediaId.startsWith("auto:"))count++;return count;}
     void refill(){
         if(closed||busy||seed==null||player.getMediaItemCount()==0||!context.getSharedPreferences("settings",0).getBoolean("autoplay",true)||upcoming()>=5)return;
         int request=generation,needed=5-upcoming();Track originalSeed=seed;List<Track> candidates=new ArrayList<>(pool);pool.clear();
-        Set<String> known=new HashSet<>(used);for(int i=0;i<player.getMediaItemCount();i++)known.add(Track.originalId(player.getMediaItemAt(i).mediaId));busy=true;
+        Set<String> known=new HashSet<>(used),knownSongs=new HashSet<>(usedSongs);knownSongs.add(RecordingIdentity.key(originalSeed.title,originalSeed.artist));
+        for(int i=0;i<player.getMediaItemCount();i++){MediaItem item=player.getMediaItemAt(i);known.add(Track.originalId(item.mediaId));knownSongs.add(RecordingIdentity.key(item.mediaMetadata.title==null?"":item.mediaMetadata.title.toString(),item.mediaMetadata.artist==null?"":item.mediaMetadata.artist.toString()));}busy=true;
         io.execute(()->{
             List<Track> ready=new ArrayList<>(),remaining=new ArrayList<>();
             try{
@@ -36,17 +38,18 @@ final class AutoplayQueue {
                 Set<String> picked=new HashSet<>(known);
                 for(Track track:candidates){
                     if(closed||request!=generation)return;
-                    String id=Track.originalId(track.stableId);if(VersionPolicy.isMusicVideo(track.title)||context.getSharedPreferences("settings",0).getBoolean("avoid_clean",true)&&VersionPolicy.exclude(track.title,originalSeed.title)||!picked.add(id))continue;
+                    String id=Track.originalId(track.stableId),song=RecordingIdentity.key(track.title,track.artist);if(knownSongs.contains(song)||VersionPolicy.isMusicVideo(track.title)||context.getSharedPreferences("settings",0).getBoolean("avoid_clean",true)&&VersionPolicy.exclude(track.title,originalSeed.title)||!picked.add(id))continue;
                     if(ready.size()>=needed){remaining.add(track.original());continue;}
-                    try{Track playable=DownloadStore.offline(context,track.original());if(playable==null){if(id.startsWith("online:")){if(source==null)source=new OnlineCatalogSource();playable=source.resolve(track.original());}else playable=track.original();}ready.add(playable);}catch(RuntimeException unavailable){remaining.add(track.original());}
+                    try{Track playable=DownloadStore.offline(context,track.original());if(playable==null){if(id.startsWith("online:")){if(source==null)source=new OnlineCatalogSource();playable=source.resolve(track.original());}else playable=track.original();}ready.add(playable);knownSongs.add(song);}catch(RuntimeException unavailable){remaining.add(track.original());}
                 }
             }catch(RuntimeException unavailable){}
             main.post(()->{
                 if(closed||request!=generation)return;pool.addAll(remaining);
                 if(seed==null||!seed.stableId.equals(originalSeed.stableId)||!context.getSharedPreferences("settings",0).getBoolean("autoplay",true)){busy=false;return;}
                 Set<String> queued=new HashSet<>();for(int i=0;i<player.getMediaItemCount();i++)queued.add(Track.originalId(player.getMediaItemAt(i).mediaId));
-                for(Track track:ready){if(upcoming()>=5||!queued.add(track.stableId))continue;used.add(track.stableId);MediaItem item=track.toMediaItem().buildUpon().setMediaId("auto:"+track.stableId).setCustomCacheKey(track.stableId).build();player.addMediaItem(item);}
+                for(Track track:ready){if(upcoming()>=5||!queued.add(track.stableId))continue;used.add(track.stableId);usedSongs.add(RecordingIdentity.key(track.title,track.artist));MediaItem item=track.toMediaItem().buildUpon().setMediaId("auto:"+track.stableId).setCustomCacheKey(track.stableId).build();player.addMediaItem(item);}
                 while(used.size()>500)used.remove(used.iterator().next());
+                while(usedSongs.size()>500)usedSongs.remove(usedSongs.iterator().next());
                 busy=false;main.removeCallbacks(retry);if(upcoming()<5)main.postDelayed(retry,15000);
             });
         });

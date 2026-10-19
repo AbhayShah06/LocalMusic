@@ -103,8 +103,8 @@ final class OnlineCatalogSource implements CatalogSource {
 
     private void search(StreamingService service, String query, List<Track> output, int limit) {
         try {
-            String request = service == ServiceList.YouTube ? query + " official audio" : query;
-            SearchInfo result = SearchInfo.getInfo(service, service.getSearchQHFactory().fromQuery(request, Collections.emptyList(), ""));
+            List<String> filters=service==ServiceList.YouTube?Collections.singletonList(org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory.MUSIC_SONGS):Collections.emptyList();
+            SearchInfo result = SearchInfo.getInfo(service, service.getSearchQHFactory().fromQuery(query, filters, ""));
             List<StreamInfoItem> candidates = new ArrayList<>();
             for (InfoItem item : result.getRelatedItems()) if (item instanceof StreamInfoItem) candidates.add((StreamInfoItem) item);
             candidates.sort((left, right) -> Integer.compare(score(right, query), score(left, query)));
