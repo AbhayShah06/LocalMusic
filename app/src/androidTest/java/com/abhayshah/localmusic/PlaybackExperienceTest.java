@@ -64,4 +64,34 @@ public class PlaybackExperienceTest {
             }finally{FeatureRuntimeTest.main(()->{controller.pause();controller.release();});context.startService(new Intent(context,PlaybackService.class).setAction(PlaybackService.ACTION_STOP_RADIO));}
         }finally{DownloadStore.remove(context,seed.stableId);}
     }
+    @Test public void e_nowPlayingMenuFollowsTheSongAndRepeatControlsPlayback()throws Exception{
+        FeatureRuntimeTest helper=new FeatureRuntimeTest();Track first=helper.fixture("repeat-first"),second=helper.fixture("repeat-second");MediaController controller=helper.connect();
+        context.startService(new Intent(context,PlaybackService.class).setAction(PlaybackService.ACTION_STOP_RADIO));
+        FeatureRuntimeTest.main(()->{controller.setRepeatMode(androidx.media3.common.Player.REPEAT_MODE_OFF);controller.setShuffleModeEnabled(false);controller.setMediaItems(Arrays.asList(first.toMediaItem(),second.toMediaItem()));controller.prepare();controller.play();});
+        FeatureRuntimeTest.await("Playback failed",()->FeatureRuntimeTest.value(controller::isPlaying),15000);
+        AtomicInteger repeats=new AtomicInteger();androidx.media3.common.Player.Listener listener=new androidx.media3.common.Player.Listener(){@Override public void onMediaItemTransition(androidx.media3.common.MediaItem item,int reason){if(reason==androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)repeats.incrementAndGet();}};
+        FeatureRuntimeTest.main(()->controller.addListener(listener));
+        try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
+            onView(withId(R.id.miniPlayer)).perform(click());onView(withId(R.id.fullMore)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());onView(withText(first.title)).inRoot(FeatureRuntimeTest.focusedDialog()).check(matches(isDisplayed()));onView(withText("Add to playlist")).check(matches(isDisplayed()));androidx.test.espresso.Espresso.pressBack();
+            onView(withId(R.id.fullNext)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());FeatureRuntimeTest.await("Next did not update",()->FeatureRuntimeTest.value(controller::getCurrentMediaItemIndex)==1,5000);
+            onView(withId(R.id.fullMore)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());onView(withText(second.title)).inRoot(FeatureRuntimeTest.focusedDialog()).check(matches(isDisplayed()));androidx.test.espresso.Espresso.pressBack();
+            onView(withId(R.id.fullRepeat)).inRoot(FeatureRuntimeTest.focusedDialog()).check(matches(withContentDescription("Repeat off"))).perform(click());assertEquals(androidx.media3.common.Player.REPEAT_MODE_ALL,(int)FeatureRuntimeTest.value(controller::getRepeatMode));
+            onView(withId(R.id.fullRepeat)).inRoot(FeatureRuntimeTest.focusedDialog()).check(matches(withContentDescription("Repeat all"))).perform(click());assertEquals(androidx.media3.common.Player.REPEAT_MODE_ONE,(int)FeatureRuntimeTest.value(controller::getRepeatMode));
+            FeatureRuntimeTest.main(()->controller.seekTo(0,299800));FeatureRuntimeTest.await("Repeat one did not replay the song",()->repeats.get()>0&&FeatureRuntimeTest.value(controller::getCurrentMediaItemIndex)==0,10000);assertTrue(FeatureRuntimeTest.value(controller::isPlaying));
+            onView(withId(R.id.fullRepeat)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());onView(withId(R.id.fullRepeat)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());assertEquals(androidx.media3.common.Player.REPEAT_MODE_ALL,(int)FeatureRuntimeTest.value(controller::getRepeatMode));
+            FeatureRuntimeTest.main(()->controller.seekTo(1,299800));FeatureRuntimeTest.await("Repeat all did not wrap the queue",()->FeatureRuntimeTest.value(controller::getCurrentMediaItemIndex)==0,10000);
+            onView(withId(R.id.closeNowPlaying)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());onView(withId(R.id.miniPlayer)).perform(click());onView(withId(R.id.fullRepeat)).inRoot(FeatureRuntimeTest.focusedDialog()).check(matches(withContentDescription("Repeat all"))).perform(click());onView(withId(R.id.fullRepeat)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());
+            assertEquals(androidx.media3.common.Player.REPEAT_MODE_OFF,(int)FeatureRuntimeTest.value(controller::getRepeatMode));FeatureRuntimeTest.main(()->controller.seekTo(1,299800));FeatureRuntimeTest.await("Repeat off did not stop at the end",()->FeatureRuntimeTest.value(controller::getPlaybackState)==androidx.media3.common.Player.STATE_ENDED,10000);assertNull(FeatureRuntimeTest.value(controller::getPlayerError));
+        }finally{FeatureRuntimeTest.main(()->{controller.removeListener(listener);controller.setRepeatMode(androidx.media3.common.Player.REPEAT_MODE_OFF);controller.pause();controller.release();});}
+    }
+    @Test public void f_repeatHoldsTheQueueAndTurningItOffResumesAutoplay()throws Exception{
+        FeatureRuntimeTest helper=new FeatureRuntimeTest();Track seed=helper.fixture("repeat-radio");List<Track> candidates=new ArrayList<>();for(int i=0;i<7;i++)candidates.add(new Track("fixture:repeat-candidate-"+i,seed.playbackUri,"Related "+i,"Artist "+i,""));
+        String seedJson=JamClient.hostCatalog(Collections.singletonList(seed)),candidatesJson=JamClient.hostCatalog(candidates);
+        AtomicReference<androidx.media3.exoplayer.ExoPlayer> player=new AtomicReference<>();AtomicReference<AutoplayQueue> radio=new AtomicReference<>();boolean autoplay=context.getSharedPreferences("settings",0).getBoolean("autoplay",true);context.getSharedPreferences("settings",0).edit().putBoolean("autoplay",true).apply();
+        try{
+            FeatureRuntimeTest.main(()->{androidx.media3.exoplayer.ExoPlayer p=new androidx.media3.exoplayer.ExoPlayer.Builder(context).build();player.set(p);p.setMediaItem(seed.toMediaItem());p.setRepeatMode(androidx.media3.common.Player.REPEAT_MODE_ALL);AutoplayQueue q=new AutoplayQueue(context,p,new Handler(Looper.getMainLooper()));radio.set(q);q.configure(seedJson,candidatesJson);});
+            android.os.SystemClock.sleep(350);assertEquals(1,(int)FeatureRuntimeTest.value(()->player.get().getMediaItemCount()));
+            FeatureRuntimeTest.main(()->{player.get().setRepeatMode(androidx.media3.common.Player.REPEAT_MODE_OFF);radio.get().refill();});FeatureRuntimeTest.await("Autoplay did not resume after repeat off",()->FeatureRuntimeTest.value(()->player.get().getMediaItemCount())==6,5000);
+        }finally{FeatureRuntimeTest.main(()->{if(radio.get()!=null){radio.get().stop();radio.get().close();}if(player.get()!=null)player.get().release();});context.getSharedPreferences("settings",0).edit().putBoolean("autoplay",autoplay).apply();}
+    }
 }

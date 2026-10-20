@@ -86,7 +86,7 @@ public final class MainActivity extends Activity {
     private void refreshLivePlayerViews() { for(Runnable refresh:new ArrayList<>(livePlayerViews))refresh.run(); }
     private final Player.Listener uiPlayerListener = new Player.Listener() {
         @Override public void onEvents(Player player, Player.Events events) {
-            if (events.containsAny(Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_MEDIA_METADATA_CHANGED, Player.EVENT_TIMELINE_CHANGED, Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAY_WHEN_READY_CHANGED)) { updateNowPlaying(); refreshLivePlayerViews(); }
+            if (events.containsAny(Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_MEDIA_METADATA_CHANGED, Player.EVENT_TIMELINE_CHANGED, Player.EVENT_IS_PLAYING_CHANGED, Player.EVENT_PLAYBACK_STATE_CHANGED, Player.EVENT_PLAY_WHEN_READY_CHANGED, Player.EVENT_REPEAT_MODE_CHANGED)) { updateNowPlaying(); refreshLivePlayerViews(); }
         }
     };
 
@@ -362,6 +362,9 @@ public final class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 31) backgroundArtwork.setRenderEffect(android.graphics.RenderEffect.createBlurEffect(44f, 44f, android.graphics.Shader.TileMode.CLAMP));
         Runnable refresh = () -> {
             if (controller == null) return;
+            String repeatLabel=controller.getRepeatMode()==Player.REPEAT_MODE_ONE?"Repeat one":controller.getRepeatMode()==Player.REPEAT_MODE_ALL?"Repeat all":"Repeat off";
+            ((TextView)dialog.findViewById(R.id.fullRepeatLabel)).setText(repeatLabel);dialog.findViewById(R.id.fullRepeat).setContentDescription(repeatLabel);
+            ((android.widget.ImageView)dialog.findViewById(R.id.fullRepeatIcon)).setImageTintList(android.content.res.ColorStateList.valueOf(controller.getRepeatMode()==Player.REPEAT_MODE_OFF?0xffb8b3ab:0xffff805f));
             if(controller.getCurrentMediaItem()==null){title.setText("Nothing playing");artist.setText("");play.setImageResource(R.drawable.ic_play);artwork.setImageResource(android.R.drawable.ic_media_play);backgroundArtwork.setImageDrawable(null);elapsed.setText("0:00");durationLabel.setText("0:00");fullSeek.setProgress(0);return;}
             title.setText(Track.clean(displayMetadata().title==null?null:displayMetadata().title.toString(), "Now playing"));
             artist.setText(Track.clean(displayMetadata().artist==null?null:displayMetadata().artist.toString(), "Unknown artist"));
@@ -386,6 +389,8 @@ public final class MainActivity extends Activity {
         dialog.findViewById(R.id.fullPrevious).setOnClickListener(v -> { if(controller!=null)controller.seekToPreviousMediaItem(); });
         dialog.findViewById(R.id.fullNext).setOnClickListener(v -> { if(controller!=null)controller.seekToNextMediaItem(); });
         dialog.findViewById(R.id.fullQueue).setOnClickListener(v -> showQueue());
+        dialog.findViewById(R.id.fullMore).setOnClickListener(v -> showCurrentSongActions());
+        dialog.findViewById(R.id.fullRepeat).setOnClickListener(v -> {toggleRepeat();refresh.run();});
         dialog.findViewById(R.id.fullLyrics).setOnClickListener(v -> { Track current = currentTrack(); if (current != null) showLyrics(current); });
         dialog.findViewById(R.id.fullPlaylist).setOnClickListener(v -> { Track current = currentTrack(); if (current != null) addTrackToPlaylist(current); });
         artist.setOnClickListener(v -> showArtistPage(artist.getText().toString()));
@@ -413,6 +418,20 @@ public final class MainActivity extends Activity {
         androidx.media3.common.MediaItem item = controller.getCurrentMediaItem(); androidx.media3.common.MediaMetadata metadata = item.mediaMetadata;
         Uri uri = item.localConfiguration == null ? Uri.EMPTY : item.localConfiguration.uri;
         return new Track(item.mediaId, uri, String.valueOf(metadata.title), String.valueOf(metadata.artist), String.valueOf(metadata.albumTitle), metadata.artworkUri);
+    }
+
+    private void showCurrentSongActions(){
+        Track current=currentTrack();if(current==null)return;Track track=current.original();
+        String download=DownloadStore.contains(this,track.stableId)?"Remove download":DownloadTasks.active(this,track.stableId)?"Download activity":"Download";
+        String favorite=FavoriteStore.contains(this,track)?"Remove favorite":"Add to favorites";
+        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{download,"Add to playlist",favorite,"Open artist","Lyrics","Equalizer"},(d,which)->{
+            if(which==0){if(download.equals("Remove download"))new AppDialogBuilder(this).setTitle("Remove download?").setMessage(track.title+" will remain available to stream.").setNegativeButton("Cancel",null).setPositiveButton("Remove",(confirm,button)->DownloadStore.remove(this,track.stableId)).show();else if(download.equals("Download activity"))showDownloadActivity();else requestDownload(track);}
+            else if(which==1)addTrackToPlaylist(track);
+            else if(which==2)toggleTrackFavorite(track);
+            else if(which==3)showArtistPage(track.artist);
+            else if(which==4)showLyrics(track);
+            else openEqualizer();
+        }).show();
     }
 
     private void showLyrics(Track track) {
@@ -956,18 +975,11 @@ public final class MainActivity extends Activity {
         controller.play();
     }
 
-    private void toggleShuffle() {
-        if (controller == null) return;
-        boolean enabled = !controller.getShuffleModeEnabled(); controller.setShuffleModeEnabled(enabled);
-        Toast.makeText(this, enabled ? "Shuffle on" : "Shuffle off", Toast.LENGTH_SHORT).show();
-    }
-
     private void toggleRepeat() {
         if (controller == null) return;
         int nextMode = controller.getRepeatMode() == androidx.media3.common.Player.REPEAT_MODE_OFF ? androidx.media3.common.Player.REPEAT_MODE_ALL
                 : controller.getRepeatMode() == androidx.media3.common.Player.REPEAT_MODE_ALL ? androidx.media3.common.Player.REPEAT_MODE_ONE : androidx.media3.common.Player.REPEAT_MODE_OFF;
         controller.setRepeatMode(nextMode);
-        Toast.makeText(this, nextMode == 0 ? "Repeat off" : nextMode == 2 ? "Repeat all" : "Repeat one", Toast.LENGTH_SHORT).show();
     }
 
     private void saveFavorite(long id) {

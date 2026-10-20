@@ -30,7 +30,7 @@ final class AutoplayQueue {
     void stop(){generation++;seed=null;pool.clear();used.clear();usedSongs.clear();busy=false;deferredTail=false;main.removeCallbacks(retry);context.getSharedPreferences("radio",0).edit().remove("seed").remove("collection").apply();}
     private int upcoming(){int count=0;for(int i=player.getCurrentMediaItemIndex()+1;i<player.getMediaItemCount();i++)if(player.getMediaItemAt(i).mediaId.startsWith("auto:"))count++;return count;}
     void refill(){
-        if(closed||busy||seed==null||player.getMediaItemCount()==0||!context.getSharedPreferences("settings",0).getBoolean("autoplay",true)||upcoming()>=5)return;
+        if(closed||busy||seed==null||player.getMediaItemCount()==0||player.getRepeatMode()!=androidx.media3.common.Player.REPEAT_MODE_OFF||!context.getSharedPreferences("settings",0).getBoolean("autoplay",true)||upcoming()>=5)return;
         if(deferredTail&&player.getMediaItemCount()-player.getCurrentMediaItemIndex()-1>=5)return;
         int request=generation,needed=5-upcoming();Track originalSeed=seed;List<Track> candidates=new ArrayList<>(pool);pool.clear();
         Set<String> known=new HashSet<>(used),knownSongs=new HashSet<>(usedSongs);knownSongs.add(RecordingIdentity.key(originalSeed.title,originalSeed.artist));
@@ -50,6 +50,7 @@ final class AutoplayQueue {
             }catch(RuntimeException unavailable){}
             main.post(()->{
                 if(closed||request!=generation)return;pool.addAll(remaining);
+                if(player.getRepeatMode()!=androidx.media3.common.Player.REPEAT_MODE_OFF){pool.addAll(0,ready);busy=false;return;}
                 if(seed==null||!seed.stableId.equals(originalSeed.stableId)||!context.getSharedPreferences("settings",0).getBoolean("autoplay",true)){busy=false;return;}
                 Set<String> queued=new HashSet<>();for(int i=0;i<player.getMediaItemCount();i++)queued.add(Track.originalId(player.getMediaItemAt(i).mediaId));
                 for(Track track:ready){if(upcoming()>=5||!queued.add(track.stableId))continue;used.add(track.stableId);usedSongs.add(RecordingIdentity.key(track.title,track.artist));MediaItem item=StreamPlayback.item(context,track).buildUpon().setMediaId("auto:"+track.stableId).setCustomCacheKey(track.stableId).build();player.addMediaItem(item);}

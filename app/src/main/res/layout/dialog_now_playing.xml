@@ -5,6 +5,7 @@
         <FrameLayout android:layout_width="match_parent" android:layout_height="52dp">
             <ImageButton android:id="@+id/closeNowPlaying" android:layout_width="44dp" android:layout_height="44dp" android:layout_gravity="start|center_vertical" android:background="?android:attr/selectableItemBackgroundBorderless" android:contentDescription="Close player" android:padding="11dp" android:src="@drawable/ic_chevron_down" android:tint="#F7F4EE" />
             <TextView android:layout_width="wrap_content" android:layout_height="match_parent" android:layout_gravity="center" android:gravity="center" android:letterSpacing="0.16" android:text="NOW PLAYING" android:textColor="#B8B3AB" android:textSize="11sp" android:textStyle="bold" />
+            <TextView android:id="@+id/fullMore" android:layout_width="48dp" android:layout_height="48dp" android:layout_gravity="end|center_vertical" android:background="?android:attr/selectableItemBackgroundBorderless" android:clickable="true" android:focusable="true" android:gravity="center" android:text="&#8942;" android:textColor="#F7F4EE" android:textSize="28sp" android:contentDescription="Current song options" />
         </FrameLayout>
         <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginStart="8dp" android:layout_marginTop="10dp" android:layout_marginEnd="8dp" android:layout_marginBottom="26dp" android:background="@drawable/bg_art_card" android:clipToOutline="true" android:elevation="18dp">
             <ImageView android:id="@+id/fullArtwork" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="Album artwork" android:scaleType="centerCrop" />
@@ -25,6 +26,7 @@
             <LinearLayout android:id="@+id/fullPlaylist" style="@style/NowPlayingAction" android:contentDescription="Add to playlist"><ImageView style="@style/NowPlayingActionIcon" android:src="@drawable/ic_playlist_add" /><TextView style="@style/NowPlayingActionLabel" android:text="Playlist" /></LinearLayout>
             <LinearLayout android:id="@+id/fullLyrics" style="@style/NowPlayingAction" android:layout_marginStart="10dp" android:contentDescription="Lyrics"><ImageView style="@style/NowPlayingActionIcon" android:src="@drawable/ic_lyrics" /><TextView style="@style/NowPlayingActionLabel" android:text="Lyrics" /></LinearLayout>
             <LinearLayout android:id="@+id/fullQueue" style="@style/NowPlayingAction" android:layout_marginStart="10dp" android:contentDescription="Queue"><ImageView style="@style/NowPlayingActionIcon" android:src="@drawable/ic_queue" /><TextView style="@style/NowPlayingActionLabel" android:text="Queue" /></LinearLayout>
+            <LinearLayout android:id="@+id/fullRepeat" style="@style/NowPlayingAction" android:layout_marginStart="10dp" android:contentDescription="Repeat off"><ImageView android:id="@+id/fullRepeatIcon" style="@style/NowPlayingActionIcon" android:src="@drawable/ic_repeat" /><TextView android:id="@+id/fullRepeatLabel" style="@style/NowPlayingActionLabel" android:text="Repeat off" /></LinearLayout>
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>
