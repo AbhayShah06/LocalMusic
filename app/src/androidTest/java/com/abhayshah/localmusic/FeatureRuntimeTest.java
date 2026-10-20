@@ -101,7 +101,7 @@ public class FeatureRuntimeTest {
             onView(withId(R.id.forYou)).perform(click());onView(withText("Recently played")).check(matches(isDisplayed()));onView(withId(R.id.songs)).perform(click());
             onView(withId(R.id.playlists)).perform(click());onView(withText("+ Import playlist")).perform(click());
             onView(withText("Paste song names")).perform(click());onView(withText("Import playlist")).check(matches(isDisplayed()));androidx.test.espresso.Espresso.pressBack();
-            onView(withId(R.id.more)).perform(click());onView(withText("Settings")).perform(click());onView(withText(org.hamcrest.Matchers.startsWith("Import playlists"))).perform(scrollTo()).check(matches(isDisplayed()));androidx.test.espresso.Espresso.pressBack();
+            onView(withId(R.id.more)).perform(click());onView(withText("Settings")).perform(click());AudioExperienceTest.waitPanel("Track normalization");onView(withText(org.hamcrest.Matchers.startsWith("Import playlists"))).perform(scrollTo()).check(matches(isDisplayed()));androidx.test.espresso.Espresso.pressBack();
         }
     }
     @Test public void d_liveCatalogueSearchResolveAndAudioBytes()throws Exception{
@@ -172,7 +172,7 @@ public class FeatureRuntimeTest {
     }
     @Test public void h_feedbackAndNotificationActionsDoNotTrapNavigation()throws Exception{
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
-            onView(withId(R.id.more)).perform(click());onView(withText("Settings")).perform(click());
+            onView(withId(R.id.more)).perform(click());onView(withText("Settings")).perform(click());AudioExperienceTest.waitPanel("Track normalization");
             onView(withText(org.hamcrest.Matchers.startsWith("Feedback"))).perform(scrollTo(),click());onView(withText("Copy email address")).perform(click());
             assertEquals(FeedbackDraft.EMAIL,value(()->context.getSystemService(android.content.ClipboardManager.class).getPrimaryClip().getItemAt(0).getText().toString()));
             onView(withText("Settings")).check(doesNotExist());onView(withId(R.id.forYou)).perform(click());onView(withText("Recently played")).check(matches(isDisplayed()));
@@ -284,7 +284,7 @@ public class FeatureRuntimeTest {
             onView(withContentDescription("GitHub update available")).check(matches(isDisplayed()));
             onView(withText("Update now")).check(matches(isDisplayed()));onView(withText("Later")).perform(click());
             onView(withContentDescription("GitHub update available")).check(doesNotExist());
-            onView(withId(R.id.songs)).perform(click());onView(withId(R.id.more)).perform(click());onView(withText("Settings")).perform(click());
+            onView(withId(R.id.songs)).perform(click());onView(withId(R.id.more)).perform(click());onView(withText("Settings")).perform(click());AudioExperienceTest.waitPanel("Track normalization");
             onView(withText(org.hamcrest.Matchers.startsWith("Check for updates"))).perform(scrollTo()).check(matches(isDisplayed()));
         }
     }

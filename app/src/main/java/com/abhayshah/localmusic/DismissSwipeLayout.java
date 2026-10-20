@@ -7,9 +7,13 @@ import android.widget.*;
 final class DismissSwipeLayout extends FrameLayout {
     private final Runnable dismiss;private float x,y;private boolean blocked,dragging,closing;
     private View moving;
+    private boolean ignoreTap;
     DismissSwipeLayout(Context context,Runnable dismiss){super(context);this.dismiss=dismiss;setContentDescription("Dismiss panel");}
     @Override public boolean dispatchTouchEvent(MotionEvent event){
         int action=event.getActionMasked();
+        if(action==MotionEvent.ACTION_DOWN)ignoreTap=WindowTapGuard.ignoreDown(getContext(),getRootView(),event);
+        WindowTapGuard.recordUp(getContext(),getRootView(),event);
+        if(ignoreTap){if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL)ignoreTap=false;return true;}
         if(closing)return true;
         if(action==MotionEvent.ACTION_DOWN){moving=getRootView();moving.animate().cancel();moving.setTranslationX(0);x=event.getRawX();y=event.getRawY();dragging=false;blocked=protectedTarget(this,event.getX(),event.getY());}
         if(event.getPointerCount()!=1){blocked=true;if(dragging){dragging=false;restore();return true;}}

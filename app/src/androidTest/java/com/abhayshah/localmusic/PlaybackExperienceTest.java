@@ -29,10 +29,10 @@ public class PlaybackExperienceTest {
         try{
             try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
                 android.app.PendingIntent action=FeatureRuntimeTest.value(controller::getSessionActivity);assertNotNull("Notification has no player intent",action);action.send();
-                onView(withId(R.id.fullTitle)).inRoot(FeatureRuntimeTest.focusedDialog()).check(matches(withText(song.title)));onView(withId(R.id.closeNowPlaying)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());action.send();
-                onView(withId(R.id.closeNowPlaying)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());onView(withId(R.id.closeNowPlaying)).check(doesNotExist());
+                onView(withId(R.id.fullTitle)).inRoot(FeatureRuntimeTest.focusedDialog()).check(matches(withText(song.title)));onView(withId(R.id.closeNowPlaying)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());android.os.SystemClock.sleep(android.view.ViewConfiguration.getDoubleTapTimeout()+20);action.send();
+                onView(withId(R.id.closeNowPlaying)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());FeatureRuntimeTest.awaitDismissed("Close player");activity.onActivity(Activity::finish);
             }
-            Intent cold=new Intent(context,MainActivity.class).putExtra("show_now_playing",true);
+            Intent cold=new Intent(context,MainActivity.class).setAction(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).putExtra("show_now_playing",true);
             try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(cold)){
                 onView(withId(R.id.fullTitle)).inRoot(FeatureRuntimeTest.focusedDialog()).check(matches(withText(song.title)));onView(withId(R.id.closeNowPlaying)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());
             }

@@ -101,7 +101,7 @@ public final class PlaybackService extends MediaSessionService {
     private boolean currentItemRecorded;
     private final Runnable recordCurrentItem = () -> {
         if (player != null && player.isPlaying() && !currentItemRecorded) {
-            ListeningHistory.record(PlaybackService.this, player.getCurrentMediaItem()); currentItemRecorded = true;
+            if(player.getCurrentMediaItem()!=null)ListeningHistory.record(PlaybackService.this, player.getCurrentMediaItem().buildUpon().setMediaMetadata(player.getMediaMetadata()).build()); currentItemRecorded = true;
         }
     };
     private final Player.Listener persistenceListener = new Player.Listener() {
@@ -137,7 +137,7 @@ public final class PlaybackService extends MediaSessionService {
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true);
         trackVolume = new TrackVolume(player, getSharedPreferences("settings", MODE_PRIVATE));
         equalizer = new PlaybackEqualizer(player, getSharedPreferences("settings", MODE_PRIVATE));
-        android.content.Intent openPlayer=new android.content.Intent(this,MainActivity.class).setFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP|android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP).putExtra("show_now_playing",true);
+        android.content.Intent openPlayer=new android.content.Intent(this,MainActivity.class).setAction(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_LAUNCHER).setFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK|android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP|android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP).putExtra("show_now_playing",true);
         android.app.PendingIntent sessionActivity=android.app.PendingIntent.getActivity(this,42,openPlayer,android.app.PendingIntent.FLAG_UPDATE_CURRENT|android.app.PendingIntent.FLAG_IMMUTABLE);
         session = new MediaSession.Builder(this, player).setSessionActivity(sessionActivity).build();
         autoplayQueue=new AutoplayQueue(this,player,stateHandler);

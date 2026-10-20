@@ -57,8 +57,10 @@ public class AudioExperienceTest {
             }finally{level.close();prefs.edit().clear().commit();}
         });
     }
-    void settings(){onView(withId(R.id.more)).perform(click());onView(withText("Settings")).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());}
-    void settingsAction(String title){onView(withText(org.hamcrest.Matchers.startsWith(title+"\n"))).inRoot(FeatureRuntimeTest.focusedDialog()).perform(scrollTo(),click());}
+    static boolean textPrefix(android.view.View view,String text){if(!view.isShown())return false;if(view instanceof android.widget.TextView&&((android.widget.TextView)view).getText().toString().startsWith(text))return true;if(view instanceof android.view.ViewGroup){android.view.ViewGroup group=(android.view.ViewGroup)view;for(int i=0;i<group.getChildCount();i++)if(textPrefix(group.getChildAt(i),text))return true;}return false;}
+    static void waitPanel(String prefix)throws Exception{FeatureRuntimeTest.await("Panel did not focus: "+prefix,()->FeatureRuntimeTest.value(()->{for(android.view.View root:android.view.inspector.WindowInspector.getGlobalWindowViews())if(root.hasWindowFocus()&&textPrefix(root,prefix))return true;return false;}),5000);}
+    void settings()throws Exception{onView(withId(R.id.more)).perform(click());onView(withText("Settings")).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());waitPanel("Track normalization");}
+    void settingsAction(String title){onView(withText(org.hamcrest.Matchers.startsWith(title+"\n"))).inRoot(FeatureRuntimeTest.focusedDialog()).perform(scrollTo());android.os.SystemClock.sleep(android.view.ViewConfiguration.getDoubleTapTimeout()+20);onView(withText(org.hamcrest.Matchers.startsWith(title+"\n"))).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());}
     @Test public void c_equalizerPresetsResetAndPersistenceActuallyWork()throws Exception{
         SharedPreferences prefs=context.getSharedPreferences("settings",Context.MODE_PRIVATE);
         boolean previous=prefs.getBoolean("eq_enabled",false);int[] bands=PlaybackEqualizer.levels(prefs);
@@ -121,6 +123,7 @@ public class AudioExperienceTest {
     }
     static void touch(android.view.View view,int action,float x,float y){long now=android.os.SystemClock.uptimeMillis();android.view.MotionEvent event=android.view.MotionEvent.obtain(now,now,action,x,y,0);view.dispatchTouchEvent(event);event.recycle();}
     static void invoke(MainActivity activity,String method){try{java.lang.reflect.Method call=MainActivity.class.getDeclaredMethod(method);call.setAccessible(true);call.invoke(activity);}catch(Exception failure){throw new AssertionError(failure);}}
+    static androidx.test.espresso.ViewAction twoTaps(){return new androidx.test.espresso.ViewAction(){public org.hamcrest.Matcher<android.view.View> getConstraints(){return isDisplayed();}public String getDescription(){return "two physical taps without retrying when windows change";}public void perform(androidx.test.espresso.UiController ui,android.view.View view){int[] at=new int[2];view.getLocationOnScreen(at);float x=at[0]+view.getWidth()/2f,y=at[1]+view.getHeight()/2f;long sequence=android.os.SystemClock.uptimeMillis();for(int i=0;i<2;i++){long down=sequence+i*100;for(int action:new int[]{android.view.MotionEvent.ACTION_DOWN,android.view.MotionEvent.ACTION_UP}){android.view.MotionEvent event=android.view.MotionEvent.obtain(down,down+(action==android.view.MotionEvent.ACTION_DOWN?0:24),action,x,y,0);event.setSource(android.view.InputDevice.SOURCE_TOUCHSCREEN);try{ui.injectMotionEvent(event);}catch(androidx.test.espresso.InjectEventSecurityException failure){throw new AssertionError(failure);}finally{event.recycle();}ui.loopMainThreadForAtLeast(action==android.view.MotionEvent.ACTION_DOWN?24:60);}}}};}
     @Test public void h_repeatedConnectionsAndBackgroundReturnKeepControlsWorking()throws Exception{
         FeatureRuntimeTest helper=new FeatureRuntimeTest();
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
@@ -145,7 +148,7 @@ public class AudioExperienceTest {
             try{
                 FeatureRuntimeTest.main(()->{controller.setMediaItems(Arrays.asList(one.toMediaItem(),two.toMediaItem(),three.toMediaItem()));controller.prepare();controller.play();});
                 FeatureRuntimeTest.await("Audio did not start",()->FeatureRuntimeTest.value(controller::isPlaying),15000);FeatureRuntimeTest.waitForPlayerTitle(one.title);
-                onView(withId(R.id.miniPlayer)).perform(doubleClick());onView(withId(R.id.fullQueue)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(doubleClick());
+                onView(withId(R.id.miniPlayer)).perform(twoTaps());onView(withId(R.id.fullQueue)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(twoTaps());
                 onView(withContentDescription("Close queue")).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());
                 assertEquals(0,(int)FeatureRuntimeTest.value(controller::getCurrentMediaItemIndex));assertEquals(3,(int)FeatureRuntimeTest.value(controller::getMediaItemCount));
                 onView(withId(R.id.fullNext)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());FeatureRuntimeTest.await("Next did not advance",()->FeatureRuntimeTest.value(()->controller.getCurrentMediaItemIndex()==1),5000);
@@ -164,8 +167,8 @@ public class AudioExperienceTest {
                 activity.onActivity(a->{invoke(a,"showNowPlaying");invoke(a,"showNowPlaying");invoke(a,"showQueue");invoke(a,"showQueue");});
                 onView(withContentDescription("Close queue")).inRoot(FeatureRuntimeTest.focusedDialog()).check(matches(isDisplayed()));onView(withContentDescription("Close queue")).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());
                 onView(withId(R.id.closeNowPlaying)).inRoot(FeatureRuntimeTest.focusedDialog()).check(matches(isDisplayed()));onView(withId(R.id.closeNowPlaying)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());onView(withId(R.id.closeNowPlaying)).check(doesNotExist());
-                activity.onActivity(a->{invoke(a,"showSettings");invoke(a,"showSettings");});onView(withText("Done")).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());onView(withText("Settings")).check(doesNotExist());
-                activity.onActivity(a->{invoke(a,"openEqualizer");invoke(a,"openEqualizer");});onView(withText("Done")).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());onView(withText("Presets")).check(doesNotExist());
+                activity.onActivity(a->{invoke(a,"showSettings");invoke(a,"showSettings");});waitPanel("Track normalization");onView(withText("Done")).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());onView(withText("Settings")).check(doesNotExist());
+                activity.onActivity(a->{invoke(a,"openEqualizer");invoke(a,"openEqualizer");});waitPanel("Presets");onView(withText("Done")).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());onView(withText("Presets")).check(doesNotExist());
                 onView(withId(R.id.playPause)).perform(click());FeatureRuntimeTest.await("Pause button stopped responding",()->!FeatureRuntimeTest.value(controller::isPlaying),5000);onView(withId(R.id.playPause)).perform(click());FeatureRuntimeTest.await("Play button stopped responding",()->FeatureRuntimeTest.value(controller::isPlaying),5000);
                 assertEquals(1,(int)FeatureRuntimeTest.value(controller::getMediaItemCount));assertNull(FeatureRuntimeTest.value(controller::getPlayerError));
             }finally{FeatureRuntimeTest.main(()->{controller.pause();controller.release();});}

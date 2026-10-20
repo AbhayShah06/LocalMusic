@@ -34,6 +34,8 @@ import java.util.concurrent.Executors;
 
 @androidx.media3.common.util.UnstableApi
 public final class MainActivity extends Activity {
+    private boolean ignoreWindowTap;
+    @Override public boolean dispatchTouchEvent(android.view.MotionEvent event){if(event.getActionMasked()==android.view.MotionEvent.ACTION_DOWN)ignoreWindowTap=WindowTapGuard.ignoreDown(this,getWindow().getDecorView(),event);WindowTapGuard.recordUp(this,getWindow().getDecorView(),event);if(ignoreWindowTap){if(event.getActionMasked()==android.view.MotionEvent.ACTION_UP||event.getActionMasked()==android.view.MotionEvent.ACTION_CANCEL)ignoreWindowTap=false;return true;}return super.dispatchTouchEvent(event);}
     private static final int PAGE_SIZE = 100;
     private final java.util.Map<String,android.app.Dialog> panels=new java.util.HashMap<>();
     private boolean panelShowing(String key){android.app.Dialog panel=panels.get(key);return panel!=null&&panel.isShowing();}
@@ -437,7 +439,7 @@ public final class MainActivity extends Activity {
 
     private void showFeedback() {
         final String email = FeedbackDraft.EMAIL;
-        new AlertDialog.Builder(this).setTitle("Feedback").setItems(new String[]{"Email Abhay", "Copy email address"}, (dialog, which) -> {
+        new AppDialogBuilder(this).setTitle("Feedback").setItems(new String[]{"Email Abhay", "Copy email address"}, (dialog, which) -> {
             if (which == 1) { copySupportEmail(email); return; }
             String body = FeedbackDraft.body(BuildConfig.VERSION_NAME, java.time.Instant.now(), java.time.ZoneId.systemDefault());
             Intent draft = new Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:" + email + "?subject=" + Uri.encode(FeedbackDraft.subject(BuildConfig.VERSION_NAME)) + "&body=" + Uri.encode(body)));
@@ -453,7 +455,7 @@ public final class MainActivity extends Activity {
 
     private void showMoreMenu() {
         String[] actions = {"Your mix", "Recently played", "Downloads", "Start a Jam", "Favorites", "Playlists", "Sleep timer", "Settings"};
-        new AlertDialog.Builder(this).setTitle("Local Music").setItems(actions, (d, which) -> {
+        new AppDialogBuilder(this).setTitle("Local Music").setItems(actions, (d, which) -> {
             if (which == 0) loadListeningList(true);
             else if (which == 1) loadListeningList(false);
             else if (which == 2) loadDownloads();
@@ -492,6 +494,7 @@ public final class MainActivity extends Activity {
         content.addView(settingsAction("Music source", "Choose online streaming, phone files, Backblaze, or Navidrome", this::chooseSource));
         content.addView(settingsAction("Import playlists", "Paste YouTube links, Spotify / Apple Music exports, or a song list", this::showImportOptions));
         content.addView(settingsAction("Equalizer", "Presets and five-band controls", this::openEqualizer));
+        content.addView(settingsAction("Listening stats", "Top songs, artists and genres for any date range", ()->{if(!panelShowing("stats"))rememberPanel("stats",StatsPanel.show(this,io,main));}));
         content.addView(settingsAction("Music permission", hasAudioPermission() ? "Allowed for on-device songs" : "Tap to allow on-device songs", () -> { if (hasAudioPermission()) openAppSettings(); else requestAudioPermission(); }));
 
         long downloads = DownloadStore.bytes(this), streams = PlaybackCache.bytes(), artwork = ArtworkLoader.bytes(this);
@@ -507,7 +510,7 @@ public final class MainActivity extends Activity {
         }));
 
         android.widget.ScrollView scroll = new android.widget.ScrollView(this); scroll.addView(content);
-        AlertDialog settingsDialog=new AlertDialog.Builder(this).setTitle("Settings").setView(scroll).setPositiveButton("Done", null).show();
+        AlertDialog settingsDialog=new AppDialogBuilder(this).setTitle("Settings").setView(scroll).setPositiveButton("Done", null).show();
         rememberPanel("settings",settingsDialog);
         // Navigation actions must reveal their destination instead of changing a hidden screen.
         for(int i=0;i<content.getChildCount();i++){
@@ -576,7 +579,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showCollectionTrackActions(Track track) {
-        new AlertDialog.Builder(this).setTitle(track.title).setItems(new String[]{"Play next","Download","Add to playlist"},(dialog,index)->{
+        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{"Play next","Download","Add to playlist"},(dialog,index)->{
             if(index==0){if(track.stableId.startsWith("online:"))enqueueOnline(track,true);else if(controller!=null)controller.addMediaItem(Math.min(controller.getCurrentMediaItemIndex()+1,controller.getMediaItemCount()),track.toMediaItem());}
             else if(index==1)requestDownload(track);else addTracksToPlaylist(java.util.Collections.singletonList(track));
         }).show();
@@ -587,8 +590,8 @@ public final class MainActivity extends Activity {
 
     private void addTracksToPlaylist(List<Track> selected) {
         android.content.SharedPreferences prefs=getSharedPreferences("library",MODE_PRIVATE);List<String> names=playlistNames(prefs);names.add("+ New playlist");
-        new AlertDialog.Builder(this).setTitle("Add to playlist").setItems(names.toArray(new String[0]),(dialog,index)->{
-            if(index==names.size()-1){EditText input=new EditText(this);input.setHint("Playlist name");new AlertDialog.Builder(this).setTitle("New playlist").setView(input).setPositiveButton("Add",(d,w)->{String name=input.getText().toString().trim();if(!name.isEmpty())saveTracksToPlaylist(name,selected);}).setNegativeButton("Cancel",null).show();}
+        new AppDialogBuilder(this).setTitle("Add to playlist").setItems(names.toArray(new String[0]),(dialog,index)->{
+            if(index==names.size()-1){EditText input=new EditText(this);input.setHint("Playlist name");new AppDialogBuilder(this).setTitle("New playlist").setView(input).setPositiveButton("Add",(d,w)->{String name=input.getText().toString().trim();if(!name.isEmpty())saveTracksToPlaylist(name,selected);}).setNegativeButton("Cancel",null).show();}
             else saveTracksToPlaylist(names.get(index),selected);
         }).show();
     }
@@ -646,7 +649,7 @@ public final class MainActivity extends Activity {
         content.addView(qr, new android.widget.LinearLayout.LayoutParams(-1, size));
         TextView code = new TextView(this); code.setText(room.code); code.setGravity(android.view.Gravity.CENTER); code.setTextSize(26); code.setTextColor(android.graphics.Color.WHITE); code.setLetterSpacing(.18f); code.setPadding(0, (int)(14*density), 0, (int)(8*density)); content.addView(code);
         TextView help = new TextView(this); help.setText("Friends scan this code, enter a name, search your library, and add songs. You can leave this window open or close it while the Jam keeps running."); help.setTextColor(android.graphics.Color.LTGRAY); help.setGravity(android.view.Gravity.CENTER); content.addView(help);
-        new AlertDialog.Builder(this).setTitle("Jam is live").setView(content).setNeutralButton("Share link", (d, w) -> {
+        new AppDialogBuilder(this).setTitle("Jam is live").setView(content).setNeutralButton("Share link", (d, w) -> {
             Intent share = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, room.joinUrl()); startActivity(Intent.createChooser(share, "Share Jam"));
         }).setNegativeButton("End Jam", (d, w) -> endJam()).setPositiveButton("Done", null).show();
     }
@@ -668,14 +671,14 @@ public final class MainActivity extends Activity {
     private boolean importingPlaylist;
 
     private void showImportOptions() {
-        new AlertDialog.Builder(this).setTitle("Import a playlist").setItems(new String[]{"Paste YouTube / SoundCloud playlist link", "Choose Spotify / Apple Music CSV or M3U", "Paste song names"}, (dialog, which) -> {
+        new AppDialogBuilder(this).setTitle("Import a playlist").setItems(new String[]{"Paste YouTube / SoundCloud playlist link", "Choose Spotify / Apple Music CSV or M3U", "Paste song names"}, (dialog, which) -> {
             if (which == 1) choosePlaylistFile(); else showPlaylistPaste("");
         }).setNegativeButton("Cancel", null).show();
     }
 
     private void showPlaylistPaste(String initial) {
         EditText input = new EditText(this); input.setHint("Public playlist link, or one Artist - Song per line"); input.setMinLines(4); input.setText(initial);
-        new AlertDialog.Builder(this).setTitle("Import playlist").setMessage("YouTube / SoundCloud link, or Spotify / Apple Music track list.").setView(input)
+        new AppDialogBuilder(this).setTitle("Import playlist").setMessage("YouTube / SoundCloud link, or Spotify / Apple Music track list.").setView(input)
             .setPositiveButton("Import", (dialog, which) -> {
                 String text = input.getText().toString().trim();
                 if (text.isEmpty()) return;
@@ -691,7 +694,7 @@ public final class MainActivity extends Activity {
         if (importingPlaylist) { Toast.makeText(this, "An import is already running", Toast.LENGTH_SHORT).show(); return; }
         importingPlaylist = true; importCancelled.set(false);
         TextView progressLabel = new TextView(this); progressLabel.setPadding(40, 30, 40, 30); progressLabel.setText("Reading playlist…");
-        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Importing playlist").setView(progressLabel).setCancelable(false).setNegativeButton("Cancel", (d, w) -> importCancelled.set(true)).show();
+        AlertDialog dialog = new AppDialogBuilder(this).setTitle("Importing playlist").setView(progressLabel).setCancelable(false).setNegativeButton("Cancel", (d, w) -> importCancelled.set(true)).show();
         importIo.execute(() -> {
             try {
                 PlaylistImporter.Result result = work.run((done, total) -> {
@@ -701,13 +704,13 @@ public final class MainActivity extends Activity {
                 main.post(() -> {
                     importingPlaylist = false; dialog.dismiss();
                     if (importCancelled.get() || isDestroyed()) return;
-                    if (result.tracks.isEmpty()) { new AlertDialog.Builder(this).setTitle("No matching tracks").setMessage("No songs could be matched. Check the artist/title columns or try a public playlist link.").setPositiveButton("OK", null).show(); return; }
+                    if (result.tracks.isEmpty()) { new AppDialogBuilder(this).setTitle("No matching tracks").setMessage("No songs could be matched. Check the artist/title columns or try a public playlist link.").setPositiveButton("OK", null).show(); return; }
                     EditText name = new EditText(this); name.setText(result.name);
-                    new AlertDialog.Builder(this).setTitle("Save imported playlist").setMessage(result.tracks.size() + " songs ready" + (result.missed > 0 ? " · " + result.missed + " could not be matched" : "") + ". Order is preserved; existing playlists will not be replaced.").setView(name)
+                    new AppDialogBuilder(this).setTitle("Save imported playlist").setMessage(result.tracks.size() + " songs ready" + (result.missed > 0 ? " · " + result.missed + " could not be matched" : "") + ". Order is preserved; existing playlists will not be replaced.").setView(name)
                         .setPositiveButton("Save", (d, w) -> saveImportedPlaylist(name.getText().toString(), result.tracks)).setNegativeButton("Cancel", null).show();
                 });
             } catch (Exception error) {
-                main.post(() -> { importingPlaylist = false; dialog.dismiss(); if (!importCancelled.get() && !isDestroyed()) new AlertDialog.Builder(this).setTitle("Could not import playlist").setMessage(error.getMessage() == null ? "Try a public playlist link, a CSV/M3U export, or pasted Artist - Song lines." : error.getMessage()).setPositiveButton("OK", null).show(); });
+                main.post(() -> { importingPlaylist = false; dialog.dismiss(); if (!importCancelled.get() && !isDestroyed()) new AppDialogBuilder(this).setTitle("Could not import playlist").setMessage(error.getMessage() == null ? "Try a public playlist link, a CSV/M3U export, or pasted Artist - Song lines." : error.getMessage()).setPositiveButton("OK", null).show(); });
             }
         });
     }
@@ -764,7 +767,7 @@ public final class MainActivity extends Activity {
         Track track = tracks.get(position);
         boolean online = track.stableId.startsWith("online:");
         String[] actions = online ? new String[]{"Play now", "Play next", "Add to queue", DownloadStore.contains(this, track.stableId) ? "Remove download" : "Download", "Add to playlist", "Open artist", FavoriteStore.contains(this,track) ? "Remove favorite" : "Add to favorites", "Start song mix"} : new String[]{"Play now", "Play next", "Add to queue", FavoriteStore.contains(this,track) ? "Remove favorite" : "Add to favorites", "Add to playlist", "Start song mix"};
-        new AlertDialog.Builder(this).setTitle(track.title).setItems(actions, (d, which) -> {
+        new AppDialogBuilder(this).setTitle(track.title).setItems(actions, (d, which) -> {
             if (controller == null) return;
             String action = actions[which];
             if (action.equals("Play now")) playFrom(position);
@@ -776,7 +779,7 @@ public final class MainActivity extends Activity {
                 else controller.addMediaItem(item);
                 Toast.makeText(this, action.equals("Play next") ? "Queued next" : "Added to queue", Toast.LENGTH_SHORT).show();
             } else if (action.equals("Download")) { requestDownload(track); }
-            else if (action.equals("Remove download")) new AlertDialog.Builder(this).setTitle("Remove download?").setMessage(track.title + " will remain available to stream.").setNegativeButton("Cancel", null).setPositiveButton("Remove", (dialog, button) -> { DownloadStore.remove(this, track.stableId); Toast.makeText(this, "Download removed", Toast.LENGTH_SHORT).show(); }).show();
+            else if (action.equals("Remove download")) new AppDialogBuilder(this).setTitle("Remove download?").setMessage(track.title + " will remain available to stream.").setNegativeButton("Cancel", null).setPositiveButton("Remove", (dialog, button) -> { DownloadStore.remove(this, track.stableId); Toast.makeText(this, "Download removed", Toast.LENGTH_SHORT).show(); }).show();
             else if (action.equals("Add to playlist")) addTrackToPlaylist(track);
             else if (action.equals("Open artist")) showArtistPage(track.artist);
             else if (action.equals("Add to favorites") || action.equals("Remove favorite")) toggleTrackFavorite(track);
@@ -860,7 +863,7 @@ public final class MainActivity extends Activity {
     private void showQueueActions(androidx.media3.common.MediaItem item,int hint) {
         Track track=queueTrack(item);
         String download=DownloadStore.contains(this,track.stableId)?"Remove download":DownloadTasks.active(this,track.stableId)?"Download activity":"Download";
-        new AlertDialog.Builder(this).setTitle(track.title).setItems(new String[]{"Play", "Play next", download, "Add to playlist", "Artist", "Remove from queue"},(d,which)->{
+        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{"Play", "Play next", download, "Add to playlist", "Artist", "Remove from queue"},(d,which)->{
             int at=queueIndex(item,hint);
             if(which==0&&at>=0){controller.seekTo(at,0);controller.play();}
             else if(which==1&&at>=0){int next=Math.min(controller.getCurrentMediaItemIndex()+1,controller.getMediaItemCount()-1);controller.moveMediaItem(at,next);}
@@ -918,7 +921,7 @@ public final class MainActivity extends Activity {
 
     private void saveQueueAsPlaylist(android.app.Dialog queueDialog) {
         EditText input = new EditText(this); input.setHint("Playlist name");
-        new AlertDialog.Builder(this).setTitle("Save queue as playlist").setView(input).setPositiveButton("Save", (dialog, which) -> {
+        new AppDialogBuilder(this).setTitle("Save queue as playlist").setView(input).setPositiveButton("Save", (dialog, which) -> {
             String name = input.getText().toString().trim(); if (name.isEmpty() || controller == null) return;
             org.json.JSONArray order = new org.json.JSONArray(); java.util.Set<String> entries = new java.util.LinkedHashSet<>();
             for (int i = 0; i < controller.getMediaItemCount(); i++) { String value = savedMediaItem(controller.getMediaItemAt(i)); if (!value.isEmpty() && entries.add(value)) order.put(value); }
@@ -1026,7 +1029,7 @@ public final class MainActivity extends Activity {
     private void addTrackToPlaylist(Track track) {
         android.content.SharedPreferences prefs = getSharedPreferences("library", MODE_PRIVATE);
         List<String> names = playlistNames(prefs); names.add("+ New playlist");
-        new AlertDialog.Builder(this).setTitle("Add to playlist").setItems(names.toArray(new String[0]), (dialog, which) -> {
+        new AppDialogBuilder(this).setTitle("Add to playlist").setItems(names.toArray(new String[0]), (dialog, which) -> {
             String selected = names.get(which); if (selected.startsWith("+")) promptForPlaylist(track); else saveTrackToPlaylist(selected, track);
         }).show();
     }
@@ -1038,7 +1041,7 @@ public final class MainActivity extends Activity {
 
     private void promptForPlaylist(Track track) {
         EditText input = new EditText(this); input.setHint("Playlist name");
-        new AlertDialog.Builder(this).setTitle("New playlist").setView(input).setPositiveButton("Create and add", (dialog, which) -> {
+        new AppDialogBuilder(this).setTitle("New playlist").setView(input).setPositiveButton("Create and add", (dialog, which) -> {
             String name = input.getText().toString().trim(); if (!name.isEmpty()) saveTrackToPlaylist(name, track);
         }).setNegativeButton("Cancel", null).show();
     }
@@ -1061,7 +1064,7 @@ public final class MainActivity extends Activity {
         List<String> names = playlistNames(prefs);
         names.add("+ Import playlist");
         names.add("+ Create playlist");
-        new AlertDialog.Builder(this).setTitle("Playlists").setItems(names.toArray(new String[0]), (d, which) -> {
+        new AppDialogBuilder(this).setTitle("Playlists").setItems(names.toArray(new String[0]), (d, which) -> {
             String name = names.get(which);
             if (name.equals("+ Import playlist")) showImportOptions(); else if (name.equals("+ Create playlist")) createPlaylist(); else loadPlaylist(name);
         }).show();
@@ -1069,7 +1072,7 @@ public final class MainActivity extends Activity {
 
     private void createPlaylist() {
         EditText input = new EditText(this); input.setHint("Playlist name");
-        new AlertDialog.Builder(this).setTitle("New playlist").setView(input).setPositiveButton("Create", (d, w) -> {
+        new AppDialogBuilder(this).setTitle("New playlist").setView(input).setPositiveButton("Create", (d, w) -> {
             String name = input.getText().toString().trim();
             if (!name.isEmpty()) getSharedPreferences("library", MODE_PRIVATE).edit().putStringSet("playlist:" + name, new java.util.HashSet<>()).putString("last_playlist", name).apply();
         }).setNegativeButton("Cancel", null).show();
@@ -1082,7 +1085,7 @@ public final class MainActivity extends Activity {
     private void chooseSleepTimer() {
         String[] choices = {"Off", "15 minutes", "30 minutes", "45 minutes", "60 minutes"};
         long[] minutes = {0, 15, 30, 45, 60};
-        new AlertDialog.Builder(this).setTitle("Sleep timer").setItems(choices, (d, which) -> {
+        new AppDialogBuilder(this).setTitle("Sleep timer").setItems(choices, (d, which) -> {
             Intent timer = new Intent(this, PlaybackService.class).setAction(PlaybackService.ACTION_SET_SLEEP_TIMER)
                     .putExtra(PlaybackService.EXTRA_SLEEP_MINUTES, minutes[which]);
             startService(timer);
@@ -1093,7 +1096,7 @@ public final class MainActivity extends Activity {
     private void chooseSource() {
         if (BuildConfig.IS_PERSONAL && b2Settings.bundled()) {
             String[] options = new String[]{"Stream online", "Backblaze library", "This phone"};
-            new AlertDialog.Builder(this).setTitle("Music source").setItems(options, (dialog, which) -> {
+            new AppDialogBuilder(this).setTitle("Music source").setItems(options, (dialog, which) -> {
                 if (which == 0) {
                     onlineMode = true; remoteMode = true; b2Mode = false; permissionPanel.setVisibility(View.GONE);
                     findViewById(R.id.tracks).setVisibility(View.VISIBLE);
@@ -1110,7 +1113,7 @@ public final class MainActivity extends Activity {
             return;
         }
         String[] options = new String[]{"Stream online", "This phone", b2Settings.configured() ? "Backblaze library" : "Set up Backblaze", serverSettings.configured() ? "Navidrome" : "Set up Navidrome", "Backblaze settings", "Navidrome settings"};
-        new AlertDialog.Builder(this).setTitle("Music library").setItems(options, (dialog, which) -> {
+        new AppDialogBuilder(this).setTitle("Music library").setItems(options, (dialog, which) -> {
             if (which == 0) { onlineMode = true; remoteMode = true; b2Mode = false; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Stream  ▾"); setGroup(""); }
             else if (which == 1) { onlineMode = false; remoteMode = false; b2Mode = false; ((TextView)findViewById(R.id.source)).setText("This phone  ▾"); refreshPermissionState(); setGroup(""); }
             else if (which == 2 && b2Settings.configured()) { onlineMode = false; remoteMode = true; b2Mode = true; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Backblaze  ▾"); setGroup(""); }
@@ -1127,7 +1130,7 @@ public final class MainActivity extends Activity {
         EditText keyId = new EditText(this); keyId.setHint("Application key ID"); keyId.setSingleLine(); keyId.setText(b2Settings.keyId()); form.addView(keyId);
         EditText applicationKey = new EditText(this); applicationKey.setHint("Application key"); applicationKey.setSingleLine(); applicationKey.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD); form.addView(applicationKey);
         EditText bucket = new EditText(this); bucket.setHint("Bucket name"); bucket.setSingleLine(); bucket.setText(b2Settings.bucket()); form.addView(bucket);
-        new AlertDialog.Builder(this).setTitle("Backblaze music").setMessage("Use a read-only key restricted to this bucket. Credentials are encrypted on this phone and never included in the APK.").setView(form).setNegativeButton("Cancel", null).setPositiveButton("Connect", (d, w) -> {
+        new AppDialogBuilder(this).setTitle("Backblaze music").setMessage("Use a read-only key restricted to this bucket. Credentials are encrypted on this phone and never included in the APK.").setView(form).setNegativeButton("Cancel", null).setPositiveButton("Connect", (d, w) -> {
             String id = keyId.getText().toString().trim(), secret = applicationKey.getText().toString().trim(), bucketName = bucket.getText().toString().trim();
             if (id.isEmpty() || secret.isEmpty() || bucketName.isEmpty()) { Toast.makeText(this, "Enter the key ID, application key, and bucket name.", Toast.LENGTH_LONG).show(); return; }
             b2Settings.save(id, secret, bucketName); status.setText("Connecting to Backblaze…"); io.execute(() -> { boolean ok = new B2CatalogClient(b2Settings).ping(); main.post(() -> { if (ok) { reconnectPlaybackService(); onlineMode = false; remoteMode = true; b2Mode = true; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Backblaze  ▾"); setGroup(""); } else status.setText("Backblaze connection failed. Check the bucket-restricted key and bucket name."); }); });
@@ -1140,7 +1143,7 @@ public final class MainActivity extends Activity {
         EditText url = new EditText(this); url.setHint("HTTPS server URL"); url.setSingleLine(); url.setText(serverSettings.url()); form.addView(url);
         EditText username = new EditText(this); username.setHint("Username"); username.setSingleLine(); username.setText(serverSettings.username()); form.addView(username);
         EditText password = new EditText(this); password.setHint("Password"); password.setSingleLine(); password.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD); form.addView(password);
-        new AlertDialog.Builder(this).setTitle("Navidrome / OpenSubsonic").setView(form).setNegativeButton("Cancel", null).setPositiveButton("Connect", (dialog, which) -> {
+        new AppDialogBuilder(this).setTitle("Navidrome / OpenSubsonic").setView(form).setNegativeButton("Cancel", null).setPositiveButton("Connect", (dialog, which) -> {
             String address = url.getText().toString().trim(); String user = username.getText().toString().trim(); String pass = password.getText().toString();
             if (!address.startsWith("https://") || user.isEmpty() || pass.isEmpty()) { Toast.makeText(this, "Use an HTTPS address and enter your username and password.", Toast.LENGTH_LONG).show(); return; }
             serverSettings.save(address, user, pass); status.setText("Connecting to Navidrome…");
@@ -1167,9 +1170,9 @@ public final class MainActivity extends Activity {
         Runnable refresh=()->{enabled.setChecked(prefs.getBoolean("eq_enabled",false));state.setText(prefs.getString("eq_status","Start a song to use the equalizer."));int[] levels=PlaybackEqualizer.levels(prefs);for(int i=0;i<5;i++){sliders[i].setProgress(levels[i]+6);int hz=EqualizerCurve.FREQUENCIES[i];labels[i].setText((hz<1000?hz+" Hz":String.format(java.util.Locale.ROOT,"%.1f kHz",hz/1000f))+"  "+(levels[i]>0?"+":"")+levels[i]+" dB");}};
         enabled.setOnCheckedChangeListener((button,checked)->{if(checked!=prefs.getBoolean("eq_enabled",false))prefs.edit().putBoolean("eq_enabled",checked).apply();});
         android.widget.Button presets=new android.widget.Button(this);presets.setText("Presets");content.addView(presets);
-        presets.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("EQ presets").setItems(new String[]{"Flat","Bass","Vocal","Treble"},(dialog,which)->{int[][] curves={{0,0,0,0,0},{4,2,0,-1,-1},{-2,-1,2,3,0},{-1,-1,0,2,4}};android.content.SharedPreferences.Editor edit=prefs.edit();for(int i=0;i<5;i++)edit.putInt("eq_band_"+i,curves[which][i]);edit.apply();refresh.run();}).show());
+        presets.setOnClickListener(v->new AppDialogBuilder(this).setTitle("EQ presets").setItems(new String[]{"Flat","Bass","Vocal","Treble"},(dialog,which)->{int[][] curves={{0,0,0,0,0},{4,2,0,-1,-1},{-2,-1,2,3,0},{-1,-1,0,2,4}};android.content.SharedPreferences.Editor edit=prefs.edit();for(int i=0;i<5;i++)edit.putInt("eq_band_"+i,curves[which][i]);edit.apply();refresh.run();}).show());
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.addView(content);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Equalizer").setView(scroll).setPositiveButton("Done",null).setNeutralButton("Reset",null).create();
+        AlertDialog dialog=new AppDialogBuilder(this).setTitle("Equalizer").setView(scroll).setPositiveButton("Done",null).setNeutralButton("Reset",null).create();
         android.content.SharedPreferences.OnSharedPreferenceChangeListener listener=(preferences,key)->refresh.run();prefs.registerOnSharedPreferenceChangeListener(listener);dialog.setOnDismissListener(d->prefs.unregisterOnSharedPreferenceChangeListener(listener));
         rememberPanel("equalizer",dialog);dialog.show();dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{android.content.SharedPreferences.Editor edit=prefs.edit().putBoolean("eq_enabled",false);for(int i=0;i<5;i++)edit.putInt("eq_band_"+i,0);edit.apply();refresh.run();});refresh.run();installSwipeBack(dialog.findViewById(android.R.id.content),dialog::dismiss);
     }

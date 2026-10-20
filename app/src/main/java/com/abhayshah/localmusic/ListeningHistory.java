@@ -15,6 +15,7 @@ final class ListeningHistory {
 
     static synchronized void record(Context context, MediaItem item) {
         if (item == null || item.mediaId == null || item.mediaId.isEmpty()) return;
+        ListeningStats.record(context,item);
         try {
             JSONArray old = new JSONArray(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "[]"));
             int plays = 1; JSONArray next = new JSONArray();
