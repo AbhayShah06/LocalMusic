@@ -121,6 +121,40 @@ public class AudioExperienceTest {
     }
     static void touch(android.view.View view,int action,float x,float y){long now=android.os.SystemClock.uptimeMillis();android.view.MotionEvent event=android.view.MotionEvent.obtain(now,now,action,x,y,0);view.dispatchTouchEvent(event);event.recycle();}
     static void invoke(MainActivity activity,String method){try{java.lang.reflect.Method call=MainActivity.class.getDeclaredMethod(method);call.setAccessible(true);call.invoke(activity);}catch(Exception failure){throw new AssertionError(failure);}}
+    @Test public void h_repeatedConnectionsAndBackgroundReturnKeepControlsWorking()throws Exception{
+        FeatureRuntimeTest helper=new FeatureRuntimeTest();
+        try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
+            androidx.media3.session.MediaController controller=helper.connect();Track audio=helper.fixture("resume-controls");
+            try{
+                FeatureRuntimeTest.main(()->{controller.setMediaItem(audio.toMediaItem());controller.prepare();controller.play();});
+                FeatureRuntimeTest.await("Audio did not start",()->FeatureRuntimeTest.value(controller::isPlaying),15000);
+                for(int i=0;i<3;i++){
+                    activity.onActivity(a->{invoke(a,"connect");invoke(a,"connect");});
+                    activity.moveToState(androidx.lifecycle.Lifecycle.State.CREATED);activity.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED);
+                }
+                FeatureRuntimeTest.await("Screen did not reconnect",()->{java.util.concurrent.atomic.AtomicBoolean ready=new java.util.concurrent.atomic.AtomicBoolean();activity.onActivity(a->{try{java.lang.reflect.Field field=MainActivity.class.getDeclaredField("controller");field.setAccessible(true);ready.set(field.get(a)!=null);}catch(Exception failure){throw new AssertionError(failure);}});return ready.get();},10000);
+                FeatureRuntimeTest.waitForText(audio.title);onView(withId(R.id.playPause)).perform(click());FeatureRuntimeTest.await("Pause failed after background return",()->!FeatureRuntimeTest.value(controller::isPlaying),5000);
+                onView(withId(R.id.playPause)).perform(click());FeatureRuntimeTest.await("Play failed after background return",()->FeatureRuntimeTest.value(controller::isPlaying),5000);assertNull(FeatureRuntimeTest.value(controller::getPlayerError));
+            }finally{FeatureRuntimeTest.main(()->{controller.pause();controller.release();});}
+        }
+    }
+    @Test public void i_doubleTapsAndAlternatingPlayerQueueButtonsKeepState()throws Exception{
+        FeatureRuntimeTest helper=new FeatureRuntimeTest();
+        try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
+            androidx.media3.session.MediaController controller=helper.connect();Track one=helper.fixture("double-one"),two=helper.fixture("double-two"),three=helper.fixture("double-three");
+            try{
+                FeatureRuntimeTest.main(()->{controller.setMediaItems(Arrays.asList(one.toMediaItem(),two.toMediaItem(),three.toMediaItem()));controller.prepare();controller.play();});
+                FeatureRuntimeTest.await("Audio did not start",()->FeatureRuntimeTest.value(controller::isPlaying),15000);FeatureRuntimeTest.waitForPlayerTitle(one.title);
+                onView(withId(R.id.miniPlayer)).perform(doubleClick());onView(withId(R.id.fullQueue)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(doubleClick());
+                onView(withContentDescription("Close queue")).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());
+                assertEquals(0,(int)FeatureRuntimeTest.value(controller::getCurrentMediaItemIndex));assertEquals(3,(int)FeatureRuntimeTest.value(controller::getMediaItemCount));
+                onView(withId(R.id.fullNext)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());FeatureRuntimeTest.await("Next did not advance",()->FeatureRuntimeTest.value(()->controller.getCurrentMediaItemIndex()==1),5000);
+                onView(withId(R.id.fullQueue)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());onView(withContentDescription("Close queue")).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());
+                onView(withId(R.id.fullTitle)).inRoot(FeatureRuntimeTest.focusedDialog()).check(matches(withText(two.title)));onView(withId(R.id.closeNowPlaying)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());
+                assertEquals(3,(int)FeatureRuntimeTest.value(controller::getMediaItemCount));assertNull(FeatureRuntimeTest.value(controller::getPlayerError));
+            }finally{FeatureRuntimeTest.main(()->{controller.pause();controller.release();});}
+        }
+    }
     @Test public void g_rapidNavigationDoesNotStackDuplicatePanels()throws Exception{
         FeatureRuntimeTest helper=new FeatureRuntimeTest();
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){

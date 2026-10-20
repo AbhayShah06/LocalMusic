@@ -147,11 +147,13 @@ public final class MainActivity extends Activity {
     }
 
     private void connect() {
+        if(controller!=null||controllerFuture!=null||isFinishing()||isDestroyed())return;
         SessionToken token = new SessionToken(this, new ComponentName(this, PlaybackService.class));
-        controllerFuture = new MediaController.Builder(this, token).buildAsync();
-        controllerFuture.addListener(() -> {
-            try { controller = controllerFuture.get(); controller.addListener(uiPlayerListener); updateNowPlaying(); refreshLivePlayerViews(); }
-            catch (Exception e) { status.setText("Playback service could not be connected."); }
+        ListenableFuture<MediaController> pending=new MediaController.Builder(this, token).buildAsync();controllerFuture=pending;
+        pending.addListener(() -> {
+            if(controllerFuture!=pending||isFinishing()||isDestroyed())return;
+            try { controller = pending.get(); controller.addListener(uiPlayerListener); updateNowPlaying(); refreshLivePlayerViews(); }
+            catch (Exception e) { controllerFuture=null;status.setText("Playback service could not be connected. Reopen the app to retry."); }
         }, command -> main.post(command));
     }
 
