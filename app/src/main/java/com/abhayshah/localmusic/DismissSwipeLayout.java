@@ -8,6 +8,7 @@ final class DismissSwipeLayout extends FrameLayout {
     private final Runnable dismiss;private float x,y;private boolean blocked,dragging,closing;
     private View moving;
     private boolean ignoreTap;
+    private final Runnable finish=this::finishDismiss;
     DismissSwipeLayout(Context context,Runnable dismiss){super(context);this.dismiss=dismiss;setContentDescription("Dismiss panel");}
     @Override public boolean dispatchTouchEvent(MotionEvent event){
         int action=event.getActionMasked();
@@ -17,13 +18,13 @@ final class DismissSwipeLayout extends FrameLayout {
         if(ignoreTap&&action==MotionEvent.ACTION_UP){ignoreTap=false;MotionEvent cancel=MotionEvent.obtain(event);cancel.setAction(MotionEvent.ACTION_CANCEL);super.dispatchTouchEvent(cancel);cancel.recycle();return true;}
         if(action==MotionEvent.ACTION_CANCEL)ignoreTap=false;
         if(closing)return true;
-        if(action==MotionEvent.ACTION_DOWN){moving=getRootView();moving.animate().cancel();moving.setTranslationX(0);x=event.getRawX();y=event.getRawY();dragging=false;blocked=protectedTarget(this,event.getX(),event.getY());}
+        if(action==MotionEvent.ACTION_DOWN){moving=this;moving.animate().cancel();moving.setTranslationX(0);moving.setLayerType(View.LAYER_TYPE_NONE,null);x=event.getRawX();y=event.getRawY();dragging=false;blocked=protectedTarget(this,event.getX(),event.getY());}
         if(event.getPointerCount()!=1){blocked=true;if(dragging){dragging=false;restore();return true;}}
         float dx=event.getRawX()-x,dy=event.getRawY()-y;
         // Observe the complete gesture even when a child list disallows interception.
         if(!blocked&&(action==MotionEvent.ACTION_MOVE||action==MotionEvent.ACTION_UP)
                 &&Math.abs(dx)>dp(28)&&Math.abs(dx)>Math.abs(dy)*1.8f){
-            if(!dragging){MotionEvent cancel=MotionEvent.obtain(event);cancel.setAction(MotionEvent.ACTION_CANCEL);super.dispatchTouchEvent(cancel);cancel.recycle();dragging=true;}
+            if(!dragging){MotionEvent cancel=MotionEvent.obtain(event);cancel.setAction(MotionEvent.ACTION_CANCEL);super.dispatchTouchEvent(cancel);cancel.recycle();moving.setLayerType(View.LAYER_TYPE_HARDWARE,null);dragging=true;}
         }
         if(dragging){
             moving.setTranslationX(dx);
@@ -31,7 +32,8 @@ final class DismissSwipeLayout extends FrameLayout {
                 dragging=false;
                 if(Math.abs(dx)>Math.max(dp(64),getWidth()*.2f)){
                     closing=true;
-                    moving.animate().translationX(Math.copySign(Math.max(getWidth(),dp(320)),dx)).setDuration(150).withEndAction(()->{dismiss.run();closing=false;}).start();
+                    if(!android.animation.ValueAnimator.areAnimatorsEnabled())finishDismiss();
+                    else{postDelayed(finish,200);moving.animate().translationX(Math.copySign(Math.max(getWidth(),dp(320)),dx)).setDuration(150).withEndAction(finish).start();}
                 }else restore();
             }else if(action==MotionEvent.ACTION_CANCEL){dragging=false;restore();}
             return true;
@@ -40,8 +42,9 @@ final class DismissSwipeLayout extends FrameLayout {
     }
     @Override public boolean onTouchEvent(MotionEvent event){if(event.getActionMasked()==MotionEvent.ACTION_UP)performClick();return true;}
     @Override public boolean performClick(){return super.performClick();}
-    private void restore(){if(moving!=null)moving.animate().translationX(0).setDuration(120).start();}
-    @Override protected void onDetachedFromWindow(){if(moving!=null){moving.animate().cancel();moving.setTranslationX(0);}super.onDetachedFromWindow();}
+    private void finishDismiss(){if(!closing)return;closing=false;removeCallbacks(finish);dismiss.run();}
+    private void restore(){if(moving!=null){if(!android.animation.ValueAnimator.areAnimatorsEnabled()){moving.setTranslationX(0);moving.setLayerType(View.LAYER_TYPE_NONE,null);}else moving.animate().translationX(0).setDuration(120).withEndAction(()->moving.setLayerType(View.LAYER_TYPE_NONE,null)).start();}}
+    @Override protected void onDetachedFromWindow(){removeCallbacks(finish);closing=false;dragging=false;if(moving!=null){moving.animate().cancel();moving.setTranslationX(0);moving.setLayerType(View.LAYER_TYPE_NONE,null);}super.onDetachedFromWindow();}
     private boolean protectedTarget(View view,float x,float y){
         if(view instanceof SeekBar||view instanceof EditText||view instanceof HorizontalScrollView||view instanceof CompoundButton||view.canScrollHorizontally(-1)||view.canScrollHorizontally(1))return true;
         if(view instanceof TextView&&((TextView)view).isTextSelectable())return true;

@@ -354,6 +354,7 @@ public final class MainActivity extends Activity {
         if (controller == null || controller.getCurrentMediaItem() == null) { Toast.makeText(this, "Choose a song first", Toast.LENGTH_SHORT).show(); return; }
         android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar);
         dialog.setContentView(R.layout.dialog_now_playing);
+        if(dialog.getWindow()!=null)dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
         installSwipeBack(dialog.findViewById(android.R.id.content), dialog::dismiss);
         if (dialog.getWindow() != null) { dialog.getWindow().setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT); dialog.getWindow().setStatusBarColor(android.graphics.Color.rgb(11, 11, 12)); dialog.getWindow().setNavigationBarColor(android.graphics.Color.rgb(11, 11, 12)); }
         TextView title = dialog.findViewById(R.id.fullTitle), artist = dialog.findViewById(R.id.fullArtist), elapsed = dialog.findViewById(R.id.fullElapsed), durationLabel = dialog.findViewById(R.id.fullDuration);

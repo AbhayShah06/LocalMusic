@@ -110,12 +110,12 @@ public class AudioExperienceTest {
             FeatureRuntimeTest.await("Gesture panel did not lay out",()->FeatureRuntimeTest.value(()->swipe.get().getWidth()>0),3000);
             FeatureRuntimeTest.main(()->{
                 DismissSwipeLayout layout=swipe.get();float x=layout.getWidth()/2f;touch(layout,android.view.MotionEvent.ACTION_DOWN,x,40);touch(layout,android.view.MotionEvent.ACTION_MOVE,x+50*context.getResources().getDisplayMetrics().density,40);
-                assertTrue("Panel did not follow finger",layout.getRootView().getTranslationX()>0);touch(layout,android.view.MotionEvent.ACTION_CANCEL,x+50,40);
+                assertTrue("Panel did not follow finger",layout.getTranslationX()>0);touch(layout,android.view.MotionEvent.ACTION_CANCEL,x+50,40);
             });
-            Thread.sleep(250);assertTrue(FeatureRuntimeTest.value(()->dialog.get().isShowing()));assertEquals(0,FeatureRuntimeTest.value(()->swipe.get().getRootView().getTranslationX()),.01f);
+            Thread.sleep(250);assertTrue(FeatureRuntimeTest.value(()->dialog.get().isShowing()));assertEquals(0,FeatureRuntimeTest.value(()->swipe.get().getTranslationX()),.01f);
             FeatureRuntimeTest.main(()->{
                 DismissSwipeLayout layout=swipe.get();android.view.View seek=dialog.get().findViewById(123456);int[] parent=new int[2],child=new int[2];layout.getLocationOnScreen(parent);seek.getLocationOnScreen(child);float y=child[1]-parent[1]+seek.getHeight()/2f;
-                touch(layout,android.view.MotionEvent.ACTION_DOWN,20,y);touch(layout,android.view.MotionEvent.ACTION_MOVE,layout.getWidth()-20,y);assertEquals(0,layout.getRootView().getTranslationX(),0f);touch(layout,android.view.MotionEvent.ACTION_UP,layout.getWidth()-20,y);
+                touch(layout,android.view.MotionEvent.ACTION_DOWN,20,y);touch(layout,android.view.MotionEvent.ACTION_MOVE,layout.getWidth()-20,y);assertEquals(0,layout.getTranslationX(),0f);touch(layout,android.view.MotionEvent.ACTION_UP,layout.getWidth()-20,y);
                 float x=layout.getWidth()/2f;touch(layout,android.view.MotionEvent.ACTION_DOWN,x,40);touch(layout,android.view.MotionEvent.ACTION_MOVE,10,40);touch(layout,android.view.MotionEvent.ACTION_UP,10,40);
             });
             FeatureRuntimeTest.await("Completed swipe did not dismiss",()->!FeatureRuntimeTest.value(()->dialog.get().isShowing()),3000);
