@@ -57,8 +57,8 @@ public class AudioExperienceTest {
             }finally{level.close();prefs.edit().clear().commit();}
         });
     }
-    void settings(){onView(withId(R.id.more)).perform(click());onView(withText("Settings")).perform(click());}
-    void settingsAction(String title){onView(withText(org.hamcrest.Matchers.startsWith(title+"\n"))).perform(scrollTo(),click());}
+    void settings(){onView(withId(R.id.more)).perform(click());onView(withText("Settings")).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());}
+    void settingsAction(String title){onView(withText(org.hamcrest.Matchers.startsWith(title+"\n"))).inRoot(FeatureRuntimeTest.focusedDialog()).perform(scrollTo(),click());}
     @Test public void c_equalizerPresetsResetAndPersistenceActuallyWork()throws Exception{
         SharedPreferences prefs=context.getSharedPreferences("settings",Context.MODE_PRIVATE);
         boolean previous=prefs.getBoolean("eq_enabled",false);int[] bands=PlaybackEqualizer.levels(prefs);
@@ -66,9 +66,9 @@ public class AudioExperienceTest {
             settings();settingsAction("Equalizer");onView(withText("Presets")).check(matches(isDisplayed()));
             onView(withText("Presets")).perform(click());onView(withText("Bass")).perform(click());assertEquals(4,prefs.getInt("eq_band_0",0));
             onView(withContentDescription("Enable equalizer")).perform(click());
-            onView(withText("Done")).perform(click());settings();settingsAction("Equalizer");assertEquals(4,prefs.getInt("eq_band_0",0));
+            onView(withText("Done")).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());settings();settingsAction("Equalizer");assertEquals(4,prefs.getInt("eq_band_0",0));
             onView(withText("Reset")).perform(click());assertFalse(prefs.getBoolean("eq_enabled",true));assertArrayEquals(new int[5],PlaybackEqualizer.levels(prefs));
-            onView(withText("Presets")).perform(click());onView(withText("Vocal")).perform(click());assertEquals(3,prefs.getInt("eq_band_3",0));onView(withText("Done")).perform(click());
+            onView(withText("Presets")).perform(click());onView(withText("Vocal")).perform(click());assertEquals(3,prefs.getInt("eq_band_3",0));onView(withText("Done")).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());
         }finally{SharedPreferences.Editor restore=prefs.edit().putBoolean("eq_enabled",previous);for(int i=0;i<5;i++)restore.putInt("eq_band_"+i,bands[i]);restore.commit();}
     }
     @Test public void d_settingsButtonsRevealTheirDestinations()throws Exception{
@@ -128,10 +128,10 @@ public class AudioExperienceTest {
             FeatureRuntimeTest.await("Player not ready",()->FeatureRuntimeTest.value(controller::isPlaying),15000);
             try{
                 activity.onActivity(a->{invoke(a,"showNowPlaying");invoke(a,"showNowPlaying");invoke(a,"showQueue");invoke(a,"showQueue");});
-                onView(withContentDescription("Close queue")).check(matches(isDisplayed()));onView(withContentDescription("Close queue")).perform(click());
-                onView(withId(R.id.closeNowPlaying)).check(matches(isDisplayed()));onView(withId(R.id.closeNowPlaying)).perform(click());onView(withId(R.id.closeNowPlaying)).check(doesNotExist());
-                activity.onActivity(a->{invoke(a,"showSettings");invoke(a,"showSettings");});onView(withText("Done")).perform(click());onView(withText("Settings")).check(doesNotExist());
-                activity.onActivity(a->{invoke(a,"openEqualizer");invoke(a,"openEqualizer");});onView(withText("Done")).perform(click());onView(withText("Presets")).check(doesNotExist());
+                onView(withContentDescription("Close queue")).inRoot(FeatureRuntimeTest.focusedDialog()).check(matches(isDisplayed()));onView(withContentDescription("Close queue")).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());
+                onView(withId(R.id.closeNowPlaying)).inRoot(FeatureRuntimeTest.focusedDialog()).check(matches(isDisplayed()));onView(withId(R.id.closeNowPlaying)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());onView(withId(R.id.closeNowPlaying)).check(doesNotExist());
+                activity.onActivity(a->{invoke(a,"showSettings");invoke(a,"showSettings");});onView(withText("Done")).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());onView(withText("Settings")).check(doesNotExist());
+                activity.onActivity(a->{invoke(a,"openEqualizer");invoke(a,"openEqualizer");});onView(withText("Done")).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());onView(withText("Presets")).check(doesNotExist());
                 onView(withId(R.id.playPause)).perform(click());FeatureRuntimeTest.await("Pause button stopped responding",()->!FeatureRuntimeTest.value(controller::isPlaying),5000);onView(withId(R.id.playPause)).perform(click());FeatureRuntimeTest.await("Play button stopped responding",()->FeatureRuntimeTest.value(controller::isPlaying),5000);
                 assertEquals(1,(int)FeatureRuntimeTest.value(controller::getMediaItemCount));assertNull(FeatureRuntimeTest.value(controller::getPlayerError));
             }finally{FeatureRuntimeTest.main(()->{controller.pause();controller.release();});}
