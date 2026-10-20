@@ -49,6 +49,8 @@ public final class PlaybackService extends MediaSessionService {
     private final Set<String> jamSearches = ConcurrentHashMap.newKeySet();
     private volatile boolean destroyed;
     private ExoPlayer player;
+    private TrackVolume trackVolume;
+    private PlaybackEqualizer equalizer;
     private MediaSession session;
     private SharedPreferences prefs;
     private final ExecutorService jamIo = Executors.newFixedThreadPool(3);
@@ -128,17 +130,13 @@ public final class PlaybackService extends MediaSessionService {
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setUserAgent("LocalMusic/0.5");
         DefaultDataSource.Factory upstream = new DefaultDataSource.Factory(this, http);
-        androidx.media3.exoplayer.DefaultRenderersFactory renderers=new androidx.media3.exoplayer.DefaultRenderersFactory(this){
-            @Override protected androidx.media3.exoplayer.audio.AudioSink buildAudioSink(android.content.Context context,boolean enableFloatOutput,boolean enablePlaybackParams){
-                return new androidx.media3.exoplayer.audio.DefaultAudioSink.Builder(context).setEnableFloatOutput(false).setEnableAudioTrackPlaybackParams(enablePlaybackParams)
-                    .setAudioProcessors(new androidx.media3.common.audio.AudioProcessor[]{new VolumeAudioProcessor(()->getSharedPreferences("settings",MODE_PRIVATE).getBoolean("volume_leveling",true))}).build();
-            }
-        };
-        player = new ExoPlayer.Builder(this,renderers).setMediaSourceFactory(
+        player = new ExoPlayer.Builder(this).setMediaSourceFactory(
                 new DefaultMediaSourceFactory(PlaybackCache.dataSourceFactory(this, StreamPlayback.resolving(this,upstream))))
                 .setWakeMode(C.WAKE_MODE_NETWORK).setHandleAudioBecomingNoisy(true).build();
         prefs.edit().putInt("audio_session_id", player.getAudioSessionId()).apply();
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true);
+        trackVolume = new TrackVolume(player, getSharedPreferences("settings", MODE_PRIVATE));
+        equalizer = new PlaybackEqualizer(player, getSharedPreferences("settings", MODE_PRIVATE));
         session = new MediaSession.Builder(this, player).build();
         autoplayQueue=new AutoplayQueue(this,player,stateHandler);
         player.addListener(persistenceListener);
@@ -426,6 +424,8 @@ public final class PlaybackService extends MediaSessionService {
         jamIo.shutdownNow();
         preloadIo.shutdownNow();
         saveState();
+        if (equalizer != null) equalizer.close();
+        if (trackVolume != null) trackVolume.close();
         if (player != null) player.removeListener(persistenceListener);
         if (session != null) { session.release(); session = null; }
         if (player != null) { player.release(); player = null; }

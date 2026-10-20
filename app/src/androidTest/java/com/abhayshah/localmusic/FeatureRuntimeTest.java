@@ -175,7 +175,7 @@ public class FeatureRuntimeTest {
             onView(withId(R.id.more)).perform(click());onView(withText("Settings")).perform(click());
             onView(withText(org.hamcrest.Matchers.startsWith("Feedback"))).perform(scrollTo(),click());onView(withText("Copy email address")).perform(click());
             assertEquals(FeedbackDraft.EMAIL,value(()->context.getSystemService(android.content.ClipboardManager.class).getPrimaryClip().getItemAt(0).getText().toString()));
-            androidx.test.espresso.Espresso.pressBack();onView(withId(R.id.forYou)).perform(click());onView(withText("Recently played")).check(matches(isDisplayed()));
+            onView(withText("Settings")).check(doesNotExist());onView(withId(R.id.forYou)).perform(click());onView(withText("Recently played")).check(matches(isDisplayed()));
             Track track=fixture("notification-cancel");DownloadTasks.put(context,track,"queued",0,-1,"");
             new DownloadNotificationReceiver().onReceive(context,new Intent(context,DownloadNotificationReceiver.class).setAction("hide").putExtra("track_id",track.stableId));
             assertTrue(context.getSharedPreferences("download_notifications",Context.MODE_PRIVATE).getBoolean(track.stableId,false));assertEquals("queued",DownloadTasks.get(context,track.stableId).optString("state"));
@@ -250,8 +250,21 @@ public class FeatureRuntimeTest {
             assertEquals("auto:"+stored.stableId,value(()->controller.getMediaItemAt(1).mediaId));assertEquals("file",value(()->controller.getMediaItemAt(1).localConfiguration.uri.getScheme()));
             context.startService(new Intent(context,PlaybackService.class).setAction(PlaybackService.ACTION_STOP_RADIO));main(()->{controller.pause();controller.release();});
         }finally{DownloadStore.remove(context,stored.stableId);}
-        VolumeAudioProcessor processor=new VolumeAudioProcessor(()->false);processor.reset();processor.configure(new androidx.media3.common.audio.AudioProcessor.AudioFormat(8000,2,androidx.media3.common.C.ENCODING_PCM_16BIT));processor.flush();
-        byte[] pcm=new byte[]{1,0,2,0,3,0,4,0};processor.queueInput(java.nio.ByteBuffer.wrap(Arrays.copyOfRange(pcm,0,3)));assertEquals(0,processor.getOutput().remaining());processor.queueInput(java.nio.ByteBuffer.wrap(Arrays.copyOfRange(pcm,3,8)));java.nio.ByteBuffer output=processor.getOutput();byte[] actual=new byte[output.remaining()];output.get(actual);assertArrayEquals(pcm,actual);processor.reset();
+    }
+    @Test public void x_livePromisesPromisesKeepsFixedGainAcrossSeek()throws Exception{
+        android.content.SharedPreferences prefs=context.getSharedPreferences("settings",Context.MODE_PRIVATE);boolean oldEq=prefs.getBoolean("eq_enabled",false),oldLevel=prefs.getBoolean("volume_leveling",true);
+        try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
+            List<Track> found=new OnlineCatalogSource().page("Naked Eyes Promises Promises",0,10);Track song=null;
+            for(Track track:found)if(track.title.toLowerCase(java.util.Locale.ROOT).contains("promises")&&(track.artist+" "+track.title).toLowerCase(java.util.Locale.ROOT).contains("naked")){song=track;break;}
+            assertNotNull("Could not find the requested Naked Eyes recording",song);System.out.println("Quiet-source test: "+song.title+" / "+song.artist);
+            MediaController controller=connect();Track selected=song;
+            try{
+                main(()->{prefs.edit().putBoolean("eq_enabled",false).putBoolean("volume_leveling",true).commit();controller.setMediaItem(StreamPlayback.item(context,selected));controller.prepare();controller.play();});
+                await("Promises, Promises did not stream",()->value(controller::isPlaying),45000);float gain=value(controller::getVolume);
+                Thread.sleep(1500);assertEquals(gain,value(controller::getVolume),0f);
+                main(()->controller.seekTo(60000));await("Song did not resume after seek",()->value(controller::isPlaying),15000);Thread.sleep(1500);assertEquals(gain,value(controller::getVolume),0f);assertNull(value(controller::getPlayerError));
+            }finally{main(()->{controller.pause();controller.release();});}
+        }finally{prefs.edit().putBoolean("eq_enabled",oldEq).putBoolean("volume_leveling",oldLevel).commit();}
     }
     @Test public void m_liveSongMixAndLazyOnlinePlayback()throws Exception{
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){

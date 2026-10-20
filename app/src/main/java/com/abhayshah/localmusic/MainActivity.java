@@ -35,6 +35,10 @@ import java.util.concurrent.Executors;
 @androidx.media3.common.util.UnstableApi
 public final class MainActivity extends Activity {
     private static final int PAGE_SIZE = 100;
+    private final java.util.Map<String,android.app.Dialog> panels=new java.util.HashMap<>();
+    private boolean panelShowing(String key){android.app.Dialog panel=panels.get(key);return panel!=null&&panel.isShowing();}
+    private void rememberPanel(String key,android.app.Dialog panel){panels.put(key,panel);}
+    private boolean lyricsPending;
     private static final int WINDOW_SIZE = 400;
     private final List<Track> tracks = new ArrayList<>();
     private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -339,6 +343,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showNowPlaying() {
+        if(panelShowing("player"))return;
         if (controller == null || controller.getCurrentMediaItem() == null) { Toast.makeText(this, "Choose a song first", Toast.LENGTH_SHORT).show(); return; }
         android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar);
         dialog.setContentView(R.layout.dialog_now_playing);
@@ -383,7 +388,7 @@ public final class MainActivity extends Activity {
             @Override public void onStopTrackingTouch(SeekBar bar) { }
         });
         livePlayerViews.add(refresh); dialog.setOnDismissListener(ignored -> { main.removeCallbacks(progressTicker[0]); livePlayerViews.remove(refresh); });
-        dialog.show(); main.post(progressTicker[0]); if (dialog.getWindow() != null) { dialog.getWindow().setLayout(-1, -1); }
+        rememberPanel("player",dialog);dialog.show(); main.post(progressTicker[0]); if (dialog.getWindow() != null) { dialog.getWindow().setLayout(-1, -1); }
     }
 
     private static String formatTime(long milliseconds) {
@@ -399,18 +404,22 @@ public final class MainActivity extends Activity {
     }
 
     private void showLyrics(Track track) {
+        if(lyricsPending||panelShowing("lyrics"))return;
+        lyricsPending=true;
         Toast.makeText(this, "Finding lyrics…", Toast.LENGTH_SHORT).show();
         io.execute(() -> { String lyrics = LyricsClient.get(this, track); main.post(() -> {
+            lyricsPending=false;if(isFinishing()||isDestroyed())return;
             if (lyrics.isEmpty()) { Toast.makeText(this, "No lyrics found for this version", Toast.LENGTH_LONG).show(); return; }
             TextView text = new TextView(this); int pad = (int)(22 * getResources().getDisplayMetrics().density);
             text.setPadding(pad, pad, pad, pad); text.setText(lyrics); text.setTextColor(android.graphics.Color.rgb(246, 241, 232)); text.setTextSize(18); text.setLineSpacing(0, 1.25f); text.setTextIsSelectable(true);
             android.widget.ScrollView scroll = new android.widget.ScrollView(this); scroll.setBackgroundColor(android.graphics.Color.rgb(11, 11, 12)); scroll.addView(text);
             android.app.Dialog lyricsDialog = new android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar); lyricsDialog.setContentView(scroll); lyricsDialog.show(); if (lyricsDialog.getWindow() != null) lyricsDialog.getWindow().setLayout(-1, -1);
-            installSwipeBack(scroll, lyricsDialog::dismiss);
+            rememberPanel("lyrics",lyricsDialog);installSwipeBack(scroll, lyricsDialog::dismiss);
         }); });
     }
 
     private void showArtistPage(String rawArtist) {
+        if(panelShowing("artist"))return;
         String artistName = rawArtist.replaceAll("(?i)\\s*-\\s*topic$", "").trim();
         android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar);
         android.widget.LinearLayout root = new android.widget.LinearLayout(this); root.setOrientation(android.widget.LinearLayout.VERTICAL); root.setPadding(20, 26, 20, 20); root.setBackgroundColor(android.graphics.Color.rgb(11, 11, 12));
@@ -418,12 +427,13 @@ public final class MainActivity extends Activity {
         TextView heading = new TextView(this); heading.setText(artistName); heading.setTextColor(android.graphics.Color.rgb(246, 241, 232)); heading.setTextSize(32); heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); heading.setPadding(14, 22, 14, 10); root.addView(heading);
         TextView artistStatus = new TextView(this); artistStatus.setText("Loading top songs…"); artistStatus.setTextColor(android.graphics.Color.rgb(143, 138, 131)); artistStatus.setPadding(14, 8, 14, 14); root.addView(artistStatus);
         ListView list = new ListView(this); list.setDividerHeight(4); list.setDivider(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)); root.addView(list, new android.widget.LinearLayout.LayoutParams(-1, 0, 1));
-        dialog.setContentView(root); close.setOnClickListener(v -> dialog.dismiss()); installSwipeBack(root, dialog::dismiss); installSwipeBack(list, dialog::dismiss); dialog.show(); if (dialog.getWindow() != null) dialog.getWindow().setLayout(-1, -1);
+        dialog.setContentView(root); close.setOnClickListener(v -> dialog.dismiss()); installSwipeBack(root, dialog::dismiss);rememberPanel("artist",dialog); dialog.show(); if (dialog.getWindow() != null) dialog.getWindow().setLayout(-1, -1);
         List<Track> artistTracks = new ArrayList<>(); LibraryAdapter artistAdapter = new LibraryAdapter(this, artistTracks, position -> { dialog.dismiss(); resolveAndPlayOnline(artistTracks, position); }, position -> addTrackToPlaylist(artistTracks.get(position))); list.setAdapter(artistAdapter);
         list.setOnItemClickListener((parent, view, position, id) -> { dialog.dismiss(); resolveAndPlayOnline(artistTracks, position); });
         searchIo.execute(() -> {
-            List<Track> found = onlineSource().page(artistName, 0, 50);
-            main.post(() -> { artistTracks.addAll(found); for (Track track : found) artistAdapter.add(track.title + "\n" + track.artist + " · " + track.album); artistStatus.setText(found.size() + " top songs"); });
+            try{List<Track> found = onlineSource().page(artistName, 0, 50);
+            main.post(() -> {if(isDestroyed()||!dialog.isShowing())return; artistTracks.addAll(found); for (Track track : found) artistAdapter.add(track.title + "\n" + track.artist + " · " + track.album); artistStatus.setText(found.size() + " top songs"); });
+            }catch(RuntimeException unavailable){main.post(()->{if(!isDestroyed()&&dialog.isShowing())artistStatus.setText("Couldn't load songs. Go back and try again.");});}
         });
     }
 
@@ -463,6 +473,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showSettings() {
+        if(panelShowing("settings"))return;
         android.content.SharedPreferences prefs = getSharedPreferences("settings", MODE_PRIVATE);
         int pad = (int)(20 * getResources().getDisplayMetrics().density);
         android.widget.LinearLayout content = new android.widget.LinearLayout(this);
@@ -470,7 +481,7 @@ public final class MainActivity extends Activity {
         content.setPadding(pad, pad / 2, pad, pad);
 
         TextView playback = settingsHeading("Playback"); content.addView(playback);
-        android.widget.Switch leveling=settingsSwitch("Volume leveling","Reduce loudness jumps between songs",prefs.getBoolean("volume_leveling",true));
+        android.widget.Switch leveling=settingsSwitch("Track normalization","Use ReplayGain tags when available. Preserve quiet and loud passages.",prefs.getBoolean("volume_leveling",true));
         leveling.setOnCheckedChangeListener((button,checked)->prefs.edit().putBoolean("volume_leveling",checked).apply());content.addView(leveling);
         android.widget.Switch haptics = settingsSwitch("Touch feedback", "Vibrate briefly when a tap is registered", prefs.getBoolean("haptics", true));
         haptics.setOnCheckedChangeListener((button, checked) -> prefs.edit().putBoolean("haptics", checked).apply()); content.addView(haptics);
@@ -482,7 +493,7 @@ public final class MainActivity extends Activity {
         content.addView(settingsHeading("Library"));
         content.addView(settingsAction("Music source", "Choose online streaming, phone files, Backblaze, or Navidrome", this::chooseSource));
         content.addView(settingsAction("Import playlists", "Paste YouTube links, Spotify / Apple Music exports, or a song list", this::showImportOptions));
-        content.addView(settingsAction("Equalizer", "Open your phone's audio effects", this::openEqualizer));
+        content.addView(settingsAction("Equalizer", "Presets and five-band controls", this::openEqualizer));
         content.addView(settingsAction("Music permission", hasAudioPermission() ? "Allowed for on-device songs" : "Tap to allow on-device songs", () -> { if (hasAudioPermission()) openAppSettings(); else requestAudioPermission(); }));
 
         long downloads = DownloadStore.bytes(this), streams = PlaybackCache.bytes(), artwork = ArtworkLoader.bytes(this);
@@ -490,7 +501,7 @@ public final class MainActivity extends Activity {
         content.addView(settingsAction("Download activity", "", this::showDownloadActivity));
         content.addView(settingsAction("Feedback", "", this::showFeedback));
         content.addView(settingsAction("Check for updates", "LocalMusic " + BuildConfig.VERSION_NAME, () -> UpdateManager.refresh(this,findViewById(R.id.root),true)));
-        content.addView(settingsAction("GitHub releases", "", () -> startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/AbhayShah06/LocalMusic/releases/latest")))));
+        content.addView(settingsAction("GitHub releases", "", () -> { try { startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/AbhayShah06/LocalMusic/releases/latest"))); } catch (android.content.ActivityNotFoundException missing) { Toast.makeText(this,"No browser available. Install a browser to open releases.",Toast.LENGTH_SHORT).show(); } }));
         content.addView(settingsAction("Offline downloads", formatBytes(downloads) + " saved permanently", this::loadDownloads));
         content.addView(settingsAction("Clear temporary cache", formatBytes(streams + artwork) + " of streams and artwork. Downloads stay.", () -> {
             PlaybackCache.clear(); ArtworkLoader.clear(this); LyricsClient.clear(this);
@@ -499,6 +510,12 @@ public final class MainActivity extends Activity {
 
         android.widget.ScrollView scroll = new android.widget.ScrollView(this); scroll.addView(content);
         AlertDialog settingsDialog=new AlertDialog.Builder(this).setTitle("Settings").setView(scroll).setPositiveButton("Done", null).show();
+        rememberPanel("settings",settingsDialog);
+        // Navigation actions must reveal their destination instead of changing a hidden screen.
+        for(int i=0;i<content.getChildCount();i++){
+            View action=content.getChildAt(i);
+            if(action.getTag() instanceof Runnable){Runnable destination=(Runnable)action.getTag();action.setOnClickListener(v->{if(prefs.getBoolean("haptics",true))v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP);settingsDialog.dismiss();destination.run();});}
+        }
         installSwipeBack(settingsDialog.findViewById(android.R.id.content),settingsDialog::dismiss);
     }
 
@@ -517,7 +534,8 @@ public final class MainActivity extends Activity {
     private View settingsAction(String title, String detail, Runnable action) {
         TextView view = new TextView(this); view.setText(title + "\n" + detail); view.setTextColor(android.graphics.Color.rgb(246, 241, 232));
         view.setTextSize(16); view.setPadding(0, 15, 0, 15); view.setBackgroundResource(android.R.drawable.list_selector_background);
-        view.setOnClickListener(v -> { v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); action.run(); }); return view;
+        view.setTag(action);
+        view.setOnClickListener(v -> { if(getSharedPreferences("settings",MODE_PRIVATE).getBoolean("haptics",true))v.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP); action.run(); }); return view;
     }
 
     private static String formatBytes(long value) {
@@ -548,11 +566,13 @@ public final class MainActivity extends Activity {
 
     private final java.util.Map<String,List<Track>> personalMixes = new java.util.HashMap<>();
     private void showSeedMix(Track seed, boolean artistMix) {
+        if(panelShowing("mix-loading")||panelShowing("mix"))return;
         String name = (artistMix ? seed.artist.replaceAll("(?i)\\s*-\\s*topic$", "").trim() : seed.title) + " Mix";
         String key = seed.stableId + ":" + artistMix;
         if (personalMixes.containsKey(key)) { previewPersonalMix(name, personalMixes.get(key)); return; }
         TextView progress = new TextView(this); progress.setText("Finding related songs…"); progress.setPadding(queueDp(20),queueDp(20),queueDp(20),queueDp(20));
         AlertDialog loadingMix = new AlertDialog.Builder(this).setTitle(name).setView(progress).setNegativeButton("Cancel", null).show();
+        rememberPanel("mix-loading",loadingMix);
         streamIo.execute(() -> {
             List<Track> candidates = new ArrayList<>(); candidates.add(seed);
             // Known music remains available if discovery cannot reach its source.
@@ -587,7 +607,8 @@ public final class MainActivity extends Activity {
     }
 
     void previewPersonalMix(String name, List<Track> mix) {
-        MixDialog.show(this,name,mix,this::playMixTracks,this::addTracksToPlaylist,this::showCollectionTrackActions);
+        if(isDestroyed()||isFinishing()||panelShowing("mix"))return;
+        rememberPanel("mix",MixDialog.show(this,name,mix,this::playMixTracks,this::addTracksToPlaylist,this::showCollectionTrackActions));
     }
 
     private void showCollectionTrackActions(Track track) {
@@ -749,7 +770,8 @@ public final class MainActivity extends Activity {
     private void choosePlaylistFile() {
         Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE)
                 .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"text/csv", "text/comma-separated-values", "audio/x-mpegurl", "application/vnd.apple.mpegurl", "text/plain"});
-        startActivityForResult(pick, IMPORT_PLAYLIST_REQUEST);
+        try { startActivityForResult(pick, IMPORT_PLAYLIST_REQUEST); }
+        catch (android.content.ActivityNotFoundException missing) { Toast.makeText(this,"No file picker available. Paste a playlist link or song list instead.",Toast.LENGTH_LONG).show(); }
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -816,7 +838,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showQueue() {
-        if (controller == null) return;
+        if (controller == null||panelShowing("queue")) return;
         final android.app.Dialog dialog = new android.app.Dialog(this);
         android.widget.LinearLayout sheet = new android.widget.LinearLayout(this); sheet.setOrientation(android.widget.LinearLayout.VERTICAL); sheet.setPadding(queueDp(18), queueDp(16), queueDp(18), queueDp(18)); sheet.setBackgroundColor(0xff121111);
         android.widget.LinearLayout header = new android.widget.LinearLayout(this); header.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -838,7 +860,7 @@ public final class MainActivity extends Activity {
             scroll.post(() -> scroll.scrollTo(0,y));
         };
         livePlayerViews.add(render); dialog.setOnDismissListener(v -> livePlayerViews.remove(render));
-        dialog.setContentView(sheet); installSwipeBack(sheet,dialog::dismiss); dialog.show();
+        dialog.setContentView(sheet); installSwipeBack(sheet,dialog::dismiss);rememberPanel("queue",dialog); dialog.show();
         if(dialog.getWindow()!=null){dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);dialog.getWindow().setLayout(-1,(int)(getResources().getDisplayMetrics().heightPixels*.84f));dialog.getWindow().setGravity(android.view.Gravity.BOTTOM);}
         render.run();
     }
@@ -865,7 +887,7 @@ public final class MainActivity extends Activity {
         more.setOnClickListener(v -> showQueueActions(item,index));
         row.setOnClickListener(v -> {int at=queueIndex(item,index);if(at>=0){controller.seekTo(at,0);controller.play();}});
         if(index>current){float[] down={0};rail.setOnTouchListener((v,event)->{
-            if(event.getActionMasked()==android.view.MotionEvent.ACTION_DOWN){down[0]=event.getRawY();draggingQueue[0]=true;v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);return true;}
+            if(event.getActionMasked()==android.view.MotionEvent.ACTION_DOWN){down[0]=event.getRawY();draggingQueue[0]=true;if(getSharedPreferences("settings",MODE_PRIVATE).getBoolean("haptics",true))v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);return true;}
             if(event.getActionMasked()==android.view.MotionEvent.ACTION_MOVE&&draggingQueue[0]){row.setTranslationY(event.getRawY()-down[0]);return true;}
             if(event.getActionMasked()==android.view.MotionEvent.ACTION_UP||event.getActionMasked()==android.view.MotionEvent.ACTION_CANCEL){boolean commit=event.getActionMasked()==android.view.MotionEvent.ACTION_UP;draggingQueue[0]=false;row.setTranslationY(0);int from=queueIndex(item,index);if(commit&&from>=0){int target=Math.max(controller.getCurrentMediaItemIndex()+1,Math.min(controller.getMediaItemCount()-1,from+Math.round((event.getRawY()-down[0])/Math.max(1f,row.getHeight()))));if(target!=from)controller.moveMediaItem(from,target);}return true;}return false;
         });}
@@ -893,6 +915,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showDownloadActivity() {
+        if(panelShowing("downloads"))return;
         android.app.Dialog dialog=new android.app.Dialog(this);android.widget.LinearLayout root=new android.widget.LinearLayout(this);root.setOrientation(android.widget.LinearLayout.VERTICAL);root.setPadding(queueDp(16),queueDp(16),queueDp(16),queueDp(16));root.setBackgroundColor(0xff121111);
         TextView heading=new TextView(this);heading.setText("Downloads");heading.setTextSize(26);heading.setTextColor(0xfff6f1e8);root.addView(heading);
         android.widget.Button saved=new android.widget.Button(this);saved.setText("Offline library");saved.setOnClickListener(v->{dialog.dismiss();loadDownloads();});root.addView(saved);
@@ -911,7 +934,7 @@ public final class MainActivity extends Activity {
             if(records.isEmpty()&&rows.getChildCount()==0){TextView empty=new TextView(this);empty.setText("No downloads");empty.setTextColor(0xffaaa6a0);rows.addView(empty);}
             if(dialog.isShowing())main.postDelayed(refresh[0],1000);
         };
-        dialog.setContentView(root);installSwipeBack(root,dialog::dismiss);dialog.setOnDismissListener(v->main.removeCallbacks(refresh[0]));dialog.show();if(dialog.getWindow()!=null)dialog.getWindow().setLayout(-1,(int)(getResources().getDisplayMetrics().heightPixels*.85f));refresh[0].run();
+        dialog.setContentView(root);installSwipeBack(root,dialog::dismiss);dialog.setOnDismissListener(v->main.removeCallbacks(refresh[0]));rememberPanel("downloads",dialog);dialog.show();if(dialog.getWindow()!=null)dialog.getWindow().setLayout(-1,(int)(getResources().getDisplayMetrics().heightPixels*.85f));refresh[0].run();
     }
 
     private String queueSection(int index, int current, String mediaId) {
@@ -1166,17 +1189,26 @@ public final class MainActivity extends Activity {
 
     @androidx.media3.common.util.UnstableApi
     private void openEqualizer() {
-        int audioSessionId = getSharedPreferences(PlaybackService.PREFS, MODE_PRIVATE).getInt("audio_session_id", androidx.media3.common.C.AUDIO_SESSION_ID_UNSET);
-        if (controller == null || audioSessionId == androidx.media3.common.C.AUDIO_SESSION_ID_UNSET) {
-            Toast.makeText(this, "Start playback first to open the system equalizer", Toast.LENGTH_SHORT).show(); return;
+        if(panelShowing("equalizer"))return;
+        android.content.SharedPreferences prefs=getSharedPreferences("settings",MODE_PRIVATE);
+        android.widget.LinearLayout content=new android.widget.LinearLayout(this);content.setOrientation(android.widget.LinearLayout.VERTICAL);content.setPadding(queueDp(20),queueDp(12),queueDp(20),queueDp(12));
+        android.widget.Switch enabled=settingsSwitch("Equalizer","",prefs.getBoolean("eq_enabled",false));enabled.setContentDescription("Enable equalizer");content.addView(enabled);
+        TextView state=new TextView(this);state.setText(prefs.getString("eq_status","Start a song to use the equalizer."));content.addView(state);
+        android.widget.SeekBar[] sliders=new android.widget.SeekBar[5];TextView[] labels=new TextView[5];
+        for(int i=0;i<5;i++){
+            final int band=i;labels[i]=new TextView(this);content.addView(labels[i]);
+            android.widget.SeekBar slider=new android.widget.SeekBar(this);sliders[i]=slider;slider.setMax(12);slider.setContentDescription("Equalizer band "+i);content.addView(slider);
+            slider.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(android.widget.SeekBar bar){}public void onStopTrackingTouch(android.widget.SeekBar bar){}public void onProgressChanged(android.widget.SeekBar bar,int progress,boolean user){if(user)prefs.edit().putInt("eq_band_"+band,progress-6).apply();}});
         }
-        Intent intent = new Intent(android.media.audiofx.AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION);
-        intent.putExtra(android.media.audiofx.AudioEffect.EXTRA_AUDIO_SESSION, audioSessionId);
-        intent.putExtra(android.media.audiofx.AudioEffect.EXTRA_PACKAGE_NAME, getPackageName());
-        intent.putExtra(android.media.audiofx.AudioEffect.EXTRA_CONTENT_TYPE, android.media.audiofx.AudioEffect.CONTENT_TYPE_MUSIC);
-        if (intent.resolveActivity(getPackageManager()) != null) startActivity(intent);
-        else Toast.makeText(this, "No system equalizer is available on this device", Toast.LENGTH_SHORT).show();
+        Runnable refresh=()->{enabled.setChecked(prefs.getBoolean("eq_enabled",false));state.setText(prefs.getString("eq_status","Start a song to use the equalizer."));int[] levels=PlaybackEqualizer.levels(prefs);for(int i=0;i<5;i++){sliders[i].setProgress(levels[i]+6);int hz=EqualizerCurve.FREQUENCIES[i];labels[i].setText((hz<1000?hz+" Hz":String.format(java.util.Locale.ROOT,"%.1f kHz",hz/1000f))+"  "+(levels[i]>0?"+":"")+levels[i]+" dB");}};
+        enabled.setOnCheckedChangeListener((button,checked)->{if(checked!=prefs.getBoolean("eq_enabled",false))prefs.edit().putBoolean("eq_enabled",checked).apply();});
+        android.widget.Button presets=new android.widget.Button(this);presets.setText("Presets");content.addView(presets);
+        presets.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("EQ presets").setItems(new String[]{"Flat","Bass","Vocal","Treble"},(dialog,which)->{int[][] curves={{0,0,0,0,0},{4,2,0,-1,-1},{-2,-1,2,3,0},{-1,-1,0,2,4}};android.content.SharedPreferences.Editor edit=prefs.edit();for(int i=0;i<5;i++)edit.putInt("eq_band_"+i,curves[which][i]);edit.apply();refresh.run();}).show());
+        android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.addView(content);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Equalizer").setView(scroll).setPositiveButton("Done",null).setNeutralButton("Reset",null).create();
+        android.content.SharedPreferences.OnSharedPreferenceChangeListener listener=(preferences,key)->refresh.run();prefs.registerOnSharedPreferenceChangeListener(listener);dialog.setOnDismissListener(d->prefs.unregisterOnSharedPreferenceChangeListener(listener));
+        rememberPanel("equalizer",dialog);dialog.show();dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{android.content.SharedPreferences.Editor edit=prefs.edit().putBoolean("eq_enabled",false);for(int i=0;i<5;i++)edit.putInt("eq_band_"+i,0);edit.apply();refresh.run();});refresh.run();installSwipeBack(dialog.findViewById(android.R.id.content),dialog::dismiss);
     }
 
-    @Override public void onDestroy() { jamTicker.removeCallbacksAndMessages(null); io.shutdown(); jamSyncIo.shutdown(); jamSearchIo.shutdown(); super.onDestroy(); }
+    @Override public void onDestroy() { for(android.app.Dialog panel:new java.util.ArrayList<>(panels.values()))if(panel.isShowing())panel.dismiss();panels.clear();jamTicker.removeCallbacksAndMessages(null); io.shutdown(); jamSyncIo.shutdown(); jamSearchIo.shutdown(); super.onDestroy(); }
 }

@@ -7,7 +7,7 @@ import java.util.function.*;
 
 /** A collection view uses the same artwork rows as the library, with optional selection. */
 final class MixDialog {
-    static void show(Activity activity,String title,List<Track> input,BiConsumer<List<Track>,Integer> play,Consumer<List<Track>> add,Consumer<Track> menu){
+    static Dialog show(Activity activity,String title,List<Track> input,BiConsumer<List<Track>,Integer> play,Consumer<List<Track>> add,Consumer<Track> menu){
         List<Track> tracks=Collections.unmodifiableList(new ArrayList<>(input));Set<Integer> selected=new TreeSet<>();boolean[] selecting={false};Dialog dialog=new Dialog(activity);
         LinearLayout root=new LinearLayout(activity);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(0xff121111);root.setPadding(dp(activity,16),dp(activity,12),dp(activity,16),dp(activity,12));
         LinearLayout header=new LinearLayout(activity);Button back=new Button(activity);back.setText("Close");back.setContentDescription("Close mix");back.setOnClickListener(v->dialog.dismiss());header.addView(back);
@@ -29,6 +29,7 @@ final class MixDialog {
         select.setOnClickListener(v->{selecting[0]=!selecting[0];selected.clear();select.setText(selecting[0]?"Done":"Select");start.setEnabled(!selecting[0]);playlist.setEnabled(!selecting[0]);playlist.setText("Add to playlist");adapter.notifyDataSetChanged();});
         start.setOnClickListener(v->{List<Track> values=picked.get();if(!values.isEmpty()){dialog.dismiss();play.accept(values,0);}});playlist.setOnClickListener(v->{List<Track> values=picked.get();if(!values.isEmpty())add.accept(values);});
         DismissSwipeLayout swipe=new DismissSwipeLayout(activity,dialog::dismiss);swipe.addView(root,new android.widget.FrameLayout.LayoutParams(-1,-1));dialog.setContentView(swipe);dialog.show();dialog.getWindow().setLayout(-1,(int)(activity.getResources().getDisplayMetrics().heightPixels*.88f));
+        return dialog;
     }
     private static int dp(Activity activity,int value){return Math.round(value*activity.getResources().getDisplayMetrics().density);}
     private MixDialog(){}
