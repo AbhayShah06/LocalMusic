@@ -1,7 +1,7 @@
 {
-  "versionCode": 25,
-  "versionName": "0.12.8",
-  "notes": "Reliable autoplay, mix continuation, downloaded copies and playback controls.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.8/LocalMusic-0.12.8.apk",
-  "sha256": "8A703B260726A596E5299E41CB89BBE74C7EEB29A26281D835E6C064A9BACB41"
+  "versionCode": 26,
+  "versionName": "0.12.9",
+  "notes": "Song options + repeat in Now Playing, EQ, live lyrics, scrolling mixes, listening stats and playback fixes.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.9/LocalMusic-0.12.9.apk",
+  "sha256": "9BC33531FB2FAF8CB247A91D6E413F5078E19F89F422694F84AE5F364989E2F0"
 }
