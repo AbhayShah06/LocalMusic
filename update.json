@@ -1,7 +1,7 @@
 {
-  "versionCode": 26,
-  "versionName": "0.12.9",
-  "notes": "Song options + repeat in Now Playing, EQ, live lyrics, scrolling mixes, listening stats and playback fixes.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.9/LocalMusic-0.12.9.apk",
-  "sha256": "9BC33531FB2FAF8CB247A91D6E413F5078E19F89F422694F84AE5F364989E2F0"
+  "versionCode": 27,
+  "versionName": "0.12.10",
+  "notes": "Fix duplicated panels while swiping and stuck dismissals.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.10/LocalMusic-0.12.10.apk",
+  "sha256": "7CAB291DF27BC9F310B43469AC8DF06CE93FD05066C087EE43D2E2B58303D76B"
 }
