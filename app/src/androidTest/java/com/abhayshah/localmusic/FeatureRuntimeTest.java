@@ -189,7 +189,7 @@ public class FeatureRuntimeTest {
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
             MediaController controller=connect();Track seed=fixture("radio-seed"),manual=fixture("radio-manual");List<Track> candidates=new ArrayList<>();
             for(int i=0;i<14;i++)candidates.add(new Track("fixture:radio-"+i,seed.playbackUri,"Radio Song "+i,"Related Artist","Radio"));
-            main(()->{controller.setMediaItem(seed.toMediaItem());controller.prepare();controller.play();});
+            main(()->{controller.setRepeatMode(Player.REPEAT_MODE_OFF);controller.setMediaItem(seed.toMediaItem());controller.prepare();controller.play();});
             context.startService(new Intent(context,PlaybackService.class).setAction(PlaybackService.ACTION_SET_RADIO).putExtra("radio_seed",JamClient.hostCatalog(Collections.singletonList(seed))).putExtra("radio_candidates",JamClient.hostCatalog(candidates)));
             try{
                 await("Initial five recommendations missing",()->value(()->autoplayAhead(controller))==5,20000);
