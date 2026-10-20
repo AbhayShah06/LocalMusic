@@ -23,10 +23,16 @@ final class ForYouDialog {
         Collections.shuffle(unique,new Random(refreshSeed));
         if(!unique.isEmpty()){
             sections.addView(label(activity,"Song mixes",20));
-            sections.addView(rail(activity,unique.subList(0,Math.min(4,unique.size())),track->track.title+" Mix",track->{mix.accept(track,false);}));
+            sections.addView(rail(activity,diverseSeeds(unique,10),track->track.title+" Mix",track->{mix.accept(track,false);}));
 
         }
         return root;
+    }
+    static List<Track> diverseSeeds(List<Track> input,int limit){
+        List<Track> result=new ArrayList<>();Set<String> artists=new HashSet<>(),ids=new HashSet<>();
+        for(Track track:input)if(artists.add(RecordingIdentity.artist(track.artist))&&ids.add(Track.originalId(track.stableId))){result.add(track);if(result.size()>=limit)return result;}
+        for(Track track:input)if(ids.add(Track.originalId(track.stableId))){result.add(track);if(result.size()>=limit)break;}
+        return result;
     }
     private static TextView label(Activity activity,String text,int size){TextView view=new TextView(activity);view.setText(text);view.setTextSize(size);view.setTextColor(0xfff6f1e8);view.setPadding(0,dp(activity,14),0,dp(activity,10));return view;}
     private static View action(Activity activity,String text,Runnable action){TextView view=label(activity,text,16);view.setBackgroundResource(android.R.drawable.list_selector_background);view.setOnClickListener(v->action.run());return view;}

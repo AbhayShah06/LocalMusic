@@ -20,7 +20,7 @@ import java.util.Set;
 /** Fetches lyrics on demand and keeps successful results on this phone. */
 final class LyricsClient {
     static String get(Context context, Track track) {
-        File directory = new File(context.getCacheDir(), "lyrics"), cached = new File(directory, digest(track.stableId) + ".txt");
+        File directory = new File(context.getCacheDir(), "lyrics"), cached = new File(directory, digest(track.stableId) + ".v2.txt");
         String local = read(cached); if (!local.isEmpty()) return local;
         try {
             String cleanTitle = cleanTitle(track.title), cleanArtist = track.artist.replaceAll("(?i)\\s*-\\s*topic$", "").trim();
@@ -41,6 +41,7 @@ final class LyricsClient {
             String best = ""; double bestScore = -1;
             for (int i = 0; i < Math.min(20, results.length()); i++) {
                 JSONObject item = results.getJSONObject(i); String plain = item.optString("plainLyrics", "").trim();
+                String synced=item.optString("syncedLyrics","");if(!artist.isEmpty()&&similarity(artist,item.optString("artistName"))>=.6&&similarity(title,item.optString("trackName"))>=.8&&!TimedLyrics.parse(synced).isEmpty())plain=synced;
                 if (plain.isEmpty()) plain = stripTimestamps(item.optString("syncedLyrics", "")); if (plain.isEmpty()) continue;
                 double score = similarity(title, item.optString("trackName")) * .7 + similarity(artist, item.optString("artistName")) * .3;
                 if (artist.isEmpty()) score = similarity(title, item.optString("trackName"));

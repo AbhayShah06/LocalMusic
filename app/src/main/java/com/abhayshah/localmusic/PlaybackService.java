@@ -137,7 +137,9 @@ public final class PlaybackService extends MediaSessionService {
         player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true);
         trackVolume = new TrackVolume(player, getSharedPreferences("settings", MODE_PRIVATE));
         equalizer = new PlaybackEqualizer(player, getSharedPreferences("settings", MODE_PRIVATE));
-        session = new MediaSession.Builder(this, player).build();
+        android.content.Intent openPlayer=new android.content.Intent(this,MainActivity.class).setFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP|android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP).putExtra("show_now_playing",true);
+        android.app.PendingIntent sessionActivity=android.app.PendingIntent.getActivity(this,42,openPlayer,android.app.PendingIntent.FLAG_UPDATE_CURRENT|android.app.PendingIntent.FLAG_IMMUTABLE);
+        session = new MediaSession.Builder(this, player).setSessionActivity(sessionActivity).build();
         autoplayQueue=new AutoplayQueue(this,player,stateHandler);
         player.addListener(persistenceListener);
         restoreQueue();

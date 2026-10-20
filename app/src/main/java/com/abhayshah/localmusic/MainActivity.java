@@ -38,7 +38,8 @@ public final class MainActivity extends Activity {
     private final java.util.Map<String,android.app.Dialog> panels=new java.util.HashMap<>();
     private boolean panelShowing(String key){android.app.Dialog panel=panels.get(key);return panel!=null&&panel.isShowing();}
     private void rememberPanel(String key,android.app.Dialog panel){panels.put(key,panel);}
-    private boolean lyricsPending;
+    private long lastMixTapAt;
+    private String lastMixTapId="";
     private static final int WINDOW_SIZE = 400;
     private final List<Track> tracks = new ArrayList<>();
     private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -342,6 +343,7 @@ public final class MainActivity extends Activity {
         ((android.widget.ImageButton)findViewById(R.id.playPause)).setImageResource(controller != null && controller.isPlaying() ? R.drawable.ic_pause : R.drawable.ic_play);
         refreshProgress();
         publishJamPlayback();
+        openNotificationPlayer();
     }
 
     private void showNowPlaying() {
@@ -393,6 +395,11 @@ public final class MainActivity extends Activity {
         rememberPanel("player",dialog);dialog.show(); main.post(progressTicker[0]); if (dialog.getWindow() != null) { dialog.getWindow().setLayout(-1, -1); }
     }
 
+    private void openNotificationPlayer(){
+        Intent launch=getIntent();if(launch==null||!launch.getBooleanExtra("show_now_playing",false)||controller==null||controller.getCurrentMediaItem()==null)return;
+        launch.removeExtra("show_now_playing");showNowPlaying();
+    }
+
     private static String formatTime(long milliseconds) {
         if (milliseconds < 0) milliseconds = 0; long seconds = milliseconds / 1000;
         return String.format(java.util.Locale.US, "%d:%02d", seconds / 60, seconds % 60);
@@ -406,20 +413,9 @@ public final class MainActivity extends Activity {
     }
 
     private void showLyrics(Track track) {
-        if(lyricsPending||panelShowing("lyrics"))return;
-        lyricsPending=true;
-        Toast.makeText(this, "Finding lyrics…", Toast.LENGTH_SHORT).show();
-        io.execute(() -> { String lyrics = LyricsClient.get(this, track); main.post(() -> {
-            lyricsPending=false;if(isFinishing()||isDestroyed())return;
-            if (lyrics.isEmpty()) { Toast.makeText(this, "No lyrics found for this version", Toast.LENGTH_LONG).show(); return; }
-            TextView text = new TextView(this); int pad = (int)(22 * getResources().getDisplayMetrics().density);
-            text.setPadding(pad, pad, pad, pad); text.setText(lyrics); text.setTextColor(android.graphics.Color.rgb(246, 241, 232)); text.setTextSize(18); text.setLineSpacing(0, 1.25f); text.setTextIsSelectable(true);
-            android.widget.ScrollView scroll = new android.widget.ScrollView(this); scroll.setBackgroundColor(android.graphics.Color.rgb(11, 11, 12)); scroll.addView(text);
-            android.app.Dialog lyricsDialog = new android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar); lyricsDialog.setContentView(scroll); lyricsDialog.show(); if (lyricsDialog.getWindow() != null) lyricsDialog.getWindow().setLayout(-1, -1);
-            rememberPanel("lyrics",lyricsDialog);installSwipeBack(scroll, lyricsDialog::dismiss);
-        }); });
+        if(panelShowing("lyrics"))return;
+        rememberPanel("lyrics",LyricsPanel.show(this,track,this::currentTrack,()->controller==null?0:controller.getCurrentPosition(),position->{if(controller!=null)controller.seekTo(position);},io,main));
     }
-
     private void showArtistPage(String rawArtist) {
         if(panelShowing("artist"))return;
         String artistName = rawArtist.replaceAll("(?i)\\s*-\\s*topic$", "").trim();
@@ -568,46 +564,12 @@ public final class MainActivity extends Activity {
 
     private final java.util.Map<String,List<Track>> personalMixes = new java.util.HashMap<>();
     private void showSeedMix(Track seed, boolean artistMix) {
-        if(panelShowing("mix-loading")||panelShowing("mix"))return;
-        String name = (artistMix ? seed.artist.replaceAll("(?i)\\s*-\\s*topic$", "").trim() : seed.title) + " Mix";
-        String key = seed.stableId + ":" + artistMix;
-        if (personalMixes.containsKey(key)) { previewPersonalMix(name, personalMixes.get(key)); return; }
-        TextView progress = new TextView(this); progress.setText("Finding related songs…"); progress.setPadding(queueDp(20),queueDp(20),queueDp(20),queueDp(20));
-        AlertDialog loadingMix = new AlertDialog.Builder(this).setTitle(name).setView(progress).setNegativeButton("Cancel", null).show();
-        rememberPanel("mix-loading",loadingMix);
-        streamIo.execute(() -> {
-            List<Track> candidates = new ArrayList<>(); candidates.add(seed);
-            // Known music remains available if discovery cannot reach its source.
-            for (Track track : ListeningHistory.recent(this, 100)) if (artistMix && track.artist.equalsIgnoreCase(seed.artist)) candidates.add(track.original());
-            boolean discoveryAvailable = true;
-            try {
-                OnlineCatalogSource source = onlineSource();
-                Track onlineSeed = seed;
-                if (!seed.stableId.startsWith("online:")) {
-                    List<Track> matches = source.page(seed.artist + " " + seed.title, 0, 5);
-                    if (matches.isEmpty()) throw new IllegalStateException();
-                    onlineSeed = matches.get(0);
-                }
-                candidates.addAll(source.songMix(onlineSeed));
-                if (artistMix) candidates.addAll(source.page(seed.artist, 0, 15));
-            } catch (RuntimeException unavailable) { discoveryAvailable = false; }
-            java.util.Set<String> known = new java.util.HashSet<>(); List<Track> mix = new ArrayList<>();
-            for (Track candidate : candidates) {
-                String identity = RecordingIdentity.title(candidate.title,candidate.artist) + "|" + RecordingIdentity.artist(candidate.artist);
-                if (known.add(identity)) mix.add(candidate.original());
-                if (mix.size() >= 20) break;
-            }
-            boolean available = discoveryAvailable;
-            main.post(() -> {
-                if (isDestroyed() || !loadingMix.isShowing()) return;
-                loadingMix.dismiss();
-                if (!available) Toast.makeText(this,"Discovery is unavailable. Showing known songs.",Toast.LENGTH_LONG).show();
-                else personalMixes.put(key, mix);
-                previewPersonalMix(name, mix);
-            });
+        long now=android.os.SystemClock.elapsedRealtime();if(seed.stableId.equals(lastMixTapId)&&now-lastMixTapAt<900)return;lastMixTapId=seed.stableId;lastMixTapAt=now;
+        playMixTracks(java.util.Collections.singletonList(seed),0);
+        if(!Track.originalId(seed.stableId).startsWith("online:"))streamIo.execute(()->{
+            try{List<Track> matches=onlineSource().page(seed.artist+" "+seed.title,0,5);if(matches.isEmpty())return;Track online=matches.get(0);String serialized=JamClient.hostCatalog(java.util.Collections.singletonList(online));main.post(()->{Track playing=currentTrack();if(!isDestroyed()&&playing!=null&&Track.originalId(playing.stableId).equals(Track.originalId(seed.stableId)))startService(new Intent(this,PlaybackService.class).setAction(PlaybackService.ACTION_SET_RADIO).putExtra("radio_seed",serialized).putExtra("radio_candidates","[]"));});}catch(Exception unavailable){/* The local song keeps playing without discovery. */}
         });
     }
-
     void previewPersonalMix(String name, List<Track> mix) {
         if(isDestroyed()||isFinishing()||panelShowing("mix"))return;
         rememberPanel("mix",MixDialog.show(this,name,mix,this::playMixTracks,this::addTracksToPlaylist,this::showCollectionTrackActions));
@@ -767,7 +729,7 @@ public final class MainActivity extends Activity {
         String text = intent.getStringExtra(Intent.EXTRA_TEXT); if (text != null && !text.trim().isEmpty()) showPlaylistPaste(text);
     }
 
-    @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); handlePlaylistShare(intent); if (intent.getBooleanExtra("show_download_activity", false)) showDownloadActivity(); }
+    @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); handlePlaylistShare(intent); if (intent.getBooleanExtra("show_download_activity", false)) showDownloadActivity(); openNotificationPlayer(); }
 
     private void choosePlaylistFile() {
         Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE)
