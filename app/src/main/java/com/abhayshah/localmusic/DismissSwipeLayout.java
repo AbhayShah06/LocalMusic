@@ -11,9 +11,11 @@ final class DismissSwipeLayout extends FrameLayout {
     DismissSwipeLayout(Context context,Runnable dismiss){super(context);this.dismiss=dismiss;setContentDescription("Dismiss panel");}
     @Override public boolean dispatchTouchEvent(MotionEvent event){
         int action=event.getActionMasked();
-        if(action==MotionEvent.ACTION_DOWN)ignoreTap=WindowTapGuard.ignoreDown(getContext(),getRootView(),event);
+        if(action==MotionEvent.ACTION_DOWN){ignoreTap=WindowTapGuard.ignoreDown(getContext(),getRootView(),event);x=event.getRawX();y=event.getRawY();}
+        if(WindowTapGuard.moved(getContext(),x,y,event))ignoreTap=false;
         WindowTapGuard.recordUp(getContext(),getRootView(),event);
-        if(ignoreTap){if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL)ignoreTap=false;return true;}
+        if(ignoreTap&&action==MotionEvent.ACTION_UP){ignoreTap=false;MotionEvent cancel=MotionEvent.obtain(event);cancel.setAction(MotionEvent.ACTION_CANCEL);super.dispatchTouchEvent(cancel);cancel.recycle();return true;}
+        if(action==MotionEvent.ACTION_CANCEL)ignoreTap=false;
         if(closing)return true;
         if(action==MotionEvent.ACTION_DOWN){moving=getRootView();moving.animate().cancel();moving.setTranslationX(0);x=event.getRawX();y=event.getRawY();dragging=false;blocked=protectedTarget(this,event.getX(),event.getY());}
         if(event.getPointerCount()!=1){blocked=true;if(dragging){dragging=false;restore();return true;}}
@@ -42,6 +44,7 @@ final class DismissSwipeLayout extends FrameLayout {
     @Override protected void onDetachedFromWindow(){if(moving!=null){moving.animate().cancel();moving.setTranslationX(0);}super.onDetachedFromWindow();}
     private boolean protectedTarget(View view,float x,float y){
         if(view instanceof SeekBar||view instanceof EditText||view instanceof HorizontalScrollView||view instanceof CompoundButton||view.canScrollHorizontally(-1)||view.canScrollHorizontally(1))return true;
+        if(view instanceof TextView&&((TextView)view).isTextSelectable())return true;
         if(view.getContentDescription()!=null&&view.getContentDescription().toString().startsWith("Reorder "))return true;
         if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=group.getChildCount()-1;i>=0;i--){View child=group.getChildAt(i);float cx=x+view.getScrollX()-child.getLeft(),cy=y+view.getScrollY()-child.getTop();if(child.getVisibility()==VISIBLE&&cx>=0&&cy>=0&&cx<child.getWidth()&&cy<child.getHeight())return protectedTarget(child,cx,cy);}}
         return false;

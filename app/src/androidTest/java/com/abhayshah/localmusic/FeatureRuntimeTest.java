@@ -153,7 +153,7 @@ public class FeatureRuntimeTest {
             waitForText("Test Song navigation");
             for(int round=0;round<2;round++){
                 onView(withId(R.id.playlists)).perform(click());androidx.test.espresso.Espresso.pressBack();onView(withId(R.id.songs)).perform(click());waitForText("Test Song navigation");
-                onView(withId(R.id.albums)).perform(click());waitForText("Fixtures · Runtime Test");onView(withId(R.id.songs)).perform(click());waitForText("Test Song navigation");
+                onView(withId(R.id.albums)).perform(click());waitForText("Fixtures Â· Runtime Test");onView(withId(R.id.songs)).perform(click());waitForText("Test Song navigation");
                 onView(withId(R.id.forYou)).perform(click());onView(withId(R.id.songs)).perform(click());waitForText("Test Song navigation");
                 onView(withId(R.id.source)).perform(click());onView(withText("Stream online")).perform(click());
                 onView(withId(R.id.source)).perform(click());onView(withText("This phone")).perform(click());waitForText("Test Song navigation");
@@ -173,7 +173,7 @@ public class FeatureRuntimeTest {
     @Test public void h_feedbackAndNotificationActionsDoNotTrapNavigation()throws Exception{
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
             onView(withId(R.id.more)).perform(click());onView(withText("Settings")).perform(click());AudioExperienceTest.waitPanel("Track normalization");
-            onView(withText(org.hamcrest.Matchers.startsWith("Feedback"))).perform(scrollTo(),click());onView(withText("Copy email address")).perform(click());
+            new AudioExperienceTest().settingsAction("Feedback");AudioExperienceTest.waitPanel("Copy email address");android.os.SystemClock.sleep(320);onView(withText("Copy email address")).perform(click());
             assertEquals(FeedbackDraft.EMAIL,value(()->context.getSystemService(android.content.ClipboardManager.class).getPrimaryClip().getItemAt(0).getText().toString()));
             onView(withText("Settings")).check(doesNotExist());onView(withId(R.id.forYou)).perform(click());onView(withText("Recently played")).check(matches(isDisplayed()));
             Track track=fixture("notification-cancel");DownloadTasks.put(context,track,"queued",0,-1,"");
@@ -209,11 +209,11 @@ public class FeatureRuntimeTest {
         String name="QA Selection "+System.nanoTime();
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
             MediaController controller=connect();main(()->{controller.setShuffleModeEnabled(true);controller.setRepeatMode(Player.REPEAT_MODE_ALL);});
-            activity.onActivity(a->a.previewPersonalMix("Collection Mix",songs));onView(withText("Save playlist")).inRoot(focusedDialog()).check(doesNotExist());onView(withText("Play")).inRoot(focusedDialog()).perform(click());
+            activity.onActivity(a->a.previewPersonalMix("Collection Mix",songs));android.os.SystemClock.sleep(320);onView(withText("Save playlist")).inRoot(focusedDialog()).check(doesNotExist());onView(withText("Play")).inRoot(focusedDialog()).perform(click());
             await("Mix did not start",()->value(()->controller.getMediaItemCount()==6&&controller.getCurrentMediaItem().mediaId.equals(songs.get(0).stableId)),15000);
             for(int n=0;n<6;n++){int index=n;assertEquals(songs.get(n).stableId,value(()->controller.getMediaItemAt(index).mediaId));}
             assertFalse(value(controller::getShuffleModeEnabled));assertEquals(Integer.valueOf(Player.REPEAT_MODE_OFF),value(controller::getRepeatMode));
-            activity.onActivity(a->a.previewPersonalMix("Collection Mix",songs));onView(withText("Select")).inRoot(focusedDialog()).perform(click());
+            activity.onActivity(a->a.previewPersonalMix("Collection Mix",songs));android.os.SystemClock.sleep(320);onView(withText("Select")).inRoot(focusedDialog()).perform(click());
             for(int index:new int[]{1,3,4})onView(withContentDescription("Select Collection Song "+index)).inRoot(focusedDialog()).perform(click());
             onView(withText("Add 3 to playlist")).inRoot(focusedDialog()).perform(click());onView(withText("+ New playlist")).inRoot(focusedDialog()).perform(click());onView(isAssignableFrom(android.widget.EditText.class)).inRoot(focusedDialog()).perform(typeText(name),androidx.test.espresso.action.ViewActions.closeSoftKeyboard());onView(withText("Add")).inRoot(focusedDialog()).perform(click());
             org.json.JSONArray saved=new org.json.JSONArray(context.getSharedPreferences("library",0).getString("playlist_order:"+name,"[]"));assertEquals(3,saved.length());

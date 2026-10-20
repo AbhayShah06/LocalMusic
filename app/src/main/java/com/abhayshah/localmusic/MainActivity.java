@@ -35,7 +35,8 @@ import java.util.concurrent.Executors;
 @androidx.media3.common.util.UnstableApi
 public final class MainActivity extends Activity {
     private boolean ignoreWindowTap;
-    @Override public boolean dispatchTouchEvent(android.view.MotionEvent event){if(event.getActionMasked()==android.view.MotionEvent.ACTION_DOWN)ignoreWindowTap=WindowTapGuard.ignoreDown(this,getWindow().getDecorView(),event);WindowTapGuard.recordUp(this,getWindow().getDecorView(),event);if(ignoreWindowTap){if(event.getActionMasked()==android.view.MotionEvent.ACTION_UP||event.getActionMasked()==android.view.MotionEvent.ACTION_CANCEL)ignoreWindowTap=false;return true;}return super.dispatchTouchEvent(event);}
+    private float windowTouchX,windowTouchY;
+    @Override public boolean dispatchTouchEvent(android.view.MotionEvent event){if(event.getActionMasked()==android.view.MotionEvent.ACTION_DOWN){ignoreWindowTap=WindowTapGuard.ignoreDown(this,getWindow().getDecorView(),event);windowTouchX=event.getRawX();windowTouchY=event.getRawY();}if(WindowTapGuard.moved(this,windowTouchX,windowTouchY,event))ignoreWindowTap=false;WindowTapGuard.recordUp(this,getWindow().getDecorView(),event);if(ignoreWindowTap&&event.getActionMasked()==android.view.MotionEvent.ACTION_UP){ignoreWindowTap=false;android.view.MotionEvent cancel=android.view.MotionEvent.obtain(event);cancel.setAction(android.view.MotionEvent.ACTION_CANCEL);super.dispatchTouchEvent(cancel);cancel.recycle();return true;}if(event.getActionMasked()==android.view.MotionEvent.ACTION_CANCEL)ignoreWindowTap=false;return super.dispatchTouchEvent(event);}
     private static final int PAGE_SIZE = 100;
     private final java.util.Map<String,android.app.Dialog> panels=new java.util.HashMap<>();
     private boolean panelShowing(String key){android.app.Dialog panel=panels.get(key);return panel!=null&&panel.isShowing();}
@@ -399,7 +400,7 @@ public final class MainActivity extends Activity {
 
     private void openNotificationPlayer(){
         Intent launch=getIntent();if(launch==null||!launch.getBooleanExtra("show_now_playing",false)||controller==null||controller.getCurrentMediaItem()==null)return;
-        launch.removeExtra("show_now_playing");showNowPlaying();
+        launch.removeExtra("show_now_playing");AppDialogBuilder.dismissAll(this);android.app.Dialog player=panels.get("player");for(android.app.Dialog panel:new java.util.ArrayList<>(panels.values()))if(panel!=player&&panel.isShowing())panel.dismiss();showNowPlaying();
     }
 
     private static String formatTime(long milliseconds) {
