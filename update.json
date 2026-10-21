@@ -1,7 +1,7 @@
 {
-  "versionCode": 27,
-  "versionName": "0.12.10",
-  "notes": "Fix duplicated panels while swiping and stuck dismissals.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.10/LocalMusic-0.12.10.apk",
-  "sha256": "7CAB291DF27BC9F310B43469AC8DF06CE93FD05066C087EE43D2E2B58303D76B"
+  "versionCode": 28,
+  "versionName": "0.12.11",
+  "notes": "Better song search, simpler imports and exportable offline music.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.11/LocalMusic-0.12.11.apk",
+  "sha256": "BEED78071D50564C94971B99F2654306BED3B41370E4B4A2CF8EB212A998EC5F"
 }
