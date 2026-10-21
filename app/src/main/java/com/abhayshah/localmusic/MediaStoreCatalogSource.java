@@ -12,8 +12,10 @@ final class MediaStoreCatalogSource implements CatalogSource {
     private static final String[] COLUMNS = {MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE,
             MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM, MediaStore.Audio.Media.ALBUM_ID};
     private final ContentResolver resolver;
+    private final java.util.Set<String> excluded;
 
-    MediaStoreCatalogSource(ContentResolver resolver) { this.resolver = resolver; }
+    MediaStoreCatalogSource(ContentResolver resolver) { this(resolver,java.util.Collections.emptySet()); }
+    MediaStoreCatalogSource(ContentResolver resolver,java.util.Set<String> excluded) { this.resolver=resolver;this.excluded=excluded; }
 
     @Override public List<Track> page(String query, int offset, int limit) {
         List<Track> result = new ArrayList<>();
@@ -22,6 +24,9 @@ final class MediaStoreCatalogSource implements CatalogSource {
         args.putInt(ContentResolver.QUERY_ARG_LIMIT, Math.max(1, Math.min(limit, 200)));
         args.putInt(ContentResolver.QUERY_ARG_OFFSET, Math.max(0, offset));
         String selection = MediaStore.Audio.Media.IS_MUSIC + " != 0";
+        java.util.List<String> ids=new java.util.ArrayList<>();
+        for(String uri:excluded)try{ids.add(String.valueOf(android.content.ContentUris.parseId(android.net.Uri.parse(uri))));}catch(RuntimeException ignored){}
+        if(!ids.isEmpty())selection+=" AND _id NOT IN ("+String.join(",",ids)+")";
         String[] selectionArgs = null;
         String term = query == null ? "" : query.trim();
         if (!term.isEmpty()) {

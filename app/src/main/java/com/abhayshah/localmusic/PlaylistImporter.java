@@ -18,7 +18,8 @@ final class PlaylistImporter {
         Result(String name,List<Track> tracks,int missed) {this.name=name;this.tracks=tracks;this.missed=missed;}
     }
     private final ContentResolver resolver;
-    PlaylistImporter(ContentResolver resolver) {this.resolver=resolver;}
+    private final android.content.Context context;
+    PlaylistImporter(android.content.Context context) {this.context=context.getApplicationContext();this.resolver=context.getContentResolver();}
     Result importFile(Uri uri,Progress progress) throws Exception {
         String name="Imported playlist";
         try(Cursor c=resolver.query(uri,new String[]{OpenableColumns.DISPLAY_NAME},null,null,null)) {
@@ -37,16 +38,16 @@ final class PlaylistImporter {
         OnlineCatalogSource online=new OnlineCatalogSource();
         for(PlaylistText.Song song:wanted) {
             if(!progress.update(done,wanted.size()))throw new java.util.concurrent.CancellationException();
-            Track best=match(song,library.getOrDefault(normalize(song.title),Collections.emptyList()));
+            Track best=match(song,library.getOrDefault(normalize(RecordingIdentity.title(song.title,song.artist)),Collections.emptyList()));
             if(best==null) try {best=match(song,online.page(song.artist+" "+song.title,0,8));}catch(RuntimeException ignored){}
             if(best==null)missed++;else if(seen.add(best.stableId))found.add(best);done++;
         }
         progress.update(done,wanted.size());return new Result(name,found,missed);
     }
     private static Track match(PlaylistText.Song song,List<Track> candidates) {
-        String title=normalize(song.title),artist=normalize(song.artist);
+        String title=normalize(RecordingIdentity.title(song.title,song.artist)),artist=normalize(song.artist);
         for(Track candidate:candidates) {
-            String actualTitle=normalize(candidate.title),actualArtist=normalize(candidate.artist);
+            String actualTitle=normalize(RecordingIdentity.title(candidate.title,candidate.artist)),actualArtist=normalize(candidate.artist);
             boolean titleMatches=actualTitle.equals(title)||actualTitle.equals(artist+" "+title);
             boolean artistMatches=artist.isEmpty()||actualArtist.equals(artist)||actualArtist.contains(artist)||artist.contains(actualArtist);
             if(titleMatches && artistMatches)return candidate;
@@ -55,9 +56,10 @@ final class PlaylistImporter {
     }
     private Map<String,List<Track>> localLibrary() {
         Map<String,List<Track>> result=new HashMap<>();
+        for(Track track:DownloadStore.all(context))result.computeIfAbsent(normalize(RecordingIdentity.title(track.title,track.artist)),k->new ArrayList<>()).add(track);
         String[] cols={MediaStore.Audio.Media._ID,MediaStore.Audio.Media.TITLE,MediaStore.Audio.Media.ARTIST,MediaStore.Audio.Media.ALBUM,MediaStore.Audio.Media.ALBUM_ID};
         try(Cursor c=resolver.query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,cols,MediaStore.Audio.Media.IS_MUSIC+" != 0",null,null)) {
-            if(c!=null)while(c.moveToNext()) {Track track=new Track(c.getLong(0),c.getString(1),c.getString(2),c.getString(3),c.getLong(4));result.computeIfAbsent(normalize(track.title),k->new ArrayList<>()).add(track);}
+            if(c!=null)while(c.moveToNext()) {Track track=new Track(c.getLong(0),c.getString(1),c.getString(2),c.getString(3),c.getLong(4));result.computeIfAbsent(normalize(RecordingIdentity.title(track.title,track.artist)),k->new ArrayList<>()).add(track);}
         }catch(SecurityException ignored) { /* Online matching works without library permission. */ }
         return result;
     }

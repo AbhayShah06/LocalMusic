@@ -9,6 +9,7 @@ final class RecordingIdentity {
         String value=title.replaceAll("(?i)[\\[(](?:official\\s+)?(?:audio|music video|video|lyrics?|explicit|visuali[sz]er)(?:\\s+version)?[\\])]","")
                 .replaceAll("(?i)\\b(?:official audio|official music video|official video|lyrics video)\\b","").trim();
         String[] split=value.split("\\s[-–—]\\s",2);if(split.length==2&&artist(split[0]).equals(artist(artist)))value=split[1];
+        value=value.replaceAll("(?i)\\s+[\\[(]?(?:feat\\.?|ft\\.?)\\s+.*$","").trim();
         return words(value);
     }
     static boolean same(String title,String artist,String otherTitle,String otherArtist){

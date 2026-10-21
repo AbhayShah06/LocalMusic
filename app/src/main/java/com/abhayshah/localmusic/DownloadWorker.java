@@ -43,7 +43,7 @@ public final class DownloadWorker extends Worker {
             try{Files.move(temporary.toPath(),output.toPath(),StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);}catch(AtomicMoveNotSupportedException unsupported){Files.move(temporary.toPath(),output.toPath(),StandardCopyOption.REPLACE_EXISTING);}
             DownloadStore.put(context,source,output);if(!DownloadStore.contains(context,source.stableId))throw new IOException("Could not save download index");
             new File(temporary.getPath()+".httpmeta").delete();
-            DownloadTasks.put(context,source,"completed",output.length(),output.length(),"");return Result.success();
+            DownloadTasks.put(context,source,"completed",output.length(),output.length(),"");if(context.getSharedPreferences("settings",0).getBoolean("export_music",true))MusicExportWorker.enqueue(context,source.stableId);return Result.success();
         }catch(Exception failure){
             org.json.JSONObject existing=DownloadTasks.get(context,source.stableId);
             if(existing!=null&&"cancelled".equals(existing.optString("state"))){temporary.delete();new File(temporary.getPath()+".httpmeta").delete();return Result.failure();}

@@ -52,7 +52,7 @@ final class OnlineCatalogSource implements CatalogSource {
     }
 
     @Override public List<Track> page(String query, int offset, int limit) {
-        if (query == null || query.trim().isEmpty() || offset > 0) return Collections.emptyList();
+        if (query == null || query.trim().isEmpty() || offset > 0 || Thread.currentThread().isInterrupted()) return Collections.emptyList();
         String cacheKey = query.trim().toLowerCase(java.util.Locale.ROOT) + "|" + avoidCleanVersions;
         synchronized (SEARCHED) {
             CachedSearch cached = SEARCHED.get(cacheKey);
@@ -61,20 +61,22 @@ final class OnlineCatalogSource implements CatalogSource {
         }
         List<Track> tracks = new ArrayList<>();
         searchCloud(query.trim(), tracks, limit);
+        if(Thread.currentThread().isInterrupted())return Collections.emptyList();
         tracks.removeIf(track -> isUnwantedTitle(track.title, query));
-        if (tracks.size() < Math.min(8, limit)) search(ServiceList.YouTube, query.trim(), tracks, limit);
+        // Music-only search can omit an original while returning dozens of covers.
+        // Always merge a bounded general-audio search; count alone is not evidence of a match.
+        search(ServiceList.YouTube, query.trim(), tracks, tracks.size()+Math.min(35,limit), false);
+        tracks.removeIf(track -> isUnwantedTitle(track.title, query));
         if (tracks.size() < Math.min(8, limit)) search(ServiceList.SoundCloud, query.trim(), tracks, limit);
+        tracks.sort((left,right)->Integer.compare(SearchPolicy.rank(right.title,right.artist,query),SearchPolicy.rank(left.title,left.artist,query)));
         List<Track> unique = new ArrayList<>(); Set<String> identities = new HashSet<>();
         for (Track track : tracks) { String identity = identity(track.title) + "|" + identity(track.artist); if (!identity.trim().equals("|") && identities.add(identity)) unique.add(track); }
-        synchronized (SEARCHED) { SEARCHED.put(cacheKey, new CachedSearch(new ArrayList<>(unique))); }
+        if(!unique.isEmpty()&&!Thread.currentThread().isInterrupted())synchronized (SEARCHED) { SEARCHED.put(cacheKey, new CachedSearch(new ArrayList<>(unique))); }
         return new ArrayList<>(unique.subList(0, Math.min(limit, unique.size())));
     }
 
     private boolean isUnwantedTitle(String value, String query) {
-        String title = value.toLowerCase(java.util.Locale.ROOT), wanted = query.toLowerCase(java.util.Locale.ROOT);
-        String[] spoken = {"reaction", "interview", "podcast", "documentary", "news", "trailer", "review", "explained"};
-        for (String term : spoken) if (title.contains(term) && !wanted.contains(term)) return true;
-        return VersionPolicy.isMusicVideo(value) || avoidCleanVersions && VersionPolicy.exclude(value,query);
+        return SearchPolicy.unwanted(value,query,avoidCleanVersions);
     }
 
     /** Music-specific cloud search is faster and avoids general-video false negatives. */
@@ -86,7 +88,7 @@ final class OnlineCatalogSource implements CatalogSource {
             connection.setConnectTimeout(5_000); connection.setReadTimeout(8_000); connection.setRequestProperty("User-Agent", "LocalMusic/0.12");
             if (connection.getResponseCode() != 200) return;
             try (InputStream input = connection.getInputStream(); ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
-                byte[] buffer = new byte[8192]; for (int read; (read = input.read(buffer)) >= 0; ) bytes.write(buffer, 0, read);
+                byte[] buffer = new byte[8192]; for (int read; (read = input.read(buffer)) >= 0; ) {if(Thread.currentThread().isInterrupted())throw new java.io.InterruptedIOException("Search cancelled");if(bytes.size()+read>1024*1024)throw new java.io.IOException("Search response too large");bytes.write(buffer, 0, read);}
                 JSONArray values = new JSONObject(bytes.toString("UTF-8")).optJSONArray("tracks");
                 if (values == null) return;
                 Set<String> known = new HashSet<>(); for (Track track : output) known.add(track.stableId);
@@ -102,8 +104,11 @@ final class OnlineCatalogSource implements CatalogSource {
     }
 
     private void search(StreamingService service, String query, List<Track> output, int limit) {
+        search(service,query,output,limit,true);
+    }
+    private void search(StreamingService service, String query, List<Track> output, int limit,boolean musicOnly) {
         try {
-            List<String> filters=service==ServiceList.YouTube?Collections.singletonList(org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory.MUSIC_SONGS):Collections.emptyList();
+            List<String> filters=service==ServiceList.YouTube?Collections.singletonList(musicOnly?org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory.MUSIC_SONGS:org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory.VIDEOS):Collections.emptyList();
             SearchInfo result = SearchInfo.getInfo(service, service.getSearchQHFactory().fromQuery(query, filters, ""));
             List<StreamInfoItem> candidates = new ArrayList<>();
             for (InfoItem item : result.getRelatedItems()) if (item instanceof StreamInfoItem) candidates.add((StreamInfoItem) item);
@@ -133,13 +138,8 @@ final class OnlineCatalogSource implements CatalogSource {
     }
 
     private boolean isUnwantedVersion(StreamInfoItem item, String query) {
-        String title = item.getName().toLowerCase(java.util.Locale.ROOT);
-        String wanted = query.toLowerCase(java.util.Locale.ROOT);
         if (item.getDuration() > 15 * 60 || (item.getDuration() > 0 && item.getDuration() < 45)) return true;
-        String[] variants = {"instrumental", "karaoke", "reaction", "nightcore", "slowed", "sped up", "live", "remix", "interview", "podcast", "documentary", "news", "trailer", "review", "explained"};
-        for (String variant : variants) if (title.contains(variant) && !wanted.contains(variant)) return true;
-        if (avoidCleanVersions && VersionPolicy.exclude(item.getName(),query)) return true;
-        return VersionPolicy.isMusicVideo(item.getName());
+        return SearchPolicy.unwanted(item.getName(),query,avoidCleanVersions);
     }
 
     private static boolean isLikelySong(StreamInfoItem item, String seedArtist) {

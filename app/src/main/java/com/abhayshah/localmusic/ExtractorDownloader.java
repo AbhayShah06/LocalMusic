@@ -20,7 +20,9 @@ final class ExtractorDownloader extends Downloader {
     private static final String USER_AGENT = "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/131 Mobile Safari/537.36";
 
     @Override public Response execute(Request request) throws IOException, ReCaptchaException {
+        if(Thread.currentThread().isInterrupted())throw new java.io.InterruptedIOException("Request cancelled");
         HttpURLConnection connection = (HttpURLConnection) new URL(request.url()).openConnection();
+        try {
         connection.setConnectTimeout(10_000);
         connection.setReadTimeout(18_000);
         connection.setInstanceFollowRedirects(true);
@@ -39,14 +41,14 @@ final class ExtractorDownloader extends Downloader {
         InputStream input = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
         String responseBody = input == null ? "" : readAll(input);
         Response response = new Response(code, connection.getResponseMessage(), connection.getHeaderFields(), responseBody, connection.getURL().toString());
-        connection.disconnect();
         return response;
+        }finally{connection.disconnect();}
     }
 
     private static String readAll(InputStream input) throws IOException {
         try (InputStream stream = input; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[16_384];
-            for (int read; (read = stream.read(buffer)) >= 0; ) output.write(buffer, 0, read);
+            for (int read; (read = stream.read(buffer)) >= 0; ) {if(Thread.currentThread().isInterrupted())throw new java.io.InterruptedIOException("Request cancelled");if(output.size()+read>16*1024*1024)throw new IOException("Response too large");output.write(buffer, 0, read);}
             return output.toString(StandardCharsets.UTF_8.name());
         }
     }

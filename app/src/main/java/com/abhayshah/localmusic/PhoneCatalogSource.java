@@ -19,7 +19,7 @@ final class PhoneCatalogSource implements CatalogSource {
         if(start<downloads.size())result.addAll(downloads.subList(start,Math.min(downloads.size(),start+count)));
         String permission=Build.VERSION.SDK_INT>=33?Manifest.permission.READ_MEDIA_AUDIO:Manifest.permission.READ_EXTERNAL_STORAGE;
         if(result.size()<count&&context.checkSelfPermission(permission)==PackageManager.PERMISSION_GRANTED)
-            result.addAll(new MediaStoreCatalogSource(context.getContentResolver()).page(query,Math.max(0,start-downloads.size()),count-result.size()));
+            result.addAll(new MediaStoreCatalogSource(context.getContentResolver(),MusicExportWorker.exportedUris(context)).page(query,Math.max(0,start-downloads.size()),count-result.size()));
         return result;
     }
 }

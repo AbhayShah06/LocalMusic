@@ -46,7 +46,8 @@ public final class MainActivity extends Activity {
     private static final int WINDOW_SIZE = 400;
     private final List<Track> tracks = new ArrayList<>();
     private final ExecutorService io = Executors.newSingleThreadExecutor();
-    private final ExecutorService searchIo = Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.ThreadPoolExecutor searchIo = (java.util.concurrent.ThreadPoolExecutor)Executors.newFixedThreadPool(2);
+    private java.util.concurrent.Future<?> pageSearch;
     private final ExecutorService streamIo = Executors.newFixedThreadPool(5);
     private final ExecutorService jamSyncIo = Executors.newSingleThreadExecutor();
     private final ExecutorService jamSearchIo = Executors.newFixedThreadPool(3);
@@ -68,6 +69,7 @@ public final class MainActivity extends Activity {
     private boolean remoteMode;
     private boolean b2Mode;
     private boolean onlineMode;
+    private OfflinePrompt offlinePrompt;
     private ServerSettings serverSettings;
     private B2Settings b2Settings;
     private String query = "";
@@ -148,6 +150,9 @@ public final class MainActivity extends Activity {
         showForYou();
         handlePlaylistShare(getIntent());
         if (getIntent().getBooleanExtra("show_download_activity",false)) showDownloadActivity();
+        offlinePrompt=new OfflinePrompt(this,()->onlineMode,this::useDownloadedMusic);
+        android.content.SharedPreferences exports=getSharedPreferences("music_exports",0);
+        if(Build.VERSION.SDK_INT>=29&&!exports.getBoolean("migration_requested",false)&&getSharedPreferences("settings",0).getBoolean("export_music",true))io.execute(()->{MusicExportWorker.enqueue(getApplicationContext());exports.edit().putBoolean("migration_requested",true).apply();});
     }
 
     private void connect() {
@@ -169,8 +174,8 @@ public final class MainActivity extends Activity {
         main.postDelayed(this::connect, 300);
     }
 
-    @Override public void onStart() { super.onStart(); if (controller == null) connect(); }
-    @Override public void onStop() { ticker.removeCallbacksAndMessages(null); if (activeJam == null) { if (controller != null) controller.removeListener(uiPlayerListener); if (controllerFuture != null) MediaController.releaseFuture(controllerFuture); controller = null; controllerFuture = null; } super.onStop(); }
+    @Override public void onStart() { super.onStart(); if (controller == null) connect();if(offlinePrompt!=null)offlinePrompt.start(); }
+    @Override public void onStop() { if(offlinePrompt!=null)offlinePrompt.stop();ticker.removeCallbacksAndMessages(null); if (activeJam == null) { if (controller != null) controller.removeListener(uiPlayerListener); if (controllerFuture != null) MediaController.releaseFuture(controllerFuture); controller = null; controllerFuture = null; } super.onStop(); }
 
     @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(request, permissions, results);
@@ -180,6 +185,7 @@ public final class MainActivity extends Activity {
                 requestNotificationPermissionIfNeeded();
             } else showPermissionPanel(true);
         }
+        if(request==15&&Build.VERSION.SDK_INT<29&&checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)==PackageManager.PERMISSION_GRANTED)MusicExportWorker.enqueue(this);
     }
 
     @Override protected void onResume() { super.onResume(); refreshPermissionState(); UpdateManager.refresh(this,findViewById(R.id.root),false); }
@@ -232,6 +238,7 @@ public final class MainActivity extends Activity {
     private boolean libraryPaged = true;
     private int libraryGeneration;
     private void resetAndLoad() {
+        if(pageSearch!=null)pageSearch.cancel(true);searchIo.purge();
         libraryGeneration++; libraryPaged=true;
         offset = 0; exhausted = false; loading = false; tracks.clear(); adapter.clear();
         loadNextPage();
@@ -243,7 +250,7 @@ public final class MainActivity extends Activity {
         int generation=libraryGeneration; boolean pageOnline=onlineMode,pageB2=b2Mode,pageRemote=remoteMode;
         int pageOffset = offset;
         String pageQuery = query;
-        searchIo.execute(() -> {
+        pageSearch=searchIo.submit(() -> {
             List<Track> page;
             try { page = pageOnline ? onlineSource().page(pageQuery, pageOffset, PAGE_SIZE) : pageB2 ? new B2CatalogClient(b2Settings).page(pageQuery, pageOffset, PAGE_SIZE) : pageRemote ? new OpenSubsonicClient(serverSettings).page(pageQuery, pageOffset, PAGE_SIZE) : new PhoneCatalogSource(this).page(pageQuery, pageOffset, PAGE_SIZE); }
             catch (RuntimeException error) { main.post(() -> { if(generation!=libraryGeneration||isDestroyed())return; loading = false; status.setText("Could not reach this music source. Check its connection settings."); }); return; }
@@ -525,6 +532,8 @@ public final class MainActivity extends Activity {
         content.addView(settingsAction("Check for updates", "LocalMusic " + BuildConfig.VERSION_NAME, () -> UpdateManager.refresh(this,findViewById(R.id.root),true)));
         content.addView(settingsAction("GitHub releases", "", () -> { try { startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/AbhayShah06/LocalMusic/releases/latest"))); } catch (android.content.ActivityNotFoundException missing) { Toast.makeText(this,"No browser available. Install a browser to open releases.",Toast.LENGTH_SHORT).show(); } }));
         content.addView(settingsAction("Offline downloads", formatBytes(downloads) + " saved permanently", this::loadDownloads));
+        android.widget.Switch musicFolder=settingsSwitch("Save copies in Music/LocalMusic","Make downloads available outside the app",prefs.getBoolean("export_music",true));musicFolder.setOnCheckedChangeListener((button,checked)->{prefs.edit().putBoolean("export_music",checked).apply();if(checked)MusicExportWorker.enqueue(this);});content.addView(musicFolder);
+        content.addView(settingsAction("Export downloads",MusicExportWorker.status(this),()->{if(Build.VERSION.SDK_INT<29&&checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},15);return;}MusicExportWorker.enqueue(this);Toast.makeText(this,"Saving downloads to Music/LocalMusic",Toast.LENGTH_SHORT).show();}));
         content.addView(settingsAction("Clear temporary cache", formatBytes(streams + artwork) + " of streams and artwork. Downloads stay.", () -> {
             PlaybackCache.clear(); ArtworkLoader.clear(this); LyricsClient.clear(this);
             Toast.makeText(this, "Temporary cache cleared", Toast.LENGTH_SHORT).show();
@@ -630,6 +639,11 @@ public final class MainActivity extends Activity {
         status.setText(found.isEmpty() ? "No offline downloads yet" : found.size() + " downloads · " + Math.max(1, DownloadStore.bytes(this) / (1024 * 1024)) + " MB");
     }
 
+    private void useDownloadedMusic(){
+        onlineMode=false;remoteMode=false;b2Mode=false;query="";search.setText("");searchHandler.removeCallbacksAndMessages(null);
+        ((TextView)findViewById(R.id.source)).setText("This phone  ▾");permissionPanel.setVisibility(View.GONE);findViewById(R.id.tracks).setVisibility(View.VISIBLE);loadDownloads();
+    }
+
     private void startJam() {
         if (activeJam != null) { showJam(activeJam); return; }
         status.setText("PREPARING JAM");
@@ -692,20 +706,18 @@ public final class MainActivity extends Activity {
     private boolean importingPlaylist;
 
     private void showImportOptions() {
-        new AppDialogBuilder(this).setTitle("Import a playlist").setItems(new String[]{"Paste YouTube / SoundCloud playlist link", "Choose Spotify / Apple Music CSV or M3U", "Paste song names"}, (dialog, which) -> {
-            if (which == 1) choosePlaylistFile(); else showPlaylistPaste("");
-        }).setNegativeButton("Cancel", null).show();
+        showPlaylistPaste("");
     }
 
     private void showPlaylistPaste(String initial) {
         EditText input = new EditText(this); input.setHint("Public playlist link, or one Artist - Song per line"); input.setMinLines(4); input.setText(initial);
-        new AppDialogBuilder(this).setTitle("Import playlist").setMessage("YouTube / SoundCloud link, or Spotify / Apple Music track list.").setView(input)
+        new AppDialogBuilder(this).setTitle("Import playlist").setMessage("Paste a YouTube / SoundCloud link or songs. For Spotify / Apple Music, choose a CSV or M3U export.").setView(input)
             .setPositiveButton("Import", (dialog, which) -> {
                 String text = input.getText().toString().trim();
                 if (text.isEmpty()) return;
                 java.util.regex.Matcher link = java.util.regex.Pattern.compile("https?://[^\\s<>]+", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(text);
                 if (link.find()) { String url = link.group(); runPlaylistImport(progress -> new OnlineCatalogSource().importPlaylist(url, progress)); }
-                else runPlaylistImport(progress -> new PlaylistImporter(getContentResolver()).importText("Imported playlist", text, progress));
+                else runPlaylistImport(progress -> new PlaylistImporter(this).importText("Imported playlist", text, progress));
             }).setNeutralButton("Choose file", (dialog, which) -> choosePlaylistFile()).setNegativeButton("Cancel", null).show();
     }
 
@@ -726,9 +738,7 @@ public final class MainActivity extends Activity {
                     importingPlaylist = false; dialog.dismiss();
                     if (importCancelled.get() || isDestroyed()) return;
                     if (result.tracks.isEmpty()) { new AppDialogBuilder(this).setTitle("No matching tracks").setMessage("No songs could be matched. Check the artist/title columns or try a public playlist link.").setPositiveButton("OK", null).show(); return; }
-                    EditText name = new EditText(this); name.setText(result.name);
-                    new AppDialogBuilder(this).setTitle("Save imported playlist").setMessage(result.tracks.size() + " songs ready" + (result.missed > 0 ? " · " + result.missed + " could not be matched" : "") + ". Order is preserved; existing playlists will not be replaced.").setView(name)
-                        .setPositiveButton("Save", (d, w) -> saveImportedPlaylist(name.getText().toString(), result.tracks)).setNegativeButton("Cancel", null).show();
+                    saveImportedPlaylist(result.name,result.tracks,result.missed);
                 });
             } catch (Exception error) {
                 main.post(() -> { importingPlaylist = false; dialog.dismiss(); if (!importCancelled.get() && !isDestroyed()) new AppDialogBuilder(this).setTitle("Could not import playlist").setMessage(error.getMessage() == null ? "Try a public playlist link, a CSV/M3U export, or pasted Artist - Song lines." : error.getMessage()).setPositiveButton("OK", null).show(); });
@@ -737,19 +747,23 @@ public final class MainActivity extends Activity {
     }
 
     private void saveImportedPlaylist(String requested, List<Track> imported) {
+        saveImportedPlaylist(requested,imported,0);
+    }
+    private void saveImportedPlaylist(String requested,List<Track> imported,int missed){
         android.content.SharedPreferences library = getSharedPreferences("library", MODE_PRIVATE);
         String base = requested.trim().isEmpty() ? "Imported playlist" : requested.trim(); String name = base; int suffix = 2;
         while (library.contains("playlist:" + name)) name = base + " (" + suffix++ + ")";
         java.util.Set<String> entries = new java.util.LinkedHashSet<>(); org.json.JSONArray order = new org.json.JSONArray();
         for (Track track : imported) { String item = savedMediaItem(track.toMediaItem()); if (!item.isEmpty() && entries.add(item)) order.put(item); }
         library.edit().putStringSet("playlist:" + name, entries).putString("playlist_order:" + name, order.toString()).putString("last_playlist", name).apply();
-        loadPlaylist(name); Toast.makeText(this, "Imported " + entries.size() + " songs into " + name, Toast.LENGTH_LONG).show();
+        final String importedName=name;
+        new AppDialogBuilder(this).setTitle("Playlist imported").setMessage(entries.size()+" songs from “"+name+"” were successfully imported!"+(missed>0?"\n"+missed+" songs couldn't be matched.":"")).setPositiveButton("Done",(d,w)->main.post(()->{if(!isDestroyed()&&!isFinishing())loadPlaylist(importedName);})).show();
     }
 
     private void handlePlaylistShare(Intent intent) {
         if (!Intent.ACTION_SEND.equals(intent.getAction())) return;
         Uri stream = intent.getParcelableExtra(Intent.EXTRA_STREAM);
-        if (stream != null && "content".equals(stream.getScheme())) { runPlaylistImport(progress -> new PlaylistImporter(getContentResolver()).importFile(stream, progress)); return; }
+        if (stream != null && "content".equals(stream.getScheme())) { runPlaylistImport(progress -> new PlaylistImporter(this).importFile(stream, progress)); return; }
         String text = intent.getStringExtra(Intent.EXTRA_TEXT); if (text != null && !text.trim().isEmpty()) showPlaylistPaste(text);
     }
 
@@ -766,7 +780,7 @@ public final class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode != IMPORT_PLAYLIST_REQUEST || resultCode != RESULT_OK || data == null || data.getData() == null) return;
         Uri file = data.getData();
-        runPlaylistImport(progress -> new PlaylistImporter(getContentResolver()).importFile(file, progress));
+        runPlaylistImport(progress -> new PlaylistImporter(this).importFile(file, progress));
     }
 
     private void refreshProgress() {
@@ -1191,5 +1205,5 @@ public final class MainActivity extends Activity {
         rememberPanel("equalizer",dialog);dialog.show();dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{android.content.SharedPreferences.Editor edit=prefs.edit().putBoolean("eq_enabled",false);for(int i=0;i<5;i++)edit.putInt("eq_band_"+i,0);edit.apply();refresh.run();});refresh.run();installSwipeBack(dialog.findViewById(android.R.id.content),dialog::dismiss);
     }
 
-    @Override public void onDestroy() { for(android.app.Dialog panel:new java.util.ArrayList<>(panels.values()))if(panel.isShowing())panel.dismiss();panels.clear();jamTicker.removeCallbacksAndMessages(null); io.shutdown(); jamSyncIo.shutdown(); jamSearchIo.shutdown(); super.onDestroy(); }
+    @Override public void onDestroy() { searchHandler.removeCallbacksAndMessages(null);if(pageSearch!=null)pageSearch.cancel(true);searchIo.shutdownNow();importCancelled.set(true);importIo.shutdownNow();if(offlinePrompt!=null)offlinePrompt.stop();AppDialogBuilder.dismissAll(this);for(android.app.Dialog panel:new java.util.ArrayList<>(panels.values()))if(panel.isShowing())panel.dismiss();panels.clear();jamTicker.removeCallbacksAndMessages(null); io.shutdown(); jamSyncIo.shutdown(); jamSearchIo.shutdown(); super.onDestroy(); }
 }

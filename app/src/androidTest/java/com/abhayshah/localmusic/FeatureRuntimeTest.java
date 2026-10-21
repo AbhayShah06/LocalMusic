@@ -100,7 +100,7 @@ public class FeatureRuntimeTest {
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
             onView(withId(R.id.forYou)).perform(click());onView(withText("Recently played")).check(matches(isDisplayed()));onView(withId(R.id.songs)).perform(click());
             onView(withId(R.id.playlists)).perform(click());onView(withText("+ Import playlist")).perform(click());
-            onView(withText("Paste song names")).perform(click());onView(withText("Import playlist")).check(matches(isDisplayed()));androidx.test.espresso.Espresso.pressBack();
+            onView(withText("Import playlist")).check(matches(isDisplayed()));androidx.test.espresso.Espresso.pressBack();
             onView(withId(R.id.more)).perform(click());onView(withText("Settings")).perform(click());AudioExperienceTest.waitPanel("Track normalization");onView(withText(org.hamcrest.Matchers.startsWith("Import playlists"))).perform(scrollTo()).check(matches(isDisplayed()));androidx.test.espresso.Espresso.pressBack();
         }
     }
