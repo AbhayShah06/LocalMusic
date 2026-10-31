@@ -21,7 +21,15 @@ public final class MusicExportWorker extends Worker {
     }
     static void enqueue(Context context,String id){WorkManager.getInstance(context).enqueueUniqueWork("export-music-folder:"+id,ExistingWorkPolicy.KEEP,new OneTimeWorkRequest.Builder(MusicExportWorker.class).setInputData(new Data.Builder().putString("id",id).build()).addTag("music-export").build());}
     static Set<String> exportedUris(Context c){Set<String> uris=new HashSet<>();for(Track track:DownloadStore.all(c)){String uri=c.getSharedPreferences(PREFS,0).getString("uri:"+track.stableId,"");if(!uri.isEmpty())uris.add(uri);}return uris;}
-    static String status(Context c){int errors=0;for(String key:c.getSharedPreferences(PREFS,0).getAll().keySet())if(key.startsWith("error:"))errors++;return errors>0?errors+" files couldn't be exported. Tap to retry.":c.getSharedPreferences(PREFS,0).getString("status","Copy existing downloads to Music/LocalMusic");}
+    static String status(Context c){
+        android.content.SharedPreferences prefs=c.getSharedPreferences(PREFS,0);
+        int errors=0;String reason="";
+        for(Track track:DownloadStore.all(c)){
+            String message=prefs.getString("error:"+track.stableId,"");
+            if(!message.isEmpty()){errors++;if(reason.isEmpty())reason=message;}
+        }
+        return errors>0?errors+" files still need export: "+reason+". Tap to retry.":prefs.getString("status","Copy existing downloads to Music/LocalMusic");
+    }
     @NonNull @Override public Result doWork(){
         Context c=getApplicationContext();int saved=0;String error=null;
         for(Track track:DownloadStore.all(c)){
@@ -29,7 +37,7 @@ public final class MusicExportWorker extends Worker {
             if(isStopped())return Result.retry();
             try{publish(c,track);saved++;c.getSharedPreferences(PREFS,0).edit().remove("error:"+track.stableId).apply();}catch(Exception failure){error=failure.getMessage()==null?"Could not export audio":failure.getMessage();c.getSharedPreferences(PREFS,0).edit().putString("error:"+track.stableId,error).apply();}
         }
-        c.getSharedPreferences(PREFS,0).edit().putString("status",error==null?"Saved in Music/LocalMusic":error+". Tap to retry.").apply();
+        c.getSharedPreferences(PREFS,0).edit().putString("status",error==null?"Saved in Music/LocalMusic":"Export needs attention: "+error+". Tap to retry.").apply();
         return error==null?Result.success():getRunAttemptCount()<2?Result.retry():Result.failure();
     }
     static synchronized Uri publish(Context c,Track track)throws IOException{
@@ -38,7 +46,20 @@ public final class MusicExportWorker extends Worker {
         String key="uri:"+track.stableId;String known=c.getSharedPreferences(PREFS,0).getString(key,"");
         if(!known.isEmpty())try(android.content.res.AssetFileDescriptor fd=c.getContentResolver().openAssetFileDescriptor(Uri.parse(known),"r")){if(fd!=null)return Uri.parse(known);}catch(Exception missing){}
         if(Build.VERSION.SDK_INT<29&&c.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED)throw new IOException("Allow storage access using Export downloads in Settings");
-        AudioFileFormat format=AudioFileFormat.read(source);String filename=AudioFileFormat.filename(track.artist,track.title,track.stableId,format.extension);
+        AudioFileFormat format;
+        try{format=AudioFileFormat.read(source);}catch(IOException unknown){
+            // The download worker already accepted this as playable audio. Android's
+            // extractor can identify containers whose first bytes are not a fixed magic.
+            android.media.MediaExtractor extractor=new android.media.MediaExtractor();
+            try{extractor.setDataSource(source.getAbsolutePath());format=null;
+                for(int i=0;i<extractor.getTrackCount();i++){
+                    String mime=extractor.getTrackFormat(i).getString(android.media.MediaFormat.KEY_MIME);
+                    if(mime!=null&&mime.startsWith("audio/")){format=AudioFileFormat.fromMime(mime);break;}
+                }
+                if(format==null)throw unknown;
+            }finally{extractor.release();}
+        }
+        String filename=AudioFileFormat.filename(track.artist,track.title,track.stableId,format.extension);
         ContentValues metadata=new ContentValues();metadata.put(MediaStore.Audio.Media.DISPLAY_NAME,filename);metadata.put(MediaStore.Audio.Media.MIME_TYPE,format.mime);metadata.put(MediaStore.Audio.Media.TITLE,track.title);metadata.put(MediaStore.Audio.Media.ARTIST,track.artist);metadata.put(MediaStore.Audio.Media.ALBUM,track.album);metadata.put(MediaStore.Audio.Media.IS_MUSIC,1);
         Uri collection=MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
         if(Build.VERSION.SDK_INT>=29){

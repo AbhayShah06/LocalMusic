@@ -40,15 +40,16 @@ final class ListeningHistory {
         List<Entry> entries = new ArrayList<>();
         try {
             JSONArray saved = new JSONArray(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "[]"));
-            for (int i = 0; i < saved.length(); i++) { JSONObject value = saved.getJSONObject(i); Track track = track(value); if (track != null) entries.add(new Entry(track, Math.max(1, value.optInt("plays", 1)))); }
+            for (int i = 0; i < saved.length(); i++) { JSONObject value = saved.getJSONObject(i); Track track = track(value); if (track != null) entries.add(new Entry(track, Math.max(1, value.optInt("plays", 1)),value.optLong("last"))); }
         } catch (Exception ignored) { }
         List<Track> result = new ArrayList<>();
         if (!mix) { for (Entry entry : entries) { if (result.size() >= limit) break; result.add(entry.track); } return result; }
+        long now=System.currentTimeMillis();entries.removeIf(entry->now-entry.last>90L*86_400_000L);
         Random random = new Random(System.currentTimeMillis() / 86_400_000L);
         while (!entries.isEmpty() && result.size() < limit) {
-            int total = 0; for (Entry entry : entries) total += Math.max(1, (int)Math.sqrt(entry.plays));
+            int total = 0; for (Entry entry : entries) total += weight(entry,now);
             int pick = random.nextInt(Math.max(1, total)), selected = 0;
-            for (int i = 0; i < entries.size(); i++) { pick -= Math.max(1, (int)Math.sqrt(entries.get(i).plays)); if (pick < 0) { selected = i; break; } }
+            for (int i = 0; i < entries.size(); i++) { pick -= weight(entries.get(i),now); if (pick < 0) { selected = i; break; } }
             result.add(entries.remove(selected).track);
         }
         return result;
@@ -58,7 +59,8 @@ final class ListeningHistory {
         String id = value.optString("id"), uri = value.optString("uri"), artwork = value.optString("artwork"); if (id.isEmpty()) return null;
         return new Track(id, uri.isEmpty() ? Uri.EMPTY : Uri.parse(uri), value.optString("title"), value.optString("artist"), value.optString("album"), artwork.isEmpty() ? null : Uri.parse(artwork));
     }
-    private static final class Entry { final Track track; final int plays; Entry(Track track, int plays) { this.track = track; this.plays = plays; } }
+    private static int weight(Entry entry,long now){return Math.max(1,(int)Math.round(Math.sqrt(entry.plays)*8*Math.exp(-Math.max(0,now-entry.last)/(21d*86_400_000d))));}
+    private static final class Entry { final Track track; final int plays;final long last; Entry(Track track, int plays,long last) { this.track = track; this.plays = plays;this.last=last; } }
     private static String text(CharSequence value) { return value == null ? "" : value.toString(); }
     private ListeningHistory() { }
 }

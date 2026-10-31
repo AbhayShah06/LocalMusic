@@ -43,6 +43,7 @@ public final class PlaybackService extends MediaSessionService {
     static final String EXTRA_JAM_CATALOG = "jam_catalog";
     static final String ACTION_PUBLISH_JAM = "com.abhayshah.localmusic.PUBLISH_JAM";
     static final String ACTION_SET_RADIO = "com.abhayshah.localmusic.SET_RADIO";
+    static final String ACTION_REFRESH_RADIO = "com.abhayshah.localmusic.REFRESH_RADIO";
     static final String ACTION_STOP_RADIO = "com.abhayshah.localmusic.STOP_RADIO";
     private AutoplayQueue autoplayQueue;
     private final Map<String, Track> jamCatalog = new ConcurrentHashMap<>();
@@ -66,6 +67,9 @@ public final class PlaybackService extends MediaSessionService {
     private volatile boolean jamRequestRunning;
     private volatile String lastRecoveryId = "";
     private final java.util.concurrent.atomic.AtomicLong jamPlaybackSequence = new java.util.concurrent.atomic.AtomicLong();
+    private final java.util.concurrent.atomic.AtomicBoolean jamPublishRunning = new java.util.concurrent.atomic.AtomicBoolean();
+    private boolean jamPublishPending;
+    private long lastJamPositionPublish;
     private final Handler stateHandler = new Handler(Looper.getMainLooper());
     private final Runnable sleepPause = () -> {
         if (player != null) player.pause();
@@ -91,21 +95,27 @@ public final class PlaybackService extends MediaSessionService {
                             try { List<Track> found = new OnlineCatalogSource().page(search.query, 0, 35); for (Track track : found) jamCatalog.put(track.stableId, track); if (jamRoom == room) new JamClient().publish(room, search.id, found); }
                             catch (Exception error) { jamSearches.remove(search.id); }
                         });
-                        publishJamPlayback();
+                        if (player != null && player.isPlaying() && android.os.SystemClock.elapsedRealtime() - lastJamPositionPublish >= 6_000) publishJamPlayback();
                     });
                 } catch (Exception ignored) { }
-                finally { jamRequestRunning = false; if (jamRoom != null) stateHandler.postDelayed(this, 700); }
+                finally { jamRequestRunning = false; if (jamRoom != null) stateHandler.postDelayed(this, 2_000); }
             });
         }
     };
     private boolean currentItemRecorded;
+    private MediaItem previousTasteItem;
+    private long previousTasteStarted;
     private final Runnable recordCurrentItem = () -> {
         if (player != null && player.isPlaying() && !currentItemRecorded) {
-            if(player.getCurrentMediaItem()!=null)ListeningHistory.record(PlaybackService.this, player.getCurrentMediaItem().buildUpon().setMediaMetadata(player.getMediaMetadata()).build()); currentItemRecorded = true;
+            if(player.getCurrentMediaItem()!=null){MediaItem played=player.getCurrentMediaItem().buildUpon().setMediaMetadata(player.getMediaMetadata()).build();ListeningHistory.record(PlaybackService.this,played);TasteProfile.record(PlaybackService.this,played,false);}currentItemRecorded = true;
         }
     };
     private final Player.Listener persistenceListener = new Player.Listener() {
         @Override public void onMediaItemTransition(MediaItem item, int reason) {
+            if(previousTasteItem!=null&&!currentItemRecorded&&reason==Player.MEDIA_ITEM_TRANSITION_REASON_SEEK
+                    &&android.os.SystemClock.elapsedRealtime()-previousTasteStarted<30_000)
+                TasteProfile.record(PlaybackService.this,previousTasteItem,true);
+            previousTasteItem=item;previousTasteStarted=android.os.SystemClock.elapsedRealtime();
             currentItemRecorded = false; lastRecoveryId = ""; stateHandler.removeCallbacks(recordCurrentItem);
             if (player != null && player.isPlaying()) stateHandler.postDelayed(recordCurrentItem, 30_000);
         }
@@ -155,6 +165,8 @@ public final class PlaybackService extends MediaSessionService {
             }catch(Exception invalid){android.widget.Toast.makeText(this,"Could not open this collection",android.widget.Toast.LENGTH_SHORT).show();}
         } else if(intent!=null && ACTION_SET_RADIO.equals(intent.getAction())){
             autoplayQueue.configure(intent.getStringExtra("radio_seed"),intent.getStringExtra("radio_candidates"));
+        } else if(intent!=null && ACTION_REFRESH_RADIO.equals(intent.getAction())){
+            autoplayQueue.refresh();
         } else if(intent!=null && ACTION_STOP_RADIO.equals(intent.getAction())){
             autoplayQueue.stop();
         } else if (intent != null && ACTION_SET_SLEEP_TIMER.equals(intent.getAction())) {
@@ -169,7 +181,10 @@ public final class PlaybackService extends MediaSessionService {
                 for (int i = 0; i < catalog.length(); i++) { JSONObject item = catalog.getJSONObject(i); String art = item.optString("artwork"); Track track = new Track(item.getString("id"), Uri.parse(item.getString("uri")), item.optString("title"), item.optString("artist"), item.optString("album"), art.isEmpty() ? null : Uri.parse(art)); jamCatalog.put(track.stableId, track); }
             } catch (Exception ignored) { }
             jamRoom = new JamClient.Room(intent.getStringExtra(EXTRA_JAM_CODE), intent.getStringExtra(EXTRA_JAM_TOKEN));
+            jamPublishPending = false;
+            lastJamPositionPublish = 0;
             stateHandler.removeCallbacks(jamPoll); stateHandler.post(jamPoll);
+            publishJamPlayback();
         } else if (intent != null && ACTION_STOP_JAM.equals(intent.getAction())) {
             jamRoom = null; stateHandler.removeCallbacks(jamPoll);
         } else if (intent != null && ACTION_PUBLISH_JAM.equals(intent.getAction())) {
@@ -328,6 +343,10 @@ public final class PlaybackService extends MediaSessionService {
         if ("previous".equals(control.action)) player.seekToPreviousMediaItem();
         else if ("next".equals(control.action)) player.seekToNextMediaItem();
         else if ("toggle".equals(control.action)) { if (player.isPlaying()) player.pause(); else resumePlayer(); }
+        else if ("seek".equals(control.action) && control.positionMs >= 0 && control.index == player.getCurrentMediaItemIndex()) {
+            long duration = player.getDuration();
+            if (duration > 0 && duration != C.TIME_UNSET) player.seekTo(Math.min(control.positionMs, duration));
+        }
         else if ("play".equals(control.action) && control.index >= 0) {
             int target = control.absolute ? control.index : player.getCurrentMediaItemIndex() + 1 + control.index;
             if (target >= 0 && target < player.getMediaItemCount()) { player.seekTo(target, 0); player.play(); }
@@ -346,16 +365,21 @@ public final class PlaybackService extends MediaSessionService {
     private void publishJamPlayback() {
         JamClient.Room room = jamRoom;
         if (room == null || player == null || destroyed) return;
-        androidx.media3.common.MediaMetadata current = player.getMediaMetadata();
+        if (!jamPublishRunning.compareAndSet(false, true)) { jamPublishPending = true; return; }
+        MediaItem currentItem = player.getCurrentMediaItem();
+        androidx.media3.common.MediaMetadata current = currentItem == null ? player.getMediaMetadata() : currentItem.mediaMetadata;
         String title = Track.clean(String.valueOf(current.title), "Unknown title"), artist = Track.clean(String.valueOf(current.artist), "Unknown artist"), artwork = current.artworkUri == null ? "" : current.artworkUri.toString();
-        List<String[]> queue = new ArrayList<>(); int currentIndex = player.getCurrentMediaItemIndex();
-        for (int i = 0; i < Math.min(player.getMediaItemCount(), 200); i++) {
+        List<String[]> queue = new ArrayList<>(); int absoluteIndex = player.getCurrentMediaItemIndex();
+        int queueOffset = JamQueueWindow.offset(absoluteIndex, player.getMediaItemCount()), currentIndex = absoluteIndex - queueOffset;
+        for (int i = queueOffset; i < Math.min(player.getMediaItemCount(), queueOffset + 200); i++) {
             MediaItem media = player.getMediaItemAt(i); androidx.media3.common.MediaMetadata item = media.mediaMetadata;
             String source = media.mediaId.startsWith("jam:") ? "jam" : media.mediaId.startsWith("auto:") ? "autoplay" : "manual";
             queue.add(new String[]{Track.clean(String.valueOf(item.title), "Unknown title"), Track.clean(String.valueOf(item.artist), "Unknown artist"), item.artworkUri == null ? "" : item.artworkUri.toString(), source, jamRequesters.getOrDefault(media.mediaId, "")});
         }
         boolean playing = player.isPlaying(); long sequence = jamPlaybackSequence.incrementAndGet();
-        jamIo.execute(() -> { try { new JamClient().publishPlayback(room, title, artist, artwork, playing, queue, currentIndex, sequence); } catch (Exception ignored) { } });
+        long position = Math.max(0, player.getCurrentPosition()), duration = player.getDuration();
+        lastJamPositionPublish = android.os.SystemClock.elapsedRealtime();
+        jamIo.execute(() -> { try { new JamClient().publishPlayback(room, title, artist, artwork, playing, queue, currentIndex, sequence, position, duration > 0 && duration != C.TIME_UNSET ? duration : 0, queueOffset); } catch (Exception ignored) { } finally { stateHandler.post(() -> { jamPublishRunning.set(false); if (jamPublishPending && room == jamRoom && !destroyed) { jamPublishPending = false; publishJamPlayback(); } }); } });
     }
 
     private void resumePlayer() {

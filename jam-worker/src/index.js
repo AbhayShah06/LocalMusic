@@ -102,9 +102,11 @@ export class JamRoom extends DurableObject {
   async control(request) {
     const room = await this.ctx.storage.get("room"); if (!room) return json({ error: "Jam not found" }, 404); if (!room.active) return json({ error: "This Jam is closed" }, 410);
     const input = await request.json().catch(() => ({})); const action = String(input.action || "");
-    if (!new Set(["previous", "toggle", "next", "move", "play", "reorder"]).has(action)) return json({ error: "Unknown control" }, 400);
+    if (!new Set(["previous", "toggle", "next", "move", "play", "reorder", "seek"]).has(action)) return json({ error: "Unknown control" }, 400);
+    const requestedPosition = Number(input.positionMs);
+    if (action === "seek" && (!Number.isFinite(requestedPosition) || requestedPosition < 0 || requestedPosition > 86400000 || Number(input.index) !== (room.playback?.currentIndex || 0) + (room.playback?.queueOffset || 0) || String(input.title || "") !== room.playback?.title || !room.playback?.durationMs)) return json({ error: "Song changed. Try seeking again." }, 409);
     room.controls ||= []; const requestId = String(input.requestId || "").slice(0, 80); const duplicate = room.controls.find(item => requestId && item.requestId === requestId); if (duplicate) return json({ ok: true, duplicate: true, control: duplicate }, 200);
-    const control = { id: crypto.randomUUID(), requestId, action, guest: String(input.guest || "Guest").trim().slice(0, 28) || "Guest", index: Math.max(-1, Math.min(199, Number(input.index) || 0)), toIndex: Math.max(-1, Math.min(199, Number(input.toIndex) || 0)), direction: Math.sign(Number(input.direction) || 0), absolute: Boolean(input.absolute), createdAt: Date.now() };
+    const control = { id: crypto.randomUUID(), requestId, action, guest: String(input.guest || "Guest").trim().slice(0, 28) || "Guest", index: Math.max(-1, Math.min(199, Number(input.index) || 0)), toIndex: Math.max(-1, Math.min(199, Number(input.toIndex) || 0)), direction: Math.sign(Number(input.direction) || 0), absolute: Boolean(input.absolute), positionMs: action === "seek" ? Math.round(Math.min(requestedPosition, room.playback.durationMs)) : -1, createdAt: Date.now() };
     room.controls.push(control); room.controls = room.controls.slice(-80); room.updatedAt = Date.now(); room.revision += 1; await this.ctx.storage.put("room", room); this.broadcast(room); return json({ ok: true, control }, 201);
   }
 
@@ -116,7 +118,8 @@ export class JamRoom extends DurableObject {
     const queue = Array.isArray(input.queue) ? input.queue.slice(0, 200).map(cleanItem) : [];
     const currentIndex = Math.max(-1, Math.min(queue.length - 1, Number(input.currentIndex) || 0));
     const upcoming = queue.length ? queue.slice(currentIndex + 1) : Array.isArray(input.upcoming) ? input.upcoming.slice(0, 200).map(cleanItem) : [];
-    room.playback = { title: String(input.title || "").slice(0, 160), artist: String(input.artist || "").slice(0, 160), artwork: safeArtwork(input.artwork), playing: Boolean(input.playing), queue, currentIndex, upcoming, sequence }; room.updatedAt = Date.now(); room.revision += 1; await this.ctx.storage.put("room", room); this.broadcast(room); return json({ ok: true, revision: room.revision });
+    const queueOffset = Math.max(0, Math.min(100000, Number(input.queueOffset) || 0));
+    room.playback = { title: String(input.title || "").slice(0, 160), artist: String(input.artist || "").slice(0, 160), artwork: safeArtwork(input.artwork), playing: Boolean(input.playing), queue, currentIndex, queueOffset, upcoming, sequence, positionMs: Math.max(0, Number(input.positionMs) || 0), durationMs: Math.max(0, Number(input.durationMs) || 0), positionUpdatedAt: Date.now() }; room.updatedAt = Date.now(); room.revision += 1; await this.ctx.storage.put("room", room); this.broadcast(room); return json({ ok: true, revision: room.revision });
   }
 
   async search(request) {

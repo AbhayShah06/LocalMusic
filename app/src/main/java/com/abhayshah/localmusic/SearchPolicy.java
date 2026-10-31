@@ -8,13 +8,16 @@ import java.util.regex.Pattern;
 final class SearchPolicy {
     private static final String[] VARIANTS={"cover","karaoke","instrumental","remix","nightcore","slowed","sped up","8d audio","reaction","interview","podcast","documentary","trailer","review","explained"};
     static boolean unwanted(String title,String query,boolean avoidClean){
+        if(Pattern.compile("(?i)(?:#shorts\\b|\\byoutube shorts\\b)").matcher(title).find())return true;
         for(String term:VARIANTS)if(has(title,term)&&!has(query,term)){
             if(term.equals("cover")||term.equals("remix")||term.equals("instrumental")){
                 if(Pattern.compile("(?i)(?:[\\[(].*\\b"+term+"\\b|\\b"+term+"\\s+(?:version|mix|edit|by)\\b|\\b"+term+"\\s*$)").matcher(title).find())return true;
             }else return true;
         }
         if(Pattern.compile("(?i)[\\[(]\\s*live(?:\\s|[\\])])|\\blive (?:at|on|from|in)\\b").matcher(title).find()&&!has(query,"live"))return true;
-        return VersionPolicy.isMusicVideo(title)||avoidClean&&VersionPolicy.exclude(title,query);
+        // An official video may be the only available original recording. Rank audio
+        // ahead of it, but keep the exact song searchable and playable as audio.
+        return avoidClean&&VersionPolicy.exclude(title,query);
     }
     private static boolean has(String text,String term){return (" "+words(text)+" ").contains(" "+term+" ");}
     static int rank(String title,String artist,String query){
@@ -28,6 +31,6 @@ final class SearchPolicy {
         if(title.toLowerCase(Locale.ROOT).contains("official audio")||artist.toLowerCase(Locale.ROOT).endsWith(" - topic"))score+=12;
         return score;
     }
-    private static String words(String text){return Normalizer.normalize(text==null?"":text,Normalizer.Form.NFKD).replaceAll("\\p{M}+","").toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+"," ").trim().replaceAll("\\s+"," ");}
+    private static String words(String text){return Normalizer.normalize(text==null?"":text,Normalizer.Form.NFKD).replaceAll("\\p{M}+","").toLowerCase(Locale.ROOT).replaceAll("\\b(i['’]?m|ima)\\b","ima").replaceAll("[^\\p{L}\\p{N}]+"," ").trim().replaceAll("\\s+"," ").replaceAll("\\bima a\\b","ima");}
     private SearchPolicy(){}
 }

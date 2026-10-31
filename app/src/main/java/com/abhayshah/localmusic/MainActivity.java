@@ -95,6 +95,7 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         setContentView(R.layout.activity_main);
+        applyAppearance();
         UpdateManager.attach(this, findViewById(R.id.root));
         status = findViewById(R.id.status);
         nowPlaying = findViewById(R.id.nowPlaying);
@@ -467,7 +468,7 @@ public final class MainActivity extends Activity {
 
     private void showFeedback() {
         final String email = FeedbackDraft.EMAIL;
-        new AppDialogBuilder(this).setTitle("Feedback").setItems(new String[]{"Email Abhay", "Copy email address"}, (dialog, which) -> {
+        new AppDialogBuilder(this).setTitle("Contact the developer").setItems(new String[]{"Email Abhay", "Copy email address"}, (dialog, which) -> {
             if (which == 1) { copySupportEmail(email); return; }
             String body = FeedbackDraft.body(BuildConfig.VERSION_NAME, java.time.Instant.now(), java.time.ZoneId.systemDefault());
             Intent draft = new Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:" + email + "?subject=" + Uri.encode(FeedbackDraft.subject(BuildConfig.VERSION_NAME)) + "&body=" + Uri.encode(body)));
@@ -482,7 +483,7 @@ public final class MainActivity extends Activity {
     }
 
     private void showMoreMenu() {
-        String[] actions = {"Your mix", "Recently played", "Downloads", "Start a Jam", "Favorites", "Playlists", "Sleep timer", "Settings"};
+        String[] actions = {"Your mix", "Recently played", "Downloads", "Start a Jam", "Favorites", "Playlists", "Sleep timer", "Contact developer", "Settings"};
         new AppDialogBuilder(this).setTitle("Local Music").setItems(actions, (d, which) -> {
             if (which == 0) loadListeningList(true);
             else if (which == 1) loadListeningList(false);
@@ -491,6 +492,7 @@ public final class MainActivity extends Activity {
             else if (which == 4) { selectTab(R.id.playlists); loadSavedTracks("favorites", "Favorites"); }
             else if (which == 5) { selectTab(R.id.playlists); showPlaylists(); }
             else if (which == 6) chooseSleepTimer();
+            else if (which == 7) showFeedback();
             else showSettings();
         }).show();
     }
@@ -521,6 +523,7 @@ public final class MainActivity extends Activity {
         content.addView(settingsHeading("Library"));
         content.addView(settingsAction("Music source", "Choose online streaming, phone files, Backblaze, or Navidrome", this::chooseSource));
         content.addView(settingsAction("Import playlists", "Paste YouTube links, Spotify / Apple Music exports, or a song list", this::showImportOptions));
+        content.addView(settingsAction("Appearance", "Dark palette accent and home card size", this::showHomeAppearance));
         content.addView(settingsAction("Equalizer", "Presets and five-band controls", this::openEqualizer));
         content.addView(settingsAction("Listening stats", "Top songs, artists and genres for any date range", ()->{if(!panelShowing("stats"))rememberPanel("stats",StatsPanel.show(this,io,main));}));
         content.addView(settingsAction("Music permission", hasAudioPermission() ? "Allowed for on-device songs" : "Tap to allow on-device songs", () -> { if (hasAudioPermission()) openAppSettings(); else requestAudioPermission(); }));
@@ -528,7 +531,7 @@ public final class MainActivity extends Activity {
         long downloads = DownloadStore.bytes(this), streams = PlaybackCache.bytes(), artwork = ArtworkLoader.bytes(this);
         content.addView(settingsHeading("Storage"));
         content.addView(settingsAction("Download activity", "", this::showDownloadActivity));
-        content.addView(settingsAction("Feedback", "", this::showFeedback));
+        content.addView(settingsAction("Contact developer", "Email Abhay or copy the address", this::showFeedback));
         content.addView(settingsAction("Check for updates", "LocalMusic " + BuildConfig.VERSION_NAME, () -> UpdateManager.refresh(this,findViewById(R.id.root),true)));
         content.addView(settingsAction("GitHub releases", "", () -> { try { startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/AbhayShah06/LocalMusic/releases/latest"))); } catch (android.content.ActivityNotFoundException missing) { Toast.makeText(this,"No browser available. Install a browser to open releases.",Toast.LENGTH_SHORT).show(); } }));
         content.addView(settingsAction("Offline downloads", formatBytes(downloads) + " saved permanently", this::loadDownloads));
@@ -574,6 +577,32 @@ public final class MainActivity extends Activity {
         return String.format(java.util.Locale.US, "%.1f MB", value / 1048576d);
     }
 
+    private void showHomeAppearance() {
+        String[] choices={"Comfortable · Coral","Comfortable · Blue","Comfortable · Sage","Compact · Coral","Compact · Blue","Compact · Sage"};
+        int[] accents={0xffff805f,0xff80b8ed,0xff9fd5b8};
+        new AppDialogBuilder(this).setTitle("Home appearance").setItems(choices,(dialog,which)->{
+            getSharedPreferences("settings",MODE_PRIVATE).edit().putBoolean("home_compact",which>=3).putInt("home_accent",accents[which%3]).apply();
+            applyAppearance();
+            if(showingForYou)showForYou();
+            Toast.makeText(this,"Home appearance updated",Toast.LENGTH_SHORT).show();
+        }).show();
+    }
+
+    private void applyAppearance(){
+        int accent=getSharedPreferences("settings",MODE_PRIVATE).getInt("home_accent",0xffff805f);
+        findViewById(R.id.accentStrip).setBackgroundColor(accent);
+        int[] ids={R.id.forYou,R.id.songs,R.id.albums,R.id.artists,R.id.playlists};
+        for(int id:ids){
+            android.graphics.drawable.StateListDrawable states=new android.graphics.drawable.StateListDrawable();
+            android.graphics.drawable.GradientDrawable selected=new android.graphics.drawable.GradientDrawable();selected.setColor(accent);selected.setCornerRadius(queueDp(12));
+            android.graphics.drawable.GradientDrawable normal=new android.graphics.drawable.GradientDrawable();normal.setColor(0xff181716);normal.setCornerRadius(queueDp(12));normal.setStroke(queueDp(1),0xff302d2a);
+            states.addState(new int[]{android.R.attr.state_selected},selected);states.addState(new int[]{},normal);findViewById(id).setBackground(states);
+        }
+        ((SeekBar)findViewById(R.id.seek)).setProgressTintList(android.content.res.ColorStateList.valueOf(accent));
+        findViewById(R.id.playPause).setBackgroundTintList(android.content.res.ColorStateList.valueOf(accent));
+        findViewById(R.id.grantPermission).setBackgroundTintList(android.content.res.ColorStateList.valueOf(accent));
+    }
+
     private void loadListeningList(boolean mix) {
         libraryGeneration++;libraryPaged=false;loading=false;searchHandler.removeCallbacksAndMessages(null);
         selectTab(R.id.songs);
@@ -586,11 +615,12 @@ public final class MainActivity extends Activity {
     private long homeRefreshSeed=System.currentTimeMillis()/86_400_000L;
     private void showForYou() {
         libraryGeneration++;libraryPaged=false;loading=false;
+        if(search!=null&&!search.getText().toString().isEmpty()){query="";search.setText("");}
         searchHandler.removeCallbacksAndMessages(null);
         android.widget.FrameLayout frame=findViewById(R.id.libraryContent);
         if(forYouContent!=null)frame.removeView(forYouContent);
         showingForYou=true;findViewById(R.id.tracks).setVisibility(View.GONE);permissionPanel.setVisibility(View.GONE);status.setVisibility(View.GONE);
-        forYouContent=ForYouDialog.create(this, track -> playMixTracks(java.util.Collections.singletonList(track), 0), this::showSeedMix,
+        forYouContent=ForYouDialog.create(this, track -> playMixTracks(java.util.Collections.singletonList(track), 0), this::showSeedMix,this::showCollectionTrackActions,
                 () -> loadListeningList(false), () -> loadSavedTracks("favorites", "Favorites"), ()->{personalMixes.clear();homeRefreshSeed=System.nanoTime();showForYou();forYouContent.announceForAccessibility("Home refreshed");}, homeRefreshSeed);
         frame.addView(forYouContent,new android.widget.FrameLayout.LayoutParams(-1,-1));selectTab(R.id.forYou);
     }
@@ -605,14 +635,56 @@ public final class MainActivity extends Activity {
     }
     void previewPersonalMix(String name, List<Track> mix) {
         if(isDestroyed()||isFinishing()||panelShowing("mix"))return;
-        rememberPanel("mix",MixDialog.show(this,name,mix,this::playMixTracks,this::addTracksToPlaylist,this::showCollectionTrackActions));
+        rememberPanel("mix",MixDialog.show(this,name,mix,this::playMixTracks,this::addTracksToPlaylist,this::downloadCollection,this::showCollectionTrackActions,
+                done->loadPlaylistSuggestions(mix,done),track->{saveTrackToPlaylist(name,track);mix.add(track);}));
+    }
+
+    private void loadPlaylistSuggestions(List<Track> playlist,java.util.function.Consumer<List<Track>> done){
+        streamIo.execute(()->{
+            List<Track> found=new ArrayList<>(),existing=new ArrayList<>(playlist);
+            try{
+                if(!playlist.isEmpty()){
+                    Track seed=playlist.get((int)(System.nanoTime()&Integer.MAX_VALUE)%playlist.size()).original();
+                    String seedArtist=RecordingIdentity.artist(seed.artist);
+                    OnlineCatalogSource source=onlineSource();
+                    List<Track> artistSongs=source.page(seed.artist,0,35);
+                    for(Track candidate:artistSongs){
+                        if(!RecordingIdentity.artist(candidate.artist).equals(seedArtist)||AvoidedStore.contains(this,candidate))continue;
+                        boolean duplicate=false;for(Track old:existing)if(sameDownload(candidate,old)){duplicate=true;break;}
+                        if(!duplicate){found.add(candidate);existing.add(candidate);if(found.size()>=5)break;}
+                    }
+                    Track onlineSeed=seed.stableId.startsWith("online:0:")?seed:null;
+                    if(onlineSeed==null){
+                        for(Track candidate:source.page(seed.artist+" "+seed.title,0,15))
+                            if(RecordingIdentity.same(seed.title,seed.artist,candidate.title,candidate.artist)){onlineSeed=candidate;break;}
+                    }
+                    if(onlineSeed!=null)for(Track candidate:source.songMix(onlineSeed)){
+                        if(AvoidedStore.contains(this,candidate))continue;
+                        boolean duplicate=false;for(Track old:existing)if(sameDownload(candidate,old)){duplicate=true;break;}
+                        if(!duplicate){found.add(candidate);existing.add(candidate);if(found.size()>=12)break;}
+                    }
+                }
+            }catch(Exception unavailable){android.util.Log.w("LocalMusic","Playlist suggestions unavailable",unavailable);}
+            List<Track> result=found;main.post(()->{if(!isDestroyed())done.accept(result);});
+        });
     }
 
     private void showCollectionTrackActions(Track track) {
-        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{"Play next","Download","Add to playlist"},(dialog,index)->{
-            if(index==0){if(track.stableId.startsWith("online:"))enqueueOnline(track,true);else if(controller!=null)controller.addMediaItem(Math.min(controller.getCurrentMediaItemIndex()+1,controller.getMediaItemCount()),track.toMediaItem());}
-            else if(index==1)requestDownload(track);else addTracksToPlaylist(java.util.Collections.singletonList(track));
+        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{"Play now","Play next","Add to queue","Download","Add to playlist","Open artist","Start song mix",AvoidedStore.contains(this,track)?"Allow in recommendations":"Avoid this song"},(dialog,index)->{
+            if(index==0)playMixTracks(java.util.Collections.singletonList(track),0);
+            else if(index==1||index==2){if(track.stableId.startsWith("online:"))enqueueOnline(track,index==1);else if(controller!=null)controller.addMediaItem(index==1?Math.min(controller.getCurrentMediaItemIndex()+1,controller.getMediaItemCount()):controller.getMediaItemCount(),track.toMediaItem());}
+            else if(index==3)requestDownload(track);
+            else if(index==4)addTrackToPlaylist(track);
+            else if(index==5)showArtistPage(track.artist);
+            else if(index==6)showSeedMix(track,false);
+            else toggleAvoid(track);
         }).show();
+    }
+
+    private void toggleAvoid(Track track){
+        boolean avoided=AvoidedStore.toggle(this,track);
+        Toast.makeText(this,avoided?"This song will be skipped in automatic picks":"This song can appear in automatic picks again",Toast.LENGTH_SHORT).show();
+        if(avoided)startService(new Intent(this,PlaybackService.class).setAction(PlaybackService.ACTION_REFRESH_RADIO));
     }
 
     private boolean savingBatch;
@@ -801,7 +873,8 @@ public final class MainActivity extends Activity {
         if (!group.isEmpty() || position < 0 || position >= tracks.size()) return;
         Track track = tracks.get(position);
         boolean online = track.stableId.startsWith("online:");
-        String[] actions = online ? new String[]{"Play now", "Play next", "Add to queue", DownloadStore.contains(this, track.stableId) ? "Remove download" : "Download", "Add to playlist", "Open artist", FavoriteStore.contains(this,track) ? "Remove favorite" : "Add to favorites", "Start song mix"} : new String[]{"Play now", "Play next", "Add to queue", FavoriteStore.contains(this,track) ? "Remove favorite" : "Add to favorites", "Add to playlist", "Start song mix"};
+        String avoid=AvoidedStore.contains(this,track)?"Allow in recommendations":"Avoid this song";
+        String[] actions = online ? new String[]{"Play now", "Play next", "Add to queue", DownloadStore.contains(this, track.stableId) ? "Remove download" : "Download", "Add to playlist", "Open artist", FavoriteStore.contains(this,track) ? "Remove favorite" : "Add to favorites", "Start song mix",avoid} : new String[]{"Play now", "Play next", "Add to queue", FavoriteStore.contains(this,track) ? "Remove favorite" : "Add to favorites", "Add to playlist", "Start song mix",avoid};
         new AppDialogBuilder(this).setTitle(track.title).setItems(actions, (d, which) -> {
             if (controller == null) return;
             String action = actions[which];
@@ -819,6 +892,7 @@ public final class MainActivity extends Activity {
             else if (action.equals("Open artist")) showArtistPage(track.artist);
             else if (action.equals("Add to favorites") || action.equals("Remove favorite")) toggleTrackFavorite(track);
             else if (action.equals("Start song mix")) showSeedMix(track,false);
+            else if (action.equals("Avoid this song")||action.equals("Allow in recommendations")) toggleAvoid(track);
         }).show();
     }
 
@@ -847,6 +921,14 @@ public final class MainActivity extends Activity {
         TextView title = new TextView(this); title.setText("Queue"); title.setTextColor(0xfff6f1e8); title.setTextSize(28); title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); header.addView(title, new android.widget.LinearLayout.LayoutParams(0, -2, 1));
         android.widget.Button close=new android.widget.Button(this);close.setText("Close");close.setContentDescription("Close queue");close.setOnClickListener(v->dialog.dismiss());header.addView(close);
         android.widget.Button save = new android.widget.Button(this); save.setText("Save"); save.setContentDescription("Save queue as playlist"); save.setOnClickListener(v -> saveQueueAsPlaylist(dialog)); header.addView(save); sheet.addView(header);
+        android.widget.LinearLayout actions=new android.widget.LinearLayout(this);
+        android.widget.Button downloadAll=new android.widget.Button(this);downloadAll.setText("Download queue");downloadAll.setOnClickListener(v->{
+            List<Track> upcoming=new ArrayList<>();if(controller!=null)for(int i=Math.max(0,controller.getCurrentMediaItemIndex());i<controller.getMediaItemCount();i++)upcoming.add(queueTrack(controller.getMediaItemAt(i)));
+            downloadCollection(upcoming);
+        });actions.addView(downloadAll,new android.widget.LinearLayout.LayoutParams(0,-2,1));
+        android.widget.Button refreshPicks=new android.widget.Button(this);refreshPicks.setText("Refresh picks");refreshPicks.setContentDescription("Refresh automatic queue picks");refreshPicks.setOnClickListener(v->{
+            startService(new Intent(this,PlaybackService.class).setAction(PlaybackService.ACTION_REFRESH_RADIO));Toast.makeText(this,"Refreshing automatic picks",Toast.LENGTH_SHORT).show();
+        });actions.addView(refreshPicks,new android.widget.LinearLayout.LayoutParams(0,-2,1));sheet.addView(actions);
         android.widget.ScrollView scroll = new android.widget.ScrollView(this); android.widget.LinearLayout rows = new android.widget.LinearLayout(this); rows.setOrientation(android.widget.LinearLayout.VERTICAL); scroll.addView(rows); sheet.addView(scroll, new android.widget.LinearLayout.LayoutParams(-1,0,1));
         boolean[] dragging = {false};
         Runnable render = () -> {
@@ -898,22 +980,64 @@ public final class MainActivity extends Activity {
     private void showQueueActions(androidx.media3.common.MediaItem item,int hint) {
         Track track=queueTrack(item);
         String download=DownloadStore.contains(this,track.stableId)?"Remove download":DownloadTasks.active(this,track.stableId)?"Download activity":"Download";
-        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{"Play", "Play next", download, "Add to playlist", "Artist", "Remove from queue"},(d,which)->{
+        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{"Play", "Play next", download, "Add to playlist", "Artist", AvoidedStore.contains(this,track)?"Allow in recommendations":"Avoid this song", "Remove from queue"},(d,which)->{
             int at=queueIndex(item,hint);
             if(which==0&&at>=0){controller.seekTo(at,0);controller.play();}
             else if(which==1&&at>=0){int next=Math.min(controller.getCurrentMediaItemIndex()+1,controller.getMediaItemCount()-1);controller.moveMediaItem(at,next);}
             else if(which==2){if(download.equals("Remove download")){DownloadStore.remove(this,track.stableId);Toast.makeText(this,"Download removed",Toast.LENGTH_SHORT).show();}else requestDownload(track);}
             else if(which==3)addTrackToPlaylist(track);
             else if(which==4)showArtistPage(track.artist);
-            else if(which==5&&at>=0)controller.removeMediaItem(at);
+            else if(which==5)toggleAvoid(track);
+            else if(which==6&&at>=0)controller.removeMediaItem(at);
         }).show();
     }
 
     private void requestDownload(Track input) {
         Track track=input.original();String scheme=track.playbackUri.getScheme();
-        if(DownloadStore.contains(this,track.stableId)||"content".equals(scheme)||"file".equals(scheme)){Toast.makeText(this,"Already on this device",Toast.LENGTH_SHORT).show();return;}
+        if(DownloadStore.offline(this,track)!=null||"content".equals(scheme)||"file".equals(scheme)){Toast.makeText(this,"Already on this device",Toast.LENGTH_SHORT).show();return;}
         if(DownloadTasks.active(this,track.stableId)){showDownloadActivity();return;}
         OfflineDownloadService.enqueue(this,track);Toast.makeText(this,"Saved for offline download",Toast.LENGTH_SHORT).show();
+    }
+
+    static boolean sameDownload(Track a,Track b) {
+        return Track.originalId(a.stableId).equals(Track.originalId(b.stableId))
+                || RecordingIdentity.same(a.title,a.artist,b.title,b.artist)&&RecordingIdentity.same(b.title,b.artist,a.title,a.artist);
+    }
+
+    private void downloadCollection(List<Track> tracksToDownload) {
+        List<Track> accepted=new ArrayList<>(DownloadStore.all(this));
+        for(org.json.JSONObject job:DownloadTasks.all(this))if(DownloadTasks.active(job))accepted.add(DownloadTasks.track(job));
+        List<Track> pending=new ArrayList<>();
+        for(Track item:tracksToDownload){
+            Track track=item.original();String scheme=track.playbackUri.getScheme();
+            if("content".equals(scheme)||"file".equals(scheme)||track.stableId.isEmpty())continue;
+            boolean duplicate=false;
+            for(Track other:accepted)if(sameDownload(track,other)){duplicate=true;break;}
+            if(!duplicate)for(Track other:pending)if(sameDownload(track,other)){duplicate=true;break;}
+            if(!duplicate)pending.add(track);
+        }
+        if(pending.isEmpty()){Toast.makeText(this,"These songs are already saved or downloading",Toast.LENGTH_SHORT).show();return;}
+        downloadCollectionStep(pending,accepted,0,0);
+    }
+
+    private void downloadCollectionStep(List<Track> pending,List<Track> accepted,int start,int queued) {
+        for(int i=start;i<pending.size();i++){
+            Track track=pending.get(i),similar=null;
+            for(Track other:accepted){
+                if(RecordingIdentity.title(track.title,track.artist).equals(RecordingIdentity.title(other.title,other.artist))
+                        &&!RecordingIdentity.artist(track.artist).equals(RecordingIdentity.artist(other.artist))){similar=other;break;}
+            }
+            if(similar!=null){
+                int next=i+1,count=queued;Track previous=similar;
+                new AppDialogBuilder(this).setTitle("Download both versions?")
+                        .setMessage("“"+track.title+"” by "+track.artist+" is similar to “"+previous.title+"” by "+previous.artist+". Download both?")
+                        .setPositiveButton("Yes",(dialog,which)->{OfflineDownloadService.enqueue(this,track);accepted.add(track);downloadCollectionStep(pending,accepted,next,count+1);})
+                        .setNegativeButton("No",(dialog,which)->downloadCollectionStep(pending,accepted,next,count)).show();
+                return;
+            }
+            OfflineDownloadService.enqueue(this,track);accepted.add(track);queued++;
+        }
+        Toast.makeText(this,queued==0?"No new downloads selected":"Queued "+queued+" songs for download",Toast.LENGTH_SHORT).show();
     }
 
     private void showDownloadActivity() {

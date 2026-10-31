@@ -1,5 +1,5 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/root" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:background="#0B0B0C" android:fitsSystemWindows="true">
-    <View android:layout_width="match_parent" android:layout_height="3dp" android:background="#FF5C35" />
+    <View android:id="@+id/accentStrip" android:layout_width="match_parent" android:layout_height="3dp" android:background="#FF5C35" />
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:paddingStart="@dimen/page_gutter" android:paddingTop="20dp" android:paddingEnd="12dp" android:paddingBottom="12dp">
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="LocalMusic" android:textColor="#F6F1E8" android:textSize="24sp" android:textStyle="bold" />

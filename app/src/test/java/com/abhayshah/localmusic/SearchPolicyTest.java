@@ -19,4 +19,10 @@ public class SearchPolicyTest {
         assertFalse(SearchPolicy.unwanted("तुम ही हो","अरिजीत सिंह",true));
         assertFalse(SearchPolicy.unwanted("ਮੇਰੇ ਵਾਲਾ ਸਰਦਾਰ","Jugraj Sandhu",true));
     }
+    @Test public void featuredArtistAndApostropheSearchFindsTheRecording(){
+        int original=SearchPolicy.rank("Ima Boss (feat. Rick Ross)","Meek Mill","I'm a Boss Rick Ross");
+        assertTrue(original>SearchPolicy.rank("I'm A Boss","Rick Ike","I'm a Boss Rick Ross"));
+        assertFalse(SearchPolicy.unwanted("I'm a Boss (Official Music Video)","I'm a Boss Rick Ross",true));
+        assertTrue(SearchPolicy.unwanted("I'm a Boss #Shorts","I'm a Boss",true));
+    }
 }

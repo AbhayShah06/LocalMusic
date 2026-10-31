@@ -23,4 +23,13 @@ public final class DiscoveryQualityTest {
     @Test public void videoDecorationIsRemovedBeforeLyricsLookup() {
         assertEquals("Shree hanuman chalisa", LyricsClient.cleanTitle("Shree hanuman chalisa with lyrics and english translation"));
     }
+    @Test public void radioInterleavesArtistsInsteadOfRepeatingTheSeedArtist(){
+        java.util.List<Track> input=new java.util.ArrayList<>();
+        input.add(new Track("a",null,"A","Rick Ross",""));input.add(new Track("b",null,"B","Rick Ross",""));
+        input.add(new Track("c",null,"C","Meek Mill",""));input.add(new Track("d",null,"D","Drake",""));
+        java.util.List<Track> output=OnlineCatalogSource.diverseMix(input,4,"rick ross");
+        assertEquals("Meek Mill",output.get(0).artist);
+        assertEquals("Drake",output.get(1).artist);
+        assertEquals("Rick Ross",output.get(2).artist);
+    }
 }

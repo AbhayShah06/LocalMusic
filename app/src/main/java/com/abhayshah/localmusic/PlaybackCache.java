@@ -40,6 +40,10 @@ final class PlaybackCache {
         new CacheWriter(current.createDataSource(), spec, null, null).cache();
     }
     static synchronized long bytes() { return cache == null ? 0 : cache.getCacheSpace(); }
+    static synchronized void remove(String stableId) {
+        if(cache==null)return;
+        try{cache.removeResource(Track.originalId(stableId));}catch(Exception ignored){}
+    }
     static synchronized void clear() {
         if (cache == null) return;
         for (String key : new java.util.HashSet<>(cache.getKeys())) try { cache.removeResource(key); } catch (Exception ignored) { }

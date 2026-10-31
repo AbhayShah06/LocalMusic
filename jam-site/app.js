@@ -17,6 +17,11 @@
     else { await navigator.clipboard.writeText(url); toast("Join link copied"); }
   });
   for (const action of ["previous", "toggle", "next"]) $(action).addEventListener("click", () => { if (action === "toggle" && state.data?.playback) { state.data.playback.playing = !state.data.playback.playing; renderQueue(); } sendControl(action); });
+  let seeking = false;
+  $("seek").addEventListener("pointerdown", () => { seeking = true; });
+  $("seek").addEventListener("input", () => { seeking = true; $("elapsed").textContent = clock(Number($("seek").value) * Number(state.data?.playback?.durationMs || 0) / 1000); });
+  $("seek").addEventListener("change", () => { const playback = state.data?.playback; if (playback?.durationMs && Number.isInteger(playback.currentIndex)) sendControl("seek", playback.currentIndex + (Number(playback.queueOffset) || 0), 0, undefined, true, Math.round(Number($("seek").value) * playback.durationMs / 1000), playback.title); seeking = false; });
+  $("seek").addEventListener("pointercancel", () => { seeking = false; renderQueue(); });
 
   async function join() {
     const room = $("room").value.trim(), guest = $("guest").value.trim();
@@ -27,7 +32,7 @@
     try {
       const response = await fetch(`${API}/api/rooms/${room}`); const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Jam not found");
-      state.room = room; state.guest = guest; state.data = body.room; localStorage.setItem("jamGuest", guest);
+      state.room = room; state.guest = guest; acceptRoom(body.room); localStorage.setItem("jamGuest", guest);
       history.replaceState({}, "", `?room=${room}`); $("setup").hidden = true; $("jam").hidden = false; $("roomLabel").textContent = `ROOM ${room}`;
       render(); connect();
     } catch (error) { fail(error.message || "Could not join this Jam."); }
@@ -37,9 +42,10 @@
     if (state.socket) state.socket.close();
     const ws = `${API.replace(/^http/, "ws")}/api/rooms/${state.room}/events`;
     state.socket = new WebSocket(ws);
-    state.socket.onmessage = event => { const message = JSON.parse(event.data); if (message.room) { state.data = message.room; render(); } };
+    state.socket.onmessage = event => { const message = JSON.parse(event.data); if (message.room && acceptRoom(message.room)) render(); };
     state.socket.onclose = () => { if (state.data?.active) setTimeout(connect, 1800); };
   }
+  function acceptRoom(room) { if (state.data && Number(room.revision) < Number(state.data.revision)) return false; state.data = room; return true; }
 
   function render() { renderTracks(); renderQueue(); $("liveDot").style.background = state.data.active ? "#52d68a" : "#777"; if (!state.data.active) toast("This Jam has ended"); }
   function renderTracks() {
@@ -84,37 +90,42 @@
     const playback = state.data.playback || {}, authoritative = playback.queue?.length ? playback.queue : playback.upcoming || [], queue = state.optimisticQueue || authoritative; $("queueCount").textContent = queue.length;
     $("nowTitle").textContent = playback.title || "Waiting for music"; $("nowArtist").textContent = playback.artist || "The host controls playback"; $("toggle").classList.toggle("isPlaying", Boolean(playback.playing)); $("toggle").setAttribute("aria-label", playback.playing ? "Pause" : "Play"); $("nowPulse").classList.toggle("playing", Boolean(playback.playing));
     $("nowArtwork").replaceWith(artworkNode(playback.artwork, playback.artist, "nowArtwork", "nowArtwork"));
-    $("queueList").replaceChildren(...(queue.length ? queue.map((item, index) => queueNode(item, index, queue, Number.isInteger(playback.currentIndex) ? playback.currentIndex : -1)) : [empty("Nothing queued yet") ]));
+    const duration = Number(playback.durationMs) || 0;
+    $("seek").disabled = !duration || !state.data.active;
+    $("duration").textContent = clock(duration);
+    if (!seeking) { const position = Math.min(duration, (Number(playback.positionMs) || 0) + (playback.playing ? Math.max(0, Date.now() - (Number(playback.positionUpdatedAt) || Date.now())) : 0)); $("seek").value = duration ? Math.round(position * 1000 / duration) : 0; $("elapsed").textContent = clock(position); }
+    $("queueList").replaceChildren(...(queue.length ? queue.map((item, index) => queueNode(item, index, queue, Number.isInteger(playback.currentIndex) ? playback.currentIndex : -1, Number(playback.queueOffset) || 0)) : [empty("Nothing queued yet") ]));
   }
-  function queueNode(item, index, queue, currentIndex) {
+  function queueNode(item, index, queue, currentIndex, queueOffset) {
     const row = document.createElement("div"); row.className = `queueItem${index < currentIndex ? " played" : index === currentIndex ? " current" : ""}`; row.dataset.index = index;
     const handle = document.createElement("button"); handle.className = "dragHandle"; handle.type = "button"; handle.setAttribute("aria-label", `Move ${item.title}`); handle.innerHTML = "<i></i><i></i><i></i>";
     const art = artworkNode(item.artwork, item.artist, "queueArtwork");
     const name = document.createElement("div"); name.className = "queueMeta"; const title = document.createElement("b"); title.textContent = item.title; title.title = item.title; const artist = document.createElement("span");
     const context = index === currentIndex ? "NOW PLAYING" : item.source === "jam" && item.addedBy ? `REQUESTED BY ${item.addedBy}` : item.source === "autoplay" ? "AUTOPLAY" : "";
     artist.textContent = context ? `${context} · ${item.artist}` : item.artist; artist.title = item.artist; name.append(title, artist);
-    const play = document.createElement("button"); play.className = "queuePlay"; play.type = "button"; play.textContent = index === currentIndex ? "Playing" : "Play"; play.disabled = index === currentIndex; play.addEventListener("click", event => { event.stopPropagation(); sendControl("play", index, 0, undefined, true); });
-    row.addEventListener("click", () => { if (index !== currentIndex) sendControl("play", index, 0, undefined, true); });
-    if (index > currentIndex) bindDrag(handle, row, index, queue, currentIndex + 1); else { handle.disabled = true; handle.setAttribute("aria-hidden", "true"); }
+    const play = document.createElement("button"); play.className = "queuePlay"; play.type = "button"; play.textContent = index === currentIndex ? "Playing" : "Play"; play.disabled = index === currentIndex; play.addEventListener("click", event => { event.stopPropagation(); sendControl("play", index + queueOffset, 0, undefined, true); });
+    row.addEventListener("click", () => { if (index !== currentIndex) sendControl("play", index + queueOffset, 0, undefined, true); });
+    if (index > currentIndex) bindDrag(handle, row, index, queue, currentIndex + 1, queueOffset); else { handle.disabled = true; handle.setAttribute("aria-hidden", "true"); }
     row.append(handle, art, name, play); return row;
   }
-  function bindDrag(handle, row, startIndex, queue, minimumIndex) {
+  function bindDrag(handle, row, startIndex, queue, minimumIndex, queueOffset) {
     let timer, active = false, targetIndex = startIndex;
-    const finish = () => { clearTimeout(timer); if (!active) return; active = false; handle.releasePointerCapture?.(pointerId); document.body.classList.remove("sorting"); row.classList.remove("dragging"); if (targetIndex !== startIndex) sendControl("reorder", startIndex, 0, targetIndex, true); };
+    const finish = () => { clearTimeout(timer); if (!active) return; active = false; handle.releasePointerCapture?.(pointerId); document.body.classList.remove("sorting"); row.classList.remove("dragging"); if (targetIndex !== startIndex) sendControl("reorder", startIndex + queueOffset, 0, targetIndex + queueOffset, true); };
     let pointerId;
     handle.addEventListener("pointerdown", event => { event.stopPropagation(); pointerId = event.pointerId; timer = setTimeout(() => { active = true; handle.setPointerCapture?.(pointerId); row.classList.add("dragging"); document.body.classList.add("sorting"); navigator.vibrate?.(18); }, 260); });
     handle.addEventListener("pointermove", event => { if (!active) return; event.preventDefault(); const over = document.elementFromPoint(event.clientX, event.clientY)?.closest?.(".queueItem"); const next = Number(over?.dataset.index); if (!Number.isInteger(next) || next < minimumIndex || next === targetIndex) return; targetIndex = next; const reordered = [...queue]; const [moved] = reordered.splice(startIndex, 1); reordered.splice(targetIndex, 0, moved); state.optimisticQueue = reordered; renderQueue(); });
     handle.addEventListener("pointerup", finish); handle.addEventListener("pointercancel", finish); handle.addEventListener("pointerleave", () => { if (!active) clearTimeout(timer); });
   }
-  async function sendControl(action, index, direction, toIndex, absolute) {
+  async function sendControl(action, index, direction, toIndex, absolute, positionMs, title) {
     if (!state.data?.active) return; const button = $(action); if (button) button.disabled = true;
-    try { const requestId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${action}`; const response = await fetch(`${API}/api/rooms/${state.room}/control`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, guest: state.guest, requestId, index, direction, toIndex, absolute }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error || "Control failed"); toast(action === "toggle" ? "Playback updated" : action === "next" ? "Skipping forward" : action === "previous" ? "Going back" : action === "play" ? "Playing selection" : "Queue order updated"); }
+    try { const requestId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${action}`; const response = await fetch(`${API}/api/rooms/${state.room}/control`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, guest: state.guest, requestId, index, direction, toIndex, absolute, positionMs, title }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error || "Control failed"); toast(action === "toggle" ? "Playback updated" : action === "next" ? "Skipping forward" : action === "previous" ? "Going back" : action === "play" ? "Playing selection" : action === "seek" ? "Moving to that part" : "Queue order updated"); }
     catch (error) { state.optimisticQueue = null; renderQueue(); toast(error.message); } finally { if (action === "reorder") setTimeout(() => { state.optimisticQueue = null; renderQueue(); }, 1400); if (button) setTimeout(() => button.disabled = false, 500); }
   }
   function empty(text) { const node = document.createElement("div"); node.className = "empty"; node.textContent = text; return node; }
   function artworkNode(url, artist, className, id) { const box = document.createElement("span"); box.className = className; if (id) box.id = id; const fallback = document.createElement("span"); fallback.textContent = initials(artist); box.append(fallback); if (url) { const image = document.createElement("img"); image.src = url; image.alt = ""; image.loading = "lazy"; image.decoding = "async"; image.addEventListener("load", () => box.classList.add("loaded")); image.addEventListener("error", () => image.remove()); box.append(image); } return box; }
   function uniqueTracks(tracks) { const seen = new Set(); return tracks.filter(track => { const key = `${track.title} ${track.artist}`.toLowerCase().replace(/\([^)]*\)|\[[^\]]*\]|official|audio|video|lyrics?/g, " ").replace(/[^a-z0-9]+/g, " ").trim(); if (!key || seen.has(key)) return false; seen.add(key); return true; }); }
   function initials(value) { return String(value || "LM").split(/\s+/).slice(0, 2).map(x => x[0] || "").join("").toUpperCase(); }
+  function clock(ms) { const seconds = Math.max(0, Math.floor((Number(ms) || 0) / 1000)); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
   function fail(message) { $("setupError").textContent = message; }
   let toastTimer; function toast(message) { $("toast").textContent = message; $("toast").classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => $("toast").classList.remove("show"), 2200); }
   if ($("room").value && state.guest) join();

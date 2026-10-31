@@ -29,6 +29,8 @@ import org.json.JSONObject;
 /** Searches public streaming catalogues and resolves playback entirely on the phone. */
 final class OnlineCatalogSource implements CatalogSource {
     private static final String CLOUD_SEARCH = "https://localmusic-jam.vercel.app/api/search?q=";
+    private static final String CLOUD_MIX = "https://localmusic-jam.vercel.app/api/mix?v=";
+    private static volatile long mixUnavailableUntil;
     private static final long RESOLUTION_TTL_MS = 8 * 60_000L;
     private static final long SEARCH_TTL_MS = 5 * 60_000L;
     private static final java.util.LinkedHashMap<String, CachedTrack> RESOLVED = new java.util.LinkedHashMap<String, CachedTrack>(32, .75f, true) {
@@ -115,7 +117,7 @@ final class OnlineCatalogSource implements CatalogSource {
             candidates.sort((left, right) -> Integer.compare(score(right, query), score(left, query)));
             for (StreamInfoItem stream : candidates) {
                 if (output.size() >= limit) break;
-                if (isUnwantedVersion(stream, query)) continue;
+                if (stream.getUrl().contains("/shorts/")||isUnwantedVersion(stream, query)) continue;
                 String encoded = Base64.encodeToString(stream.getUrl().getBytes(StandardCharsets.UTF_8), Base64.URL_SAFE | Base64.NO_WRAP);
                 Uri artwork = bestArtwork(stream.getThumbnails());
                 output.add(new Track("online:" + service.getServiceId() + ":" + encoded, Uri.parse(stream.getUrl()),
@@ -138,6 +140,7 @@ final class OnlineCatalogSource implements CatalogSource {
     }
 
     private boolean isUnwantedVersion(StreamInfoItem item, String query) {
+        if(item.getUrl().contains("/shorts/"))return true;
         if (item.getDuration() > 15 * 60 || (item.getDuration() > 0 && item.getDuration() < 45)) return true;
         return SearchPolicy.unwanted(item.getName(),query,avoidCleanVersions);
     }
@@ -210,10 +213,10 @@ final class OnlineCatalogSource implements CatalogSource {
 
     List<Track> songMix(Track seed) {return songMix(seed,java.util.Collections.emptySet());}
     List<Track> songMix(Track seed,Set<String> excludedIds) {
-        List<Track> candidates=new ArrayList<>();candidates.add(seed.original());
+        List<Track> candidates=new ArrayList<>();candidates.add(seed.original());candidates.addAll(cloudMix(seed));
         try {
             String[] parts=seed.stableId.split(":",3);String page=new String(Base64.decode(parts[2],Base64.URL_SAFE),StandardCharsets.UTF_8);
-            if(Integer.parseInt(parts[1])==0){String video=Uri.parse(page).getQueryParameter("v");if(video!=null){
+            if(candidates.size()<8&&Integer.parseInt(parts[1])==0){String video=Uri.parse(page).getQueryParameter("v");if(video!=null){
                 org.schabi.newpipe.extractor.playlist.PlaylistInfo info=org.schabi.newpipe.extractor.playlist.PlaylistInfo.getInfo(ServiceList.YouTube,"https://www.youtube.com/watch?v="+video+"&list=RD"+video);
                 for(StreamInfoItem item:info.getRelatedItems())if(!isUnwantedVersion(item,seed.title+" "+seed.artist)&&isLikelySong(item,seed.artist))candidates.add(unresolved(ServiceList.YouTube,item));
                 org.schabi.newpipe.extractor.Page next=info.getNextPage();
@@ -224,14 +227,59 @@ final class OnlineCatalogSource implements CatalogSource {
             }}
         }catch(Exception unavailable){}
         if(candidates.size()<8)try{candidates.addAll(resolveWithRadio(seed).radio);}catch(RuntimeException unavailable){}
-        List<Track> result=new ArrayList<>();Set<String> known=new HashSet<>();java.util.Map<String,Integer> artistCounts=new java.util.HashMap<>();
+        List<Track> result=new ArrayList<>();Set<String> known=new HashSet<>();
         for(Track candidate:candidates){
-            if(excludedIds.contains(candidate.stableId)||VersionPolicy.isMusicVideo(candidate.title)||avoidCleanVersions&&VersionPolicy.exclude(candidate.title,seed.title))continue;
+            if(excludedIds.contains(candidate.stableId)||candidate.playbackUri.toString().contains("/shorts/")||SearchPolicy.unwanted(candidate.title,seed.title+" "+seed.artist,avoidCleanVersions)||VersionPolicy.isMusicVideo(candidate.title))continue;
             String artist=RecordingIdentity.artist(candidate.artist),key=artist+"|"+RecordingIdentity.title(candidate.title,candidate.artist);
-            if(artistCounts.getOrDefault(artist,0)>=3||!known.add(key))continue;
-            artistCounts.put(artist,artistCounts.getOrDefault(artist,0)+1);result.add(candidate.original());if(result.size()==20)break;
+            if(RecordingIdentity.title(candidate.title,seed.artist).equals(RecordingIdentity.title(seed.title,seed.artist))||!known.add(key))continue;
+            result.add(candidate.original());if(result.size()==80)break;
         }
-        return result;
+        return diverseMix(result,20,RecordingIdentity.artist(seed.artist));
+    }
+
+    private static List<Track> cloudMix(Track seed){
+        if(System.currentTimeMillis()<mixUnavailableUntil)return Collections.emptyList();
+        HttpURLConnection connection=null;
+        try{
+            String[] parts=seed.stableId.split(":",3);
+            if(parts.length!=3||!parts[1].equals("0"))return Collections.emptyList();
+            String url=new String(Base64.decode(parts[2],Base64.URL_SAFE),StandardCharsets.UTF_8);
+            String video=Uri.parse(url).getQueryParameter("v");
+            if(video==null||!video.matches("[A-Za-z0-9_-]{11}"))return Collections.emptyList();
+            connection=(HttpURLConnection)new URL(CLOUD_MIX+video).openConnection();connection.setConnectTimeout(4_000);connection.setReadTimeout(10_000);connection.setRequestProperty("User-Agent","LocalMusic/0.12");
+            if(connection.getResponseCode()!=200){mixUnavailableUntil=System.currentTimeMillis()+10*60_000;return Collections.emptyList();}
+            try(InputStream in=connection.getInputStream();ByteArrayOutputStream out=new ByteArrayOutputStream()){
+                byte[] buffer=new byte[8192];int read;while((read=in.read(buffer))!=-1){if(Thread.currentThread().isInterrupted())return Collections.emptyList();if(out.size()+read>512*1024)throw new java.io.IOException("Radio response too large");out.write(buffer,0,read);}
+                JSONArray values=new JSONObject(out.toString("UTF-8")).optJSONArray("tracks");List<Track> tracks=new ArrayList<>();
+                if(values==null)return tracks;
+                for(int i=0;i<values.length()&&tracks.size()<80;i++){
+                    JSONObject item=values.optJSONObject(i);if(item==null)continue;
+                    String id=item.optString("id"),title=item.optString("title"),artist=item.optString("artist");
+                    if(!id.startsWith("online:0:")||title.isEmpty()||artist.isEmpty())continue;
+                    String artwork=item.optString("artwork");tracks.add(new Track(id,Uri.EMPTY,title,artist,item.optString("album"),artwork.startsWith("https://")?Uri.parse(artwork):null));
+                }
+                return tracks;
+            }
+        }catch(Exception unavailable){mixUnavailableUntil=System.currentTimeMillis()+10*60_000;return Collections.emptyList();}
+        finally{if(connection!=null)connection.disconnect();}
+    }
+
+    /** Interleave artists before the service takes the next five radio tracks. */
+    static List<Track> diverseMix(List<Track> input,int limit,String seedArtist){
+        List<Track> remaining=new ArrayList<>(input),output=new ArrayList<>();
+        java.util.Map<String,Integer> counts=new java.util.HashMap<>();
+        String previous=seedArtist,secondPrevious="";
+        while(!remaining.isEmpty()&&output.size()<limit){
+            int best=-1,bestScore=Integer.MAX_VALUE;
+            for(int i=0;i<remaining.size();i++){
+                String artist=RecordingIdentity.artist(remaining.get(i).artist);
+                int score=counts.getOrDefault(artist,0)*100+(artist.equals(previous)?60:0)+(artist.equals(secondPrevious)?25:0)+(artist.equals(seedArtist)?35:0);
+                if(score<bestScore){best=i;bestScore=score;}
+            }
+            Track next=remaining.remove(best);String artist=RecordingIdentity.artist(next.artist);
+            output.add(next);counts.put(artist,counts.getOrDefault(artist,0)+1);secondPrevious=previous;previous=artist;
+        }
+        return output;
     }
 
     static String identity(String title) {

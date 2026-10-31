@@ -11,4 +11,5 @@ public class AudioFileFormatTest {
     @Test public void namesCannotEscapeMusicFolder(){String name=AudioFileFormat.filename("../Artist","a/b:c?","one","m4a");assertFalse(name.contains("/"));assertFalse(name.contains(":"));assertTrue(name.endsWith(".m4a"));assertNotEquals(name,AudioFileFormat.filename("../Artist","a/b:c?","two","m4a"));}
     @Test(expected=IOException.class) public void truncatedFileIsRejected()throws Exception{detect("RIFF".getBytes());}
     @Test public void featuredCreditsDoNotHideARecording(){assertEquals("one dance",RecordingIdentity.title("Drake - One Dance (Lyrics) ft. Wizkid & Kyla","Drake"));}
+    @Test public void extractorMimeCanRecoverAnUnusualHeader()throws Exception{assertEquals("m4a",AudioFileFormat.fromMime("audio/mp4a-latm").extension);assertEquals("ogg",AudioFileFormat.fromMime("audio/opus").extension);}
 }

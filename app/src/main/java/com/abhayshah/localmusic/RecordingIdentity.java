@@ -17,6 +17,6 @@ final class RecordingIdentity {
             &&!artist(artist).isEmpty()&&artist(artist).equals(artist(otherArtist))&&title(title,artist).equals(title(otherTitle,otherArtist));
     }
     static String key(String title,String artist){return artist(artist)+"|"+title(title,artist);}
-    private static String words(String value){return Normalizer.normalize(value,Normalizer.Form.NFKC).toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+"," ").trim().replaceAll("\\s+"," ");}
+    private static String words(String value){return Normalizer.normalize(value,Normalizer.Form.NFKC).toLowerCase(Locale.ROOT).replaceAll("\\b(i['’]?m|ima)\\b","ima").replaceAll("[^\\p{L}\\p{N}]+"," ").trim().replaceAll("\\s+"," ").replaceAll("\\bima a\\b","ima");}
     private RecordingIdentity(){}
 }

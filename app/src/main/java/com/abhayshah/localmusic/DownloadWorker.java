@@ -17,6 +17,8 @@ import java.util.concurrent.Semaphore;
 @androidx.media3.common.util.UnstableApi
 public final class DownloadWorker extends Worker {
     private static final Semaphore SLOTS=new Semaphore(2,true);
+    private static final Semaphore[] RECORDING_SLOTS=new Semaphore[128];
+    static{for(int i=0;i<RECORDING_SLOTS.length;i++)RECORDING_SLOTS[i]=new Semaphore(1,true);}
     private static final String CHANNEL="offline_downloads_quiet";
     private final Track source;
     public DownloadWorker(@NonNull Context c,@NonNull WorkerParameters params){
@@ -25,12 +27,18 @@ public final class DownloadWorker extends Worker {
     }
     @NonNull @Override public Result doWork(){
         Context context=getApplicationContext();
-        if(DownloadStore.contains(context,source.stableId)){DownloadTasks.put(context,source,"completed",0,0,"");return Result.success();}
-        File output=DownloadStore.destination(context,source.stableId),temporary=new File(output.getParentFile(),output.getName()+"."+getId()+".part");boolean acquired=false;
+        if(DownloadStore.offline(context,source)!=null){DownloadTasks.put(context,source,"completed",0,0,"");return Result.success();}
+        File output=DownloadStore.destination(context,source.stableId),temporary=new File(output.getParentFile(),output.getName()+"."+getId()+".part");boolean acquired=false,recordingAcquired=false;
+        Semaphore recordingSlot=RECORDING_SLOTS[Math.floorMod(RecordingIdentity.key(source.title,source.artist).hashCode(),RECORDING_SLOTS.length)];
         try{
             NotificationChannel channel=new NotificationChannel(CHANNEL,"Music downloads",NotificationManager.IMPORTANCE_LOW);channel.setSound(null,null);channel.enableVibration(false);channel.setShowBadge(false);context.getSystemService(NotificationManager.class).createNotificationChannel(channel);
             setForegroundAsync(foreground("Queued: "+source.title,0,true)).get();
-            SLOTS.acquire();acquired=true;if(isStopped())throw new InterruptedIOException("Waiting for connection");
+            SLOTS.acquire();acquired=true;recordingSlot.acquire();recordingAcquired=true;
+            if(DownloadStore.offline(context,source)!=null){DownloadTasks.put(context,source,"completed",0,0,"");return Result.success();}
+            if(output.isFile())try{validateAudio(output);DownloadStore.put(context,source,output);
+                if(DownloadStore.contains(context,source.stableId)){DownloadTasks.put(context,source,"completed",output.length(),output.length(),"");return Result.success();}
+            }catch(IOException incomplete){output.delete();}
+            if(isStopped())throw new InterruptedIOException("Waiting for connection");
             DownloadTasks.put(context,source,"downloading",0,-1,"");Track playable=resolve();final long[] last={0};
                 DownloadTransfer.copy(new URL(playable.playbackUri.toString()),temporary,(done,total)->{
                 if(isStopped())throw new InterruptedIOException("Waiting for connection");long now=android.os.SystemClock.elapsedRealtime();
@@ -42,6 +50,7 @@ public final class DownloadWorker extends Worker {
             DownloadTasks.put(context,source,"saving",temporary.length(),temporary.length(),"");
             try{Files.move(temporary.toPath(),output.toPath(),StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);}catch(AtomicMoveNotSupportedException unsupported){Files.move(temporary.toPath(),output.toPath(),StandardCopyOption.REPLACE_EXISTING);}
             DownloadStore.put(context,source,output);if(!DownloadStore.contains(context,source.stableId))throw new IOException("Could not save download index");
+            PlaybackCache.remove(source.stableId);
             new File(temporary.getPath()+".httpmeta").delete();
             DownloadTasks.put(context,source,"completed",output.length(),output.length(),"");if(context.getSharedPreferences("settings",0).getBoolean("export_music",true))MusicExportWorker.enqueue(context,source.stableId);return Result.success();
         }catch(Exception failure){
@@ -54,7 +63,7 @@ public final class DownloadWorker extends Worker {
             if(permanent){temporary.delete();new File(temporary.getPath()+".httpmeta").delete();}
             DownloadTasks.put(context,source,permanent?"failed":"waiting",0,-1,permanent?error+". Tap Retry.":"Will retry automatically when the connection recovers. "+error);
             return permanent?Result.failure():Result.retry();
-        }finally{if(acquired)SLOTS.release();}
+        }finally{if(recordingAcquired)recordingSlot.release();if(acquired)SLOTS.release();}
     }
     private Track resolve()throws Exception{
         if(source.stableId.startsWith("online:")){OnlineCatalogSource.invalidate(source.stableId);return new OnlineCatalogSource().resolve(source);}

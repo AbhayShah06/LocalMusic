@@ -17,6 +17,19 @@ final class AudioFileFormat {
         if((h[0]&255)==255&&(h[1]&0xe0)==0xe0)return new AudioFileFormat("mp3","audio/mpeg");
         throw new IOException("Couldn't identify the audio format; private download kept");
     }
+    static AudioFileFormat fromMime(String mime)throws IOException{
+        if(mime==null)throw new IOException("Audio format is unavailable");
+        switch(mime.toLowerCase(java.util.Locale.ROOT)){
+            case "audio/mp4":case "audio/mp4a-latm":case "audio/x-m4a":return new AudioFileFormat("m4a","audio/mp4");
+            case "audio/webm":return new AudioFileFormat("webm","audio/webm");
+            case "audio/ogg":case "audio/vorbis":case "audio/opus":return new AudioFileFormat("ogg","audio/ogg");
+            case "audio/mpeg":return new AudioFileFormat("mp3","audio/mpeg");
+            case "audio/flac":return new AudioFileFormat("flac","audio/flac");
+            case "audio/wav":case "audio/x-wav":return new AudioFileFormat("wav","audio/wav");
+            case "audio/aac":return new AudioFileFormat("aac","audio/aac");
+            default:throw new IOException("Unsupported audio format: "+mime);
+        }
+    }
     static String filename(String artist,String title,String id,String extension){
         String name=(artist+" - "+title).replaceAll("[\\p{Cntrl}<>:\"/\\\\|?*]","_").replaceFirst("^\\.+","").trim();
         if(name.length()>110)name=name.substring(0,110);if(name.isEmpty())name="LocalMusic";
