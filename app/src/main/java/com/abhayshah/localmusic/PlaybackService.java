@@ -379,7 +379,7 @@ public final class PlaybackService extends MediaSessionService {
         boolean playing = player.isPlaying(); long sequence = jamPlaybackSequence.incrementAndGet();
         long position = Math.max(0, player.getCurrentPosition()), duration = player.getDuration();
         lastJamPositionPublish = android.os.SystemClock.elapsedRealtime();
-        jamIo.execute(() -> { try { new JamClient().publishPlayback(room, title, artist, artwork, playing, queue, currentIndex, sequence, position, duration > 0 && duration != C.TIME_UNSET ? duration : 0, queueOffset); } catch (Exception ignored) { } finally { stateHandler.post(() -> { jamPublishRunning.set(false); if (jamPublishPending && room == jamRoom && !destroyed) { jamPublishPending = false; publishJamPlayback(); } }); } });
+        jamIo.execute(() -> { try { new JamClient().publishPlayback(room, title, artist, artwork, playing, queue, currentIndex, sequence, position, duration > 0 && duration != C.TIME_UNSET ? duration : 0, queueOffset); } catch (Exception ignored) { } finally { stateHandler.post(() -> { jamPublishRunning.set(false); if (jamPublishPending && jamRoom != null && !destroyed) { jamPublishPending = false; publishJamPlayback(); } }); } });
     }
 
     private void resumePlayer() {
