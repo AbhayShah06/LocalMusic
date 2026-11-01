@@ -120,7 +120,9 @@ class handler(BaseHTTPRequestHandler):
 
 
 def normalized(value):
-    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+    text = str(value or "").lower()
+    text = re.sub(r"\b(?:i['’]?m a|ima)\b", "im a", text)
+    return re.sub(r"[^a-z0-9]+", " ", text).strip()
 
 
 def search_score(query, item):
