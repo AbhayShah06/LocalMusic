@@ -32,13 +32,22 @@ public class GestureRegressionTest {
             for(int i=0;i<20;i++){
                 int iteration=i;activity.onActivity(a->panel.set(MixDialog.show(a,"Swipe "+iteration,Collections.singletonList(track),(songs,index)->fail("Swipe played a song"),songs->fail("Swipe added songs"),songs->fail("Swipe downloaded songs"),song->fail("Swipe opened song menu"),callback->callback.accept(Collections.emptyList()),song->fail("Swipe added a suggestion"))));
                 androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().getUiAutomation().waitForIdle(100,5000);
-                onView(withContentDescription("Dismiss panel")).inRoot(androidx.test.espresso.matcher.RootMatchers.withDecorView(org.hamcrest.Matchers.is(panel.get().getWindow().getDecorView()))).perform(FeatureRuntimeTest.swipeFromMiddle(i%2==0));
+                // Inject into this dialog's sheet: Espresso can target a transient lyrics sheet
+                // after repeated window transitions on API 29.
+                FeatureRuntimeTest.main(()->{DismissSwipeLayout swipe=findSwipe(panel.get().getWindow().getDecorView());assertNotNull(swipe);
+                    float y=swipe.getHeight()/2f,from=swipe.getWidth()*(iteration%2==0?.15f:.85f),to=swipe.getWidth()*(iteration%2==0?.85f:.15f);
+                    AudioExperienceTest.touch(swipe,MotionEvent.ACTION_DOWN,from,y);
+                    AudioExperienceTest.touch(swipe,MotionEvent.ACTION_MOVE,(from+to)/2f,y);
+                    AudioExperienceTest.touch(swipe,MotionEvent.ACTION_MOVE,to,y);
+                    AudioExperienceTest.touch(swipe,MotionEvent.ACTION_UP,to,y);
+                });
                 try{FeatureRuntimeTest.await("Mix swipe "+i+" did not dismiss",()->!FeatureRuntimeTest.value(()->panel.get().isShowing()),3000);}
                 catch(AssertionError failure){throw new AssertionError("Iteration "+i+": "+FeatureRuntimeTest.value(()->state(panel.get().getWindow().getDecorView())),failure);}
             }
             }finally{FeatureRuntimeTest.main(()->{if(panel.get()!=null&&panel.get().isShowing())panel.get().dismiss();});}
         }
     }
+    private static DismissSwipeLayout findSwipe(View view){if(view instanceof DismissSwipeLayout)return (DismissSwipeLayout)view;if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++){DismissSwipeLayout found=findSwipe(((ViewGroup)view).getChildAt(i));if(found!=null)return found;}return null;}
     static String state(View view){
         StringBuilder out=new StringBuilder();if(view instanceof DismissSwipeLayout){out.append("size=").append(view.getWidth()).append('x').append(view.getHeight()).append(" panelX=").append(view.getTranslationX()).append(" rootX=").append(view.getRootView().getTranslationX());for(java.lang.reflect.Field field:DismissSwipeLayout.class.getDeclaredFields()){try{field.setAccessible(true);out.append(' ').append(field.getName()).append('=').append(field.get(view));}catch(Exception ignored){}}}
         if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++)out.append(state(((ViewGroup)view).getChildAt(i)));return out.toString();
