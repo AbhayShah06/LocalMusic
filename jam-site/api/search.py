@@ -13,6 +13,8 @@ from ytmusicapi import YTMusic
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
+        if parsed.path in ("/api/mix", "/api/mix.py"):
+            return self.serve_mix(parsed)
         if parsed.path != "/api/search":
             return self.serve_static(parsed.path)
         query = parse_qs(parsed.query).get("q", [""])[0].strip()[:120]
@@ -46,6 +48,40 @@ class handler(BaseHTTPRequestHandler):
             self.reply(200, {"tracks": tracks})
         except Exception:
             self.reply(502, {"error": "Catalogue search is temporarily unavailable"})
+
+    def serve_mix(self, parsed):
+        video_id = parse_qs(parsed.query).get("v", [""])[0]
+        if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+            return self.reply(400, {"error": "Invalid song ID"})
+        try:
+            radio = YTMusic().get_watch_playlist(videoId=video_id, radio=True, limit=60)
+            tracks, seen = [], {video_id}
+            for item in radio.get("tracks") or []:
+                candidate_id = item.get("videoId")
+                title = str(item.get("title") or "").strip()
+                length = item.get("length") or ""
+                try:
+                    duration = 0
+                    for part in str(length).split(":"):
+                        duration = duration * 60 + int(part)
+                except ValueError:
+                    duration = 0
+                if not candidate_id or candidate_id in seen or not title or "#shorts" in title.lower():
+                    continue
+                if duration and (duration < 75 or duration > 600):
+                    continue
+                seen.add(candidate_id)
+                artists = ", ".join(a.get("name", "") for a in (item.get("artists") or []) if a.get("name"))
+                album = item.get("album") or {}
+                thumbnails = item.get("thumbnail") or item.get("thumbnails") or []
+                artwork = thumbnails[-1].get("url", "") if thumbnails else ""
+                encoded = base64.urlsafe_b64encode(f"https://www.youtube.com/watch?v={candidate_id}".encode()).decode().rstrip("=")
+                tracks.append({"id": f"online:0:{encoded}", "title": title,
+                               "artist": artists or "Unknown artist", "album": album.get("name", "YouTube Music"),
+                               "artwork": artwork})
+            return self.reply(200, {"tracks": tracks})
+        except Exception:
+            return self.reply(502, {"error": "Radio is temporarily unavailable"})
 
     def do_OPTIONS(self):
         self.send_response(204)
