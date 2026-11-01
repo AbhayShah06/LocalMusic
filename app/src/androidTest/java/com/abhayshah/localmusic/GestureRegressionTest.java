@@ -30,7 +30,7 @@ public class GestureRegressionTest {
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
             try{
             for(int i=0;i<20;i++){
-                int iteration=i;activity.onActivity(a->panel.set(MixDialog.show(a,"Swipe "+iteration,Collections.singletonList(track),(songs,index)->fail("Swipe played a song"),songs->fail("Swipe added songs"),song->fail("Swipe opened song menu"))));
+                int iteration=i;activity.onActivity(a->panel.set(MixDialog.show(a,"Swipe "+iteration,Collections.singletonList(track),(songs,index)->fail("Swipe played a song"),songs->fail("Swipe added songs"),songs->fail("Swipe downloaded songs"),song->fail("Swipe opened song menu"),callback->callback.accept(Collections.emptyList()),song->fail("Swipe added a suggestion"))));
                 androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().getUiAutomation().waitForIdle(100,5000);
                 onView(withContentDescription("Dismiss panel")).inRoot(androidx.test.espresso.matcher.RootMatchers.withDecorView(org.hamcrest.Matchers.is(panel.get().getWindow().getDecorView()))).perform(FeatureRuntimeTest.swipeFromMiddle(i%2==0));
                 try{FeatureRuntimeTest.await("Mix swipe "+i+" did not dismiss",()->!FeatureRuntimeTest.value(()->panel.get().isShowing()),3000);}
