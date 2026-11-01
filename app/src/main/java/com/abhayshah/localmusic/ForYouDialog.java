@@ -56,14 +56,19 @@ final class ForYouDialog {
             LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(width,-2);params.setMargins(0,0,dp(activity,10),dp(activity,8));row.addView(card,params);
         };for(Track track:tracks)append.accept(track);
         if(loader!=null){boolean[] loading={false};long[] retryAt={0};Runnable[] request={null};
+            TextView edge=label(activity,"More mixes  →",15);edge.setTextColor(accent);edge.setGravity(android.view.Gravity.CENTER);edge.setContentDescription("Load more song mixes");
+            row.addView(edge,new LinearLayout.LayoutParams(width,dp(activity,190)));
             request[0]=()->{if(loading[0]||android.os.SystemClock.elapsedRealtime()<retryAt[0]||!scroll.isAttachedToWindow())return;loading[0]=true;
+                edge.setText("Finding more mixes…");
                 loader.load(new ArrayList<>(visible),new HashSet<>(seen),found->activity.runOnUiThread(()->{
-                    loading[0]=false;if(!scroll.isAttachedToWindow())return;int before=visible.size();for(Track track:found)append.accept(track);
-                    if(visible.size()==before){retryAt[0]=android.os.SystemClock.elapsedRealtime()+15000;return;}
+                    loading[0]=false;if(!scroll.isAttachedToWindow())return;int before=visible.size();row.removeView(edge);for(Track track:found)append.accept(track);row.addView(edge,new LinearLayout.LayoutParams(width,dp(activity,190)));
+                    if(visible.size()==before){edge.setText("No new mixes. Tap to retry");retryAt[0]=android.os.SystemClock.elapsedRealtime()+5000;return;}
+                    edge.setText("More mixes  →");
                     int removed=Math.max(0,visible.size()-40),oldX=scroll.getScrollX();for(int i=0;i<removed;i++){visible.remove(0);row.removeViewAt(0);}
                     if(removed>0)scroll.post(()->scroll.scrollTo(Math.max(0,oldX-removed*span),0));
                 }));
             };
+            edge.setOnClickListener(v->{retryAt[0]=0;request[0].run();});
             scroll.setOnScrollChangeListener((View v,int x,int y,int oldX,int oldY)->{if(x>oldX&&row.getWidth()-scroll.getWidth()-x<2*span)request[0].run();});
         }
         return scroll;
