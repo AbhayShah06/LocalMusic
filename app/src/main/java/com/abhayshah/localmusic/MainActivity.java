@@ -43,6 +43,7 @@ public final class MainActivity extends Activity {
     private void rememberPanel(String key,android.app.Dialog panel){panels.put(key,panel);}
     private long lastMixTapAt;
     private String lastMixTapId="";
+    private int mixBrowsePage;
     private static final int WINDOW_SIZE = 400;
     private final List<Track> tracks = new ArrayList<>();
     private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -56,6 +57,7 @@ public final class MainActivity extends Activity {
     private String lastTrackTapId = "";
     private final Handler main = new Handler(Looper.getMainLooper());
     private LibraryAdapter adapter;
+    private final TrackSelection librarySelection=new TrackSelection();
     private EditText search;
     private TextView status, nowPlaying, nowPlayingArtist;
     private View permissionPanel;
@@ -106,10 +108,11 @@ public final class MainActivity extends Activity {
         b2Settings = new B2Settings(this);
         findViewById(R.id.source).setOnClickListener(v -> chooseSource());
         ListView list = findViewById(R.id.tracks);
-        adapter = new LibraryAdapter(this, tracks, this::playFrom, this::showTrackActions);
+        adapter = new LibraryAdapter(this, tracks, this::onLibraryRow, this::onLibraryMenu);
+        adapter.setSelection(librarySelection,this::toggleLibrarySelection);
         list.setAdapter(adapter);
-        list.setOnItemClickListener((parent, view, position, id) -> playFrom(position));
-        list.setOnItemLongClickListener((parent, view, position, id) -> { showTrackActions(position); return true; });
+        findViewById(R.id.librarySelectionDone).setOnClickListener(v->clearLibrarySelection());
+        findViewById(R.id.librarySelectionMenu).setOnClickListener(v->showLibrarySelectionMenu());
         list.setOnScrollListener(new android.widget.AbsListView.OnScrollListener() {
             @Override public void onScrollStateChanged(android.widget.AbsListView v, int state) { }
             @Override public void onScroll(android.widget.AbsListView v, int first, int visible, int total) {
@@ -225,6 +228,7 @@ public final class MainActivity extends Activity {
     private View forYouContent;
     private boolean showingForYou;
     private void selectTab(int selectedId) {
+        if(selectedId!=R.id.songs&&librarySelection.active())clearLibrarySelection();
         if (selectedId != R.id.forYou && showingForYou) {
             showingForYou=false;
             if(forYouContent!=null){((android.widget.FrameLayout)findViewById(R.id.libraryContent)).removeView(forYouContent);forYouContent=null;}
@@ -234,11 +238,33 @@ public final class MainActivity extends Activity {
         for (int id : ids) findViewById(id).setSelected(id == selectedId);
     }
 
+    private void onLibraryRow(int position){if(librarySelection.active())toggleLibrarySelection(position);else playFrom(position);}
+    private void onLibraryMenu(int position){if(librarySelection.active())toggleLibrarySelection(position);else showTrackActions(position);}
+    private void toggleLibrarySelection(int position){
+        if(position<0||position>=tracks.size()||showingForYou)return;
+        librarySelection.toggle(position,tracks.get(position).stableId);updateLibrarySelection();adapter.notifyDataSetChanged();
+    }
+    private void updateLibrarySelection(){
+        View bar=findViewById(R.id.librarySelectionBar);bar.setVisibility(librarySelection.active()?View.VISIBLE:View.GONE);
+        ((TextView)findViewById(R.id.librarySelectionCount)).setText(librarySelection.size()+" selected");findViewById(R.id.librarySelectionMenu).setEnabled(librarySelection.size()>0);
+    }
+    private void clearLibrarySelection(){
+        if(!librarySelection.active())return;librarySelection.clear();updateLibrarySelection();if(adapter!=null)adapter.notifyDataSetChanged();
+    }
+    private void showLibrarySelectionMenu(){
+        List<Integer> positions=librarySelection.valid(tracks.size(),at->tracks.get(at).stableId);if(positions.isEmpty()){updateLibrarySelection();return;}
+        new AppDialogBuilder(this).setTitle(positions.size()+" selected").setItems(new String[]{"Download selected","Add selected to playlist"},(dialog,which)->{
+            List<Integer> valid=librarySelection.valid(tracks.size(),at->tracks.get(at).stableId);List<Track> picked=new ArrayList<>();for(int at:valid)picked.add(tracks.get(at));
+            if(which==0)downloadCollection(picked);else addTracksToPlaylist(picked);clearLibrarySelection();
+        }).show();
+    }
+
     private void setGroup(String value) { selectTab(R.id.songs); group = value; query = ""; search.setText(""); resetAndLoad(); }
 
     private boolean libraryPaged = true;
     private int libraryGeneration;
     private void resetAndLoad() {
+        clearLibrarySelection();
         if(pageSearch!=null)pageSearch.cancel(true);searchIo.purge();
         libraryGeneration++; libraryPaged=true;
         offset = 0; exhausted = false; loading = false; tracks.clear(); adapter.clear();
@@ -260,6 +286,7 @@ public final class MainActivity extends Activity {
                 loading = false;
                 if (!pageQuery.equals(query)) return;
                 if (tracks.size() + page.size() > WINDOW_SIZE) {
+                    clearLibrarySelection();
                     int trim = Math.min(PAGE_SIZE, tracks.size());
                     for (int i = 0; i < trim; i++) { tracks.remove(0); adapter.remove(adapter.getItem(0)); }
                 }
@@ -604,6 +631,7 @@ public final class MainActivity extends Activity {
     }
 
     private void loadListeningList(boolean mix) {
+        clearLibrarySelection();
         libraryGeneration++;libraryPaged=false;loading=false;searchHandler.removeCallbacksAndMessages(null);
         selectTab(R.id.songs);
         List<Track> found = mix ? ListeningHistory.dailyMix(this, 50) : ListeningHistory.recent(this, 50);
@@ -621,11 +649,28 @@ public final class MainActivity extends Activity {
         if(forYouContent!=null)frame.removeView(forYouContent);
         showingForYou=true;findViewById(R.id.tracks).setVisibility(View.GONE);permissionPanel.setVisibility(View.GONE);status.setVisibility(View.GONE);
         forYouContent=ForYouDialog.create(this, track -> playMixTracks(java.util.Collections.singletonList(track), 0), this::showSeedMix,this::showCollectionTrackActions,
-                () -> loadListeningList(false), () -> loadSavedTracks("favorites", "Favorites"), ()->{personalMixes.clear();homeRefreshSeed=System.nanoTime();showForYou();forYouContent.announceForAccessibility("Home refreshed");}, homeRefreshSeed);
+                () -> loadListeningList(false), () -> loadSavedTracks("favorites", "Favorites"), ()->{personalMixes.clear();homeRefreshSeed=System.nanoTime();showForYou();forYouContent.announceForAccessibility("Home refreshed");},this::loadMoreMixSeeds, homeRefreshSeed);
         frame.addView(forYouContent,new android.widget.FrameLayout.LayoutParams(-1,-1));selectTab(R.id.forYou);
     }
 
     private final java.util.Map<String,List<Track>> personalMixes = new java.util.HashMap<>();
+    private void loadMoreMixSeeds(List<Track> visible,java.util.Set<String> seen,java.util.function.Consumer<List<Track>> done){
+        if(visible.isEmpty()){done.accept(java.util.Collections.emptyList());return;}
+        int page=++mixBrowsePage;streamIo.execute(()->{
+            List<Track> candidates=new ArrayList<>();java.util.Set<String> known=new java.util.HashSet<>(seen);
+            try{OnlineCatalogSource source=onlineSource();for(int attempt=0;attempt<Math.min(3,visible.size())&&candidates.size()<12;attempt++){
+                Track seed=visible.get(Math.floorMod(page*7+attempt*13,visible.size())).original();
+                if(!seed.stableId.startsWith("online:")){
+                    List<Track> matches=source.page(seed.artist+" "+seed.title,0,5);if(matches.isEmpty())continue;seed=matches.get(0);
+                }
+                for(Track candidate:source.songMix(seed,known)){
+                    String id=Track.originalId(candidate.stableId);if(!known.add(id)||AvoidedStore.contains(this,candidate)||VersionPolicy.isMusicVideo(candidate.title))continue;
+                    candidates.add(candidate.original());if(candidates.size()>=12)break;
+                }
+            }}catch(RuntimeException unavailable){android.util.Log.w("LocalMusic","Could not load more song mixes",unavailable);}
+            List<Track> batch=OnlineCatalogSource.diverseMix(candidates,8,"");main.post(()->{if(!isDestroyed())done.accept(batch);});
+        });
+    }
     private void showSeedMix(Track seed, boolean artistMix) {
         long now=android.os.SystemClock.elapsedRealtime();if(seed.stableId.equals(lastMixTapId)&&now-lastMixTapAt<900)return;lastMixTapId=seed.stableId;lastMixTapAt=now;
         playMixTracks(java.util.Collections.singletonList(seed),0);
@@ -705,6 +750,7 @@ public final class MainActivity extends Activity {
     }
 
     private void loadDownloads() {
+        clearLibrarySelection();
         selectTab(R.id.songs);libraryGeneration++;libraryPaged=false;loading=false;searchHandler.removeCallbacksAndMessages(null);
         List<Track> found = DownloadStore.all(this); group = ""; tracks.clear(); tracks.addAll(found); adapter.clear();
         for (Track track : found) adapter.add(track.title + "\n" + track.artist + " · " + track.album);
@@ -921,6 +967,10 @@ public final class MainActivity extends Activity {
         TextView title = new TextView(this); title.setText("Queue"); title.setTextColor(0xfff6f1e8); title.setTextSize(28); title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); header.addView(title, new android.widget.LinearLayout.LayoutParams(0, -2, 1));
         android.widget.Button close=new android.widget.Button(this);close.setText("Close");close.setContentDescription("Close queue");close.setOnClickListener(v->dialog.dismiss());header.addView(close);
         android.widget.Button save = new android.widget.Button(this); save.setText("Save"); save.setContentDescription("Save queue as playlist"); save.setOnClickListener(v -> saveQueueAsPlaylist(dialog)); header.addView(save); sheet.addView(header);
+        TrackSelection selection=new TrackSelection();android.widget.LinearLayout selectionBar=new android.widget.LinearLayout(this);selectionBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView selectionCount=new TextView(this);selectionCount.setTextColor(0xfff6f1e8);selectionCount.setTextSize(15);selectionBar.addView(selectionCount,new android.widget.LinearLayout.LayoutParams(0,-2,1));
+        android.widget.Button selectedMenu=new android.widget.Button(this);selectedMenu.setText("⋮");selectedMenu.setContentDescription("Selected queue actions");selectionBar.addView(selectedMenu);
+        android.widget.Button doneSelecting=new android.widget.Button(this);doneSelecting.setText("Done");selectionBar.addView(doneSelecting);selectionBar.setVisibility(View.GONE);sheet.addView(selectionBar);
         android.widget.LinearLayout actions=new android.widget.LinearLayout(this);
         android.widget.Button downloadAll=new android.widget.Button(this);downloadAll.setText("Download queue");downloadAll.setOnClickListener(v->{
             List<Track> upcoming=new ArrayList<>();if(controller!=null)for(int i=Math.max(0,controller.getCurrentMediaItemIndex());i<controller.getMediaItemCount();i++)upcoming.add(queueTrack(controller.getMediaItemAt(i)));
@@ -930,19 +980,30 @@ public final class MainActivity extends Activity {
             startService(new Intent(this,PlaybackService.class).setAction(PlaybackService.ACTION_REFRESH_RADIO));Toast.makeText(this,"Refreshing automatic picks",Toast.LENGTH_SHORT).show();
         });actions.addView(refreshPicks,new android.widget.LinearLayout.LayoutParams(0,-2,1));sheet.addView(actions);
         android.widget.ScrollView scroll = new android.widget.ScrollView(this); android.widget.LinearLayout rows = new android.widget.LinearLayout(this); rows.setOrientation(android.widget.LinearLayout.VERTICAL); scroll.addView(rows); sheet.addView(scroll, new android.widget.LinearLayout.LayoutParams(-1,0,1));
-        boolean[] dragging = {false};
+        boolean[] dragging = {false};Runnable[] renderHolder={null};
+        java.util.function.Consumer<Integer> toggle=at->{if(controller==null||at<0||at>=controller.getMediaItemCount())return;selection.toggle(at,controller.getMediaItemAt(at).mediaId);renderHolder[0].run();};
         Runnable render = () -> {
             if (dragging[0] || controller == null) return;
             MediaController observed = controller;
+            selection.valid(observed.getMediaItemCount(),at->observed.getMediaItemAt(at).mediaId);
+            selectionBar.setVisibility(selection.active()?View.VISIBLE:View.GONE);selectionCount.setText(selection.size()+" selected");selectedMenu.setEnabled(selection.size()>0);save.setVisibility(selection.active()?View.GONE:View.VISIBLE);
             int y = scroll.getScrollY(); rows.removeAllViews(); int current = observed.getCurrentMediaItemIndex(); String last = "";
             for (int i=0;i<observed.getMediaItemCount();i++) {
                 String section=queueSection(i,current,observed.getMediaItemAt(i).mediaId);
                 if (!section.equals(last)) { rows.addView(queueSectionHeader(section)); last=section; }
-                rows.addView(queueRow(dialog,i,current,dragging));
+                rows.addView(queueRow(dialog,i,current,dragging,selection,toggle));
             }
             if(observed.getMediaItemCount()==0) {TextView empty=new TextView(this);empty.setText("Queue is empty");empty.setTextColor(0xffaaa6a0);rows.addView(empty);}
             scroll.post(() -> scroll.scrollTo(0,y));
         };
+        renderHolder[0]=render;doneSelecting.setOnClickListener(v->{selection.clear();render.run();});
+        selectedMenu.setOnClickListener(v->{if(controller==null)return;List<Integer> positions=selection.valid(controller.getMediaItemCount(),at->controller.getMediaItemAt(at).mediaId);if(positions.isEmpty()){render.run();return;}
+            new AppDialogBuilder(this).setTitle(positions.size()+" selected").setItems(new String[]{"Download selected","Add selected to playlist","Remove selected from queue"},(menu,which)->{
+                if(controller==null)return;List<Integer> valid=selection.valid(controller.getMediaItemCount(),at->controller.getMediaItemAt(at).mediaId);List<Track> picked=new ArrayList<>();for(int at:valid)picked.add(queueTrack(controller.getMediaItemAt(at)));
+                if(which==0)downloadCollection(picked);else if(which==1)addTracksToPlaylist(picked);else if(which==2){valid.sort(java.util.Collections.reverseOrder());for(int at:valid)controller.removeMediaItem(at);}
+                selection.clear();render.run();
+            }).show();
+        });
         livePlayerViews.add(render); dialog.setOnDismissListener(v -> livePlayerViews.remove(render));
         dialog.setContentView(sheet); installSwipeBack(sheet,dialog::dismiss);rememberPanel("queue",dialog); dialog.show();
         if(dialog.getWindow()!=null){dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);dialog.getWindow().setLayout(-1,(int)(getResources().getDisplayMetrics().heightPixels*.84f));dialog.getWindow().setGravity(android.view.Gravity.BOTTOM);}
@@ -959,18 +1020,20 @@ public final class MainActivity extends Activity {
         androidx.media3.common.MediaMetadata m=item.mediaMetadata;
         return new Track(Track.originalId(item.mediaId),item.localConfiguration==null?Uri.EMPTY:item.localConfiguration.uri,Track.clean(m.title==null?null:m.title.toString(),"Unknown title"),Track.clean(m.artist==null?null:m.artist.toString(),"Unknown artist"),m.albumTitle==null?"":m.albumTitle.toString(),m.artworkUri);
     }
-    private View queueRow(android.app.Dialog dialog,int index,int current,boolean[] draggingQueue) {
+    private View queueRow(android.app.Dialog dialog,int index,int current,boolean[] draggingQueue,TrackSelection selection,java.util.function.Consumer<Integer> toggle) {
         androidx.media3.common.MediaItem item=controller.getMediaItemAt(index); Track track=queueTrack(item);
         android.widget.LinearLayout row=new android.widget.LinearLayout(this);row.setGravity(android.view.Gravity.CENTER_VERTICAL);row.setPadding(0,queueDp(8),0,queueDp(8));
-        if(index==current)row.setBackgroundColor(0xff271f1c);
-        TextView rail=new TextView(this);rail.setText(index>current?"\u2630":index==current?"\u25b6":"");rail.setTextColor(0xff969089);rail.setGravity(android.view.Gravity.CENTER);rail.setTextSize(20);rail.setContentDescription("Reorder "+track.title);row.addView(rail,new android.widget.LinearLayout.LayoutParams(queueDp(40),queueDp(52)));
+        row.setContentDescription("Queue song "+track.title);row.setBackgroundColor(selection.contains(index)?0xff493025:index==current?0xff271f1c:0xff121111);
+        TextView rail=new TextView(this);rail.setText(selection.active()?(selection.contains(index)?"✓":"○"):index>current?"\u2630":index==current?"\u25b6":"");rail.setTextColor(selection.contains(index)?0xffff805f:0xff969089);rail.setGravity(android.view.Gravity.CENTER);rail.setTextSize(20);rail.setContentDescription(selection.active()?"Select "+track.title:"Reorder "+track.title);row.addView(rail,new android.widget.LinearLayout.LayoutParams(queueDp(40),queueDp(52)));
         android.widget.LinearLayout labels=new android.widget.LinearLayout(this);labels.setOrientation(android.widget.LinearLayout.VERTICAL);
         TextView title=new TextView(this);title.setText(track.title);title.setTextColor(0xfff6f1e8);title.setTextSize(15);title.setSingleLine(true);title.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(title);
         TextView artist=new TextView(this);artist.setText(track.artist);artist.setTextColor(index==current?0xffff805f:0xff969089);artist.setTextSize(12);artist.setSingleLine(true);artist.setEllipsize(android.text.TextUtils.TruncateAt.END);labels.addView(artist);row.addView(labels,new android.widget.LinearLayout.LayoutParams(0,-2,1));
         TextView more=new TextView(this);more.setText("\u22ee");more.setTextSize(26);more.setTextColor(0xffc7c0b9);more.setGravity(android.view.Gravity.CENTER);more.setContentDescription("More options for "+track.title);more.setClickable(true);row.addView(more,new android.widget.LinearLayout.LayoutParams(queueDp(48),queueDp(52)));
-        more.setOnClickListener(v -> showQueueActions(item,index));
-        row.setOnClickListener(v -> {int at=queueIndex(item,index);if(at>=0){controller.seekTo(at,0);controller.play();}});
-        if(index>current){float[] down={0};rail.setOnTouchListener((v,event)->{
+        more.setVisibility(selection.active()?View.GONE:View.VISIBLE);more.setOnClickListener(v -> showQueueActions(item,index));
+        row.setOnLongClickListener(v->{if(getSharedPreferences("settings",MODE_PRIVATE).getBoolean("haptics",true))v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);toggle.accept(index);return true;});
+        row.setOnClickListener(v -> {if(selection.active()){toggle.accept(index);return;}int at=queueIndex(item,index);if(at>=0){controller.seekTo(at,0);controller.play();}});
+        if(selection.active())rail.setOnClickListener(v->toggle.accept(index));
+        if(index>current&&!selection.active()){float[] down={0};rail.setOnTouchListener((v,event)->{
             if(event.getActionMasked()==android.view.MotionEvent.ACTION_DOWN){down[0]=event.getRawY();draggingQueue[0]=true;if(getSharedPreferences("settings",MODE_PRIVATE).getBoolean("haptics",true))v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);return true;}
             if(event.getActionMasked()==android.view.MotionEvent.ACTION_MOVE&&draggingQueue[0]){row.setTranslationY(event.getRawY()-down[0]);return true;}
             if(event.getActionMasked()==android.view.MotionEvent.ACTION_UP||event.getActionMasked()==android.view.MotionEvent.ACTION_CANCEL){boolean commit=event.getActionMasked()==android.view.MotionEvent.ACTION_UP;draggingQueue[0]=false;row.setTranslationY(0);int from=queueIndex(item,index);if(commit&&from>=0){int target=Math.max(controller.getCurrentMediaItemIndex()+1,Math.min(controller.getMediaItemCount()-1,from+Math.round((event.getRawY()-down[0])/Math.max(1f,row.getHeight()))));if(target!=from)controller.moveMediaItem(from,target);}return true;}return false;
@@ -1137,6 +1200,7 @@ public final class MainActivity extends Activity {
     }
 
     private void loadSavedTracks(String key, String label) {
+        clearLibrarySelection();
         selectTab(R.id.songs);libraryGeneration++;libraryPaged=false;loading=false;searchHandler.removeCallbacksAndMessages(null);
         int generation=libraryGeneration;
         android.content.SharedPreferences library = getSharedPreferences("library", MODE_PRIVATE);

@@ -16,6 +16,11 @@
             <TextView android:id="@+id/playlists" style="@style/LibraryTab" android:text="Playlists" />
         </LinearLayout>
     <TextView android:id="@+id/status" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingStart="@dimen/page_gutter" android:paddingTop="13dp" android:paddingEnd="@dimen/page_gutter" android:paddingBottom="7dp" android:text="Loading your music…" android:textAllCaps="true" android:letterSpacing="0.08" android:textColor="#8A867F" android:textSize="10sp" android:textStyle="bold" />
+    <LinearLayout android:id="@+id/librarySelectionBar" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:paddingStart="@dimen/page_gutter" android:paddingEnd="@dimen/page_gutter" android:visibility="gone">
+        <TextView android:id="@+id/librarySelectionCount" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:textColor="#F6F1E8" android:textSize="15sp" />
+        <TextView android:id="@+id/librarySelectionMenu" android:layout_width="52dp" android:layout_height="48dp" android:contentDescription="Selected song actions" android:gravity="center" android:text="⋮" android:textColor="#FF805F" android:textSize="26sp" />
+        <TextView android:id="@+id/librarySelectionDone" android:layout_width="64dp" android:layout_height="48dp" android:contentDescription="Done selecting songs" android:gravity="center" android:text="Done" android:textColor="#F6F1E8" android:textSize="14sp" />
+    </LinearLayout>
     <FrameLayout android:id="@+id/libraryContent" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
         <ListView android:id="@+id/tracks" android:layout_width="match_parent" android:layout_height="match_parent" android:cacheColorHint="#0B0B0C" android:clipToPadding="false" android:divider="@android:color/transparent" android:dividerHeight="4dp" android:listSelector="@android:color/transparent" android:paddingStart="12dp" android:paddingEnd="12dp" android:paddingBottom="14dp" />
         <LinearLayout android:id="@+id/permissionPanel" android:layout_width="match_parent" android:layout_height="match_parent" android:gravity="center" android:orientation="vertical" android:padding="32dp" android:visibility="gone">

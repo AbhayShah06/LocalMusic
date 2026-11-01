@@ -16,7 +16,9 @@ final class LibraryAdapter extends BaseAdapter {
     interface RowListener { void onRow(int position); }
     interface MenuListener { void onMenu(int position); }
     private final Activity activity; private final List<Track> tracks; private final List<String> labels = new ArrayList<>(); private final RowListener rowListener; private final MenuListener menuListener; private String pendingId = "";
+    private TrackSelection selection;private RowListener selectionToggle;
     LibraryAdapter(Activity activity, List<Track> tracks, RowListener rowListener, MenuListener menuListener) { this.activity = activity; this.tracks = tracks; this.rowListener = rowListener; this.menuListener = menuListener; }
+    void setSelection(TrackSelection state,RowListener toggle){selection=state;selectionToggle=toggle;notifyDataSetChanged();}
     void add(String value) { labels.add(value); notifyDataSetChanged(); }
     void clear() { labels.clear(); notifyDataSetChanged(); }
     void remove(String value) { labels.remove(value); notifyDataSetChanged(); }
@@ -28,18 +30,24 @@ final class LibraryAdapter extends BaseAdapter {
         View row = convert == null ? LayoutInflater.from(activity).inflate(R.layout.row_track, parent, false) : convert;
         TextView title = row.findViewById(R.id.title), subtitle = row.findViewById(R.id.subtitle); ImageView artwork = row.findViewById(R.id.artwork);
         String label = labels.get(position); int line = label.indexOf('\n'); title.setText(line >= 0 ? label.substring(0, line) : label); subtitle.setText(line >= 0 ? label.substring(line + 1) : "Browse collection");
-        boolean pending = position < tracks.size() && tracks.get(position).stableId.equals(pendingId);
+        row.setContentDescription((position<tracks.size()?"Song ":"Collection ")+title.getText());
+        boolean selecting=selection!=null&&selection.active()&&position<tracks.size(),picked=selecting&&selection.contains(position);
+        row.setBackgroundResource(picked?R.drawable.bg_track_selected:R.drawable.bg_track_row);
+        TextView more=row.findViewById(R.id.trackMenu);more.setText(selecting?(picked?"✓":"○"):"⋮");more.setContentDescription((selecting?"Select ":"More options for ")+title.getText());
+        boolean pending = !selecting&&position < tracks.size() && tracks.get(position).stableId.equals(pendingId);
         if (pending) subtitle.setText("Preparing playback…");
         title.setTextColor(android.graphics.Color.rgb(pending ? 255 : 246, pending ? 128 : 241, pending ? 95 : 232)); row.setAlpha(pending ? .78f : 1f);
         artwork.setImageResource(android.R.drawable.ic_media_play);
         if (position < tracks.size()) ArtworkLoader.into(artwork, tracks.get(position).artworkUri, android.R.drawable.ic_media_play);
         row.setOnClickListener(v -> {
+            if(selecting&&selectionToggle!=null){selectionToggle.onRow(position);return;}
             if (activity.getSharedPreferences("settings", Activity.MODE_PRIVATE).getBoolean("haptics", true)) v.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK);
             if (position < tracks.size()) { pendingId = tracks.get(position).stableId; notifyDataSetChanged(); }
             v.animate().scaleX(.985f).scaleY(.985f).setDuration(55).withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(90).start()).start();
             rowListener.onRow(position);
         });
-        row.findViewById(R.id.trackMenu).setOnClickListener(v -> { if (activity.getSharedPreferences("settings", Activity.MODE_PRIVATE).getBoolean("haptics", true)) v.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK); menuListener.onMenu(position); });
+        row.setOnLongClickListener(v->{if(position>=tracks.size()||selectionToggle==null)return false;if(activity.getSharedPreferences("settings",Activity.MODE_PRIVATE).getBoolean("haptics",true))v.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);selectionToggle.onRow(position);return true;});
+        more.setOnClickListener(v -> { if (activity.getSharedPreferences("settings", Activity.MODE_PRIVATE).getBoolean("haptics", true)) v.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK); if(selecting&&selectionToggle!=null)selectionToggle.onRow(position);else menuListener.onMenu(position); });
         return row;
     }
 }
