@@ -1,7 +1,7 @@
 {
-  "versionCode": 28,
-  "versionName": "0.12.11",
-  "notes": "Better song search, simpler imports and exportable offline music.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.11/LocalMusic-0.12.11.apk",
-  "sha256": "BEED78071D50564C94971B99F2654306BED3B41370E4B4A2CF8EB212A998EC5F"
+  "versionCode": 29,
+  "versionName": "0.12.12",
+  "notes": "Playlist and queue downloads, shuffle, recommendations, and Jam playback fixes.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.12/LocalMusic-0.12.12.apk",
+  "sha256": "A547B15A89A734185A5A97ADB9EE43428253A4F8F4FA4986B31308D78F26EA94"
 }
