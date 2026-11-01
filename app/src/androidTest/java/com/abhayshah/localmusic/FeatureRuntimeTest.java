@@ -54,7 +54,7 @@ public class FeatureRuntimeTest {
     }
     static androidx.test.espresso.ViewAction swipeFromMiddle(boolean right){
         return new androidx.test.espresso.action.GeneralSwipeAction(androidx.test.espresso.action.Swipe.SLOW,
-                androidx.test.espresso.action.GeneralLocation.CENTER,right?androidx.test.espresso.action.GeneralLocation.CENTER_RIGHT:androidx.test.espresso.action.GeneralLocation.CENTER_LEFT,
+                androidx.test.espresso.action.GeneralLocation.CENTER,view->{int[] origin=new int[2];view.getLocationOnScreen(origin);return new float[]{origin[0]+view.getWidth()*(right?.85f:.15f),origin[1]+view.getHeight()*.5f};},
                 androidx.test.espresso.action.Press.FINGER);
     }
     MediaController connect()throws Exception{
@@ -230,11 +230,14 @@ public class FeatureRuntimeTest {
             onView(org.hamcrest.Matchers.allOf(withText("Test Song fresh-home"),
                     isDescendantOfA(withContentDescription("Refresh home")))).perform(scrollTo()).check(matches(isDisplayed()));
             onView(withText("Artist mixes")).check(doesNotExist());
-            activity.onActivity(a->a.previewPersonalMix("Gesture Mix",Arrays.asList(fresh)));onView(withContentDescription("Dismiss panel")).inRoot(androidx.test.espresso.matcher.RootMatchers.withDecorView(hasDescendant(withText("Gesture Mix")))).perform(swipeFromMiddle(false));awaitDismissed("Close mix");
+            activity.onActivity(a->a.previewPersonalMix("Gesture Mix",Arrays.asList(fresh)));android.os.SystemClock.sleep(1000);onView(withContentDescription("Dismiss panel")).inRoot(androidx.test.espresso.matcher.RootMatchers.withDecorView(hasDescendant(withText("Gesture Mix")))).perform(swipeFromMiddle(false));awaitDismissed("Close mix");
             MediaController controller=connect();main(()->{controller.setMediaItem(fresh.toMediaItem());controller.prepare();controller.play();});await("Playback did not start",()->value(controller::isPlaying),10000);waitForPlayerTitle("Test Song fresh-home");
             onView(withId(R.id.miniArtwork)).perform(click());onView(withId(R.id.fullQueue)).inRoot(focusedDialog()).perform(click());
             onView(withContentDescription("Dismiss panel")).inRoot(androidx.test.espresso.matcher.RootMatchers.withDecorView(hasDescendant(withContentDescription("Close queue")))).perform(swipeFromMiddle(false));awaitDismissed("Close queue");
-            onView(withId(R.id.fullArtwork)).inRoot(focusedDialog()).perform(swipeFromMiddle(true));onView(withId(R.id.miniPlayer)).check(matches(isDisplayed()));main(()->{controller.pause();controller.release();});
+            android.os.SystemClock.sleep(1000);onView(withId(R.id.fullArtwork)).inRoot(focusedDialog()).perform(new androidx.test.espresso.action.GeneralSwipeAction(androidx.test.espresso.action.Swipe.SLOW,
+                    view->{int[] origin=new int[2];view.getLocationOnScreen(origin);return new float[]{origin[0]+view.getWidth()*.2f,origin[1]+view.getHeight()*.5f};},
+                    view->{int[] origin=new int[2];view.getLocationOnScreen(origin);return new float[]{origin[0]+view.getWidth()*.8f,origin[1]+view.getHeight()*.5f};},
+                    androidx.test.espresso.action.Press.FINGER));await("Full player remained open",()->value(()->{for(android.view.View root:android.view.inspector.WindowInspector.getGlobalWindowViews())if(root.findViewById(R.id.fullArtwork)!=null&&root.hasWindowFocus())return false;return true;}),5000);onView(withId(R.id.miniPlayer)).check(matches(isDisplayed()));main(()->{controller.pause();controller.release();});
         }
     }
     @Test public void l_downloadedRecordingIsPreferredAcrossSourceIdsAndFormats()throws Exception{
