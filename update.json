@@ -1,7 +1,7 @@
 {
-  "versionCode": 29,
-  "versionName": "0.12.12",
-  "notes": "Playlist and queue downloads, shuffle, recommendations, and Jam playback fixes.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.12/LocalMusic-0.12.12.apk",
-  "sha256": "A547B15A89A734185A5A97ADB9EE43428253A4F8F4FA4986B31308D78F26EA94"
+  "versionCode": 30,
+  "versionName": "0.12.13",
+  "notes": "More song mixes while scrolling, batch queue actions, playlist browser, and video-specific avoidance.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.13/LocalMusic-0.12.13.apk",
+  "sha256": "74D2536ACB80817E8A2212FFC0B3ABD044786197C49A7B2FAFBB72AB87647B20"
 }
