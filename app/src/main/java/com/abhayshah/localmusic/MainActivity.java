@@ -984,13 +984,16 @@ public final class MainActivity extends Activity {
             startService(new Intent(this,PlaybackService.class).setAction(PlaybackService.ACTION_REFRESH_RADIO));Toast.makeText(this,"Refreshing automatic picks",Toast.LENGTH_SHORT).show();
         });actions.addView(refreshPicks,new android.widget.LinearLayout.LayoutParams(0,-2,1));sheet.addView(actions);
         android.widget.ScrollView scroll = new android.widget.ScrollView(this); android.widget.LinearLayout rows = new android.widget.LinearLayout(this); rows.setOrientation(android.widget.LinearLayout.VERTICAL); scroll.addView(rows); sheet.addView(scroll, new android.widget.LinearLayout.LayoutParams(-1,0,1));
-        boolean[] dragging = {false},interacting={false},pendingRender={false};Runnable[] renderHolder={null};
-        java.util.function.Consumer<Integer> toggle=at->{if(controller==null||at<0||at>=controller.getMediaItemCount())return;selection.toggle(at,controller.getMediaItemAt(at).mediaId);renderHolder[0].run();};
+        boolean[] dragging = {false},interacting={false},pendingRender={false};Runnable[] renderHolder={null};int[] selectionRevision={0};String[] shown={null};
+        java.util.function.Consumer<Integer> toggle=at->{if(controller==null||at<0||at>=controller.getMediaItemCount())return;selection.toggle(at,controller.getMediaItemAt(at).mediaId);selectionRevision[0]++;renderHolder[0].run();};
         Runnable render = () -> {
             if (dragging[0] || controller == null) return;
             if(interacting[0]){pendingRender[0]=true;return;}
             MediaController observed = controller;
             selection.valid(observed.getMediaItemCount(),at->observed.getMediaItemAt(at).mediaId);
+            StringBuilder state=new StringBuilder().append(observed.getCurrentMediaItemIndex()).append('|').append(selectionRevision[0]).append('|').append(selection.active()).append('|').append(selection.size());
+            for(int i=0;i<observed.getMediaItemCount();i++)state.append('|').append(observed.getMediaItemAt(i).mediaId).append(':').append(observed.getMediaItemAt(i).mediaMetadata.title);
+            String signature=state.toString();if(signature.equals(shown[0]))return;shown[0]=signature;
             selectionBar.setVisibility(selection.active()?View.VISIBLE:View.GONE);selectionCount.setText(selection.size()+" selected");selectedMenu.setEnabled(selection.size()>0);save.setVisibility(selection.active()?View.GONE:View.VISIBLE);
             int y = scroll.getScrollY(); rows.removeAllViews(); int current = observed.getCurrentMediaItemIndex(); String last = "";
             for (int i=0;i<observed.getMediaItemCount();i++) {
@@ -1001,12 +1004,12 @@ public final class MainActivity extends Activity {
             if(observed.getMediaItemCount()==0) {TextView empty=new TextView(this);empty.setText("Queue is empty");empty.setTextColor(0xffaaa6a0);rows.addView(empty);}
             scroll.post(() -> scroll.scrollTo(0,y));
         };
-        renderHolder[0]=render;doneSelecting.setOnClickListener(v->{selection.clear();render.run();});
+        renderHolder[0]=render;doneSelecting.setOnClickListener(v->{selection.clear();selectionRevision[0]++;render.run();});
         selectedMenu.setOnClickListener(v->{if(controller==null)return;List<Integer> positions=selection.valid(controller.getMediaItemCount(),at->controller.getMediaItemAt(at).mediaId);if(positions.isEmpty()){render.run();return;}
             new AppDialogBuilder(this).setTitle(positions.size()+" selected").setItems(new String[]{"Download selected","Add selected to playlist","Remove selected from queue"},(menu,which)->{
                 if(controller==null)return;List<Integer> valid=selection.valid(controller.getMediaItemCount(),at->controller.getMediaItemAt(at).mediaId);List<Track> picked=new ArrayList<>();for(int at:valid)picked.add(queueTrack(controller.getMediaItemAt(at)));
                 if(which==0)downloadCollection(picked);else if(which==1)addTracksToPlaylist(picked);else if(which==2){valid.sort(java.util.Collections.reverseOrder());for(int at:valid)controller.removeMediaItem(at);}
-                selection.clear();render.run();
+                selection.clear();selectionRevision[0]++;render.run();
             }).show();
         });
         livePlayerViews.add(render); dialog.setOnDismissListener(v -> livePlayerViews.remove(render));
