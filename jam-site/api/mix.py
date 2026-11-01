@@ -21,8 +21,6 @@ def song_length(value):
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
-        if parsed.path != "/api/mix":
-            return self.reply(404, {"error": "Not found"})
         video_id = parse_qs(parsed.query).get("v", [""])[0]
         if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
             return self.reply(400, {"error": "Invalid song ID"})
