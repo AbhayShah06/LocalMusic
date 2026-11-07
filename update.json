@@ -1,7 +1,7 @@
 {
-  "versionCode": 30,
-  "versionName": "0.12.13",
-  "notes": "More song mixes while scrolling, batch queue actions, playlist browser, and video-specific avoidance.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.13/LocalMusic-0.12.13.apk",
-  "sha256": "74D2536ACB80817E8A2212FFC0B3ABD044786197C49A7B2FAFBB72AB87647B20"
+  "versionCode": 31,
+  "versionName": "0.12.14",
+  "notes": "Recommended for You, more varied mixes, improved search, and separate controls for avoiding a song or a bad audio/video upload.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.14/LocalMusic-0.12.14.apk",
+  "sha256": "1BF513A0571BDF5DEE87AE7FCF9E9D41B28BBB278A500476EC98E5DCFEC404EF"
 }
