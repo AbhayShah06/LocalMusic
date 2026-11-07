@@ -24,6 +24,14 @@ class SearchRankingTest(unittest.TestCase):
         self.assertGreater(search.search_score("Shaq and Kobe", official),
                            search.search_score("Shaq and Kobe", obscure))
 
+    def test_popular_official_video_identifies_artist(self):
+        obscure = {"title": "Shaq & Kobe", "artists": [{"name": "BiggJoe"}],
+                   "videoType": "MUSIC_VIDEO_TYPE_UGC", "views": "10M"}
+        official = {"title": "SHAQ & KOBE", "artists": [{"name": "Rick Ross"},
+                    {"name": "Meek Mill"}], "videoType": "MUSIC_VIDEO_TYPE_OMV",
+                    "views": "43M"}
+        self.assertIs(search.best_anchor("Shaq and Kobe", [obscure, official]), official)
+
 
 if __name__ == "__main__":
     unittest.main()

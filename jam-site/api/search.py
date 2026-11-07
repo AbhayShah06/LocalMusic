@@ -22,9 +22,22 @@ class handler(BaseHTTPRequestHandler):
             return self.reply(400, {"error": "Search is too short"})
         try:
             client = YTMusic()
-            # Unfiltered search carries the catalogue's popular top result. Songs-only
-            # search can rank obscure exact-title uploads ahead of the known recording.
-            results = [item for item in client.search(query, limit=25) if item.get("resultType") in ("song", "video")]
+            # Songs-only search sometimes returns obscure exact-title matches while
+            # omitting the known artist entirely. A popular official video gives us
+            # an artist hint; search for its audio recording before falling back.
+            videos = client.search(query, filter="videos", limit=18)
+            anchor = best_anchor(query, videos)
+            results = []
+            if anchor:
+                artists = [a.get("name", "") for a in anchor.get("artists", []) if a.get("name")]
+                feature = re.search(r"\b(?:feat|ft)\.?\s+([^)]+)", anchor.get("title", ""), re.I)
+                hint = artists[-1] if len(artists) > 1 else feature.group(1) if feature else artists[0] if artists else ""
+                if hint:
+                    focused = client.search(f"{query} {hint}", filter="songs", limit=25)
+                    artist_names = {normalized(name) for name in artists}
+                    results.extend(item for item in focused if any(normalized(a.get("name")) in artist_names for a in item.get("artists", [])))
+                results.append(anchor)
+            results.extend(item for item in client.search(query, limit=25) if item.get("resultType") in ("song", "video"))
             results.extend(client.search(query, filter="songs", limit=35))
             if not results or max((search_score(query, item) for item in results), default=0) < 0.58:
                 suggestions = client.get_search_suggestions(query)
@@ -144,6 +157,13 @@ def view_count(value):
     if not match:
         return 0
     return float(match.group(1)) * {"K": 1e3, "M": 1e6, "B": 1e9}.get((match.group(2) or "").upper(), 1)
+
+
+def best_anchor(query, videos):
+    wanted = normalized(query)
+    exact = [item for item in videos if item.get("videoType") == "MUSIC_VIDEO_TYPE_OMV"
+             and song_title(item.get("title"), " ".join(a.get("name", "") for a in item.get("artists", []))) == wanted]
+    return max(exact, key=lambda item: view_count(item.get("views")), default=None)
 
 
 def search_score(query, item):
