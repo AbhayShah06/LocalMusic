@@ -652,11 +652,45 @@ public final class MainActivity extends Activity {
         if(forYouContent!=null)frame.removeView(forYouContent);
         showingForYou=true;findViewById(R.id.tracks).setVisibility(View.GONE);permissionPanel.setVisibility(View.GONE);status.setVisibility(View.GONE);
         forYouContent=ForYouDialog.create(this, track -> playMixTracks(java.util.Collections.singletonList(track), 0), this::showSeedMix,this::showCollectionTrackActions,
-                () -> loadListeningList(false), () -> loadSavedTracks("favorites", "Favorites"), ()->{personalMixes.clear();homeRefreshSeed=System.nanoTime();showForYou();forYouContent.announceForAccessibility("Home refreshed");},this::loadMoreMixSeeds, homeRefreshSeed);
+                () -> loadListeningList(false), () -> loadSavedTracks("favorites", "Favorites"), ()->{personalMixes.clear();homeRefreshSeed=System.nanoTime();showForYou();forYouContent.announceForAccessibility("Home refreshed");},this::loadMoreMixSeeds,this::loadRecommendedSongs,homeRefreshSeed);
         frame.addView(forYouContent,new android.widget.FrameLayout.LayoutParams(-1,-1));selectTab(R.id.forYou);
     }
 
     private final java.util.Map<String,List<Track>> personalMixes = new java.util.HashMap<>();
+    private int recommendationPage;
+    private void loadRecommendedSongs(List<Track> visible,java.util.Set<String> seen,java.util.function.Consumer<List<Track>> done){
+        int page=++recommendationPage;
+        streamIo.execute(()->{
+            List<Track> candidates=new ArrayList<>(),seeds=new ArrayList<>(FavoriteStore.remoteTracks(this));
+            seeds.addAll(ListeningHistory.dailyMix(this,40));
+            java.util.Set<String> knownIds=new java.util.HashSet<>(seen),knownSongs=new java.util.HashSet<>();
+            for(Track track:ListeningHistory.recent(this,100)){knownIds.add(Track.originalId(track.stableId));knownSongs.add(RecordingIdentity.key(track.title,track.artist));}
+            for(Track track:seeds){knownIds.add(Track.originalId(track.stableId));knownSongs.add(RecordingIdentity.key(track.title,track.artist));}
+            for(Track track:visible){knownIds.add(Track.originalId(track.stableId));knownSongs.add(RecordingIdentity.key(track.title,track.artist));}
+            TasteProfile taste=TasteProfile.load(this);
+            java.util.Collections.shuffle(seeds,new java.util.Random(homeRefreshSeed+page*37L));
+            try{OnlineCatalogSource source=onlineSource();int used=0;
+                for(Track seed:seeds){
+                    if(used>=3||candidates.size()>=30)break;
+                    if(taste.suppresses(seed)||BlacklistedStore.contains(this,seed))continue;
+                    Track onlineSeed=seed.original();
+                    if(!onlineSeed.stableId.startsWith("online:")){
+                        List<Track> matches=source.page(seed.artist+" "+seed.title,0,5);
+                        if(matches.isEmpty())continue;onlineSeed=matches.get(0);
+                    }
+                    used++;
+                    for(Track candidate:source.songMix(onlineSeed,knownIds)){
+                        String id=Track.originalId(candidate.stableId),song=RecordingIdentity.key(candidate.title,candidate.artist);
+                        if(knownIds.contains(id)||knownSongs.contains(song)||AvoidedStore.contains(this,candidate)||BlacklistedStore.contains(this,candidate)||taste.suppresses(candidate)||VersionPolicy.isMusicVideo(candidate.title))continue;
+                        knownIds.add(id);knownSongs.add(song);candidates.add(candidate.original());
+                    }
+                }
+            }catch(RuntimeException unavailable){android.util.Log.w("LocalMusic","Recommendations unavailable",unavailable);}
+            candidates.sort((a,b)->Double.compare(taste.score(b),taste.score(a)));
+            List<Track> batch=OnlineCatalogSource.diverseMix(candidates,10,"",RadioHistory.recent(this),java.util.Objects.hash(homeRefreshSeed,page));
+            main.post(()->{if(!isDestroyed())done.accept(batch);});
+        });
+    }
     private void loadMoreMixSeeds(List<Track> visible,java.util.Set<String> seen,java.util.function.Consumer<List<Track>> done){
         if(visible.isEmpty()){done.accept(java.util.Collections.emptyList());return;}
         int page=++mixBrowsePage;streamIo.execute(()->{
