@@ -27,15 +27,20 @@ public class InfiniteMixRailTest {
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
             activity.onActivity(a->{View home=ForYouDialog.create(a,track->{},(track,artist)->{},track->{},()->{},()->{},()->{},(visible,seen,done)->{
                 int page=loads.incrementAndGet();List<Track> next=new ArrayList<>();for(int i=0;i<8;i++)next.add(new Track("online:0:more-"+page+"-"+i,Uri.EMPTY,"More "+page+"-"+i,"New Artist "+page+"-"+i,""));done.accept(next);
-            },1L);((ViewGroup)a.findViewById(android.R.id.content)).addView(home,new ViewGroup.LayoutParams(-1,-1));rail.set(lastRail(home));});
+            },(visible,seen,done)->done.accept(java.util.Collections.emptyList()),1L);((ViewGroup)a.findViewById(android.R.id.content)).addView(home,new ViewGroup.LayoutParams(-1,-1));rail.set(mixRail(home));});
             FeatureRuntimeTest.await("Mix rail did not lay out",()->FeatureRuntimeTest.value(()->rail.get()!=null&&rail.get().getWidth()>0),4000);
             for(int page=1;page<=6;page++){int expected=page;FeatureRuntimeTest.main(()->rail.get().scrollTo(100000,0));FeatureRuntimeTest.await("Mix rail stopped loading at page "+page,()->loads.get()>=expected,4000);}
             int cards=FeatureRuntimeTest.value(()->((ViewGroup)rail.get().getChildAt(0)).getChildCount()-1);assertTrue("Too many artwork cards retained: "+cards,cards<=40);assertTrue(cards>=8);
         }finally{history.edit().putString("tracks",previous).commit();}
     }
-    private static HorizontalScrollView lastRail(View root){
-        HorizontalScrollView found=root instanceof HorizontalScrollView?(HorizontalScrollView)root:null;
-        if(root instanceof ViewGroup){ViewGroup group=(ViewGroup)root;for(int i=0;i<group.getChildCount();i++){HorizontalScrollView child=lastRail(group.getChildAt(i));if(child!=null)found=child;}}
-        return found;
+    private static HorizontalScrollView mixRail(View root){
+        if(root instanceof HorizontalScrollView&&hasMixMoreButton(root))return (HorizontalScrollView)root;
+        if(root instanceof ViewGroup){ViewGroup group=(ViewGroup)root;for(int i=0;i<group.getChildCount();i++){HorizontalScrollView child=mixRail(group.getChildAt(i));if(child!=null)return child;}}
+        return null;
+    }
+    private static boolean hasMixMoreButton(View root){
+        if("Load more mixes".contentEquals(root.getContentDescription()==null?"":root.getContentDescription()))return true;
+        if(root instanceof ViewGroup){ViewGroup group=(ViewGroup)root;for(int i=0;i<group.getChildCount();i++)if(hasMixMoreButton(group.getChildAt(i)))return true;}
+        return false;
     }
 }
