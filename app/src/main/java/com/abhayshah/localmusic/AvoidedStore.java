@@ -4,7 +4,7 @@ import android.content.Context;
 import java.util.HashSet;
 import java.util.Set;
 
-/** Local preference for tracks the listener does not want in automatic picks. */
+/** Upload-only rejection for a bad video, edit, or audio source. Keeps the old preference key. */
 final class AvoidedStore {
     private static final String PREFS="avoided_recommendations",KEY="songs";
     static boolean contains(Context context,Track track){

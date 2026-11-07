@@ -44,7 +44,7 @@ final class ListeningHistory {
         } catch (Exception ignored) { }
         List<Track> result = new ArrayList<>();
         if (!mix) { for (Entry entry : entries) { if (result.size() >= limit) break; result.add(entry.track); } return result; }
-        long now=System.currentTimeMillis();TasteProfile taste=TasteProfile.load(context);entries.removeIf(entry->now-entry.last>90L*86_400_000L||taste.suppresses(entry.track)||BlacklistedStore.contains(context,entry.track));
+        long now=System.currentTimeMillis();TasteProfile taste=TasteProfile.load(context);entries.removeIf(entry->now-entry.last>90L*86_400_000L||taste.suppresses(entry.track)||BlacklistedStore.contains(context,entry.track)||AvoidedStore.contains(context,entry.track));
         Random random = new Random(System.currentTimeMillis() / 86_400_000L);
         while (!entries.isEmpty() && result.size() < limit) {
             int total = 0; for (Entry entry : entries) total += weight(entry,now);

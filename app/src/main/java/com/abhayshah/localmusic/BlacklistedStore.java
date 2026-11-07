@@ -6,7 +6,7 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Explicit, reversible block for a recording across uploads and common versions. */
+/** Song-wide Avoid preference. Keeps the old storage key so existing choices survive updates. */
 final class BlacklistedStore {
     private static final String PREFS="blacklisted_recordings",KEY="songs";
     static String key(String title,String artist){
