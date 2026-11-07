@@ -11,8 +11,8 @@ import java.util.List;
 final class TasteProfile {
     private static final String PREFS="taste_profile",KEY="events";
     private static final long DAY=86_400_000L;
-    private final List<Event> events;
-    private TasteProfile(List<Event> events){this.events=events;}
+    private final List<SkipCooldown.Signal> events;
+    private TasteProfile(List<SkipCooldown.Signal> events){this.events=events;}
     static synchronized void record(Context context,MediaItem item,boolean skipped){
         if(item==null||item.mediaId==null||item.mediaId.isEmpty())return;
         String artist=item.mediaMetadata.artist==null?"":item.mediaMetadata.artist.toString();
@@ -28,12 +28,12 @@ final class TasteProfile {
         }catch(Exception ignored){}
     }
     static TasteProfile load(Context context){
-        List<Event> events=new ArrayList<>();
+        List<SkipCooldown.Signal> events=new ArrayList<>();
         try{
             JSONArray saved=new JSONArray(context.getSharedPreferences(PREFS,0).getString(KEY,"[]"));
             for(int i=0;i<saved.length();i++){
                 JSONObject value=saved.optJSONObject(i);if(value==null)continue;
-                events.add(new Event(RecordingIdentity.artist(value.optString("artist")),value.optString("song"),value.optBoolean("skip"),value.optLong("at")));
+                events.add(new SkipCooldown.Signal(RecordingIdentity.artist(value.optString("artist")),value.optString("song"),value.optBoolean("skip"),value.optLong("at")));
             }
         }catch(Exception ignored){}
         return new TasteProfile(events);
@@ -41,7 +41,7 @@ final class TasteProfile {
     double score(Track track){
         String artist=RecordingIdentity.artist(track.artist),song=RecordingIdentity.key(track.title,track.artist);
         long now=System.currentTimeMillis();double artistScore=0,songScore=0;
-        for(Event event:events){
+        for(SkipCooldown.Signal event:events){
             long age=now-event.at;if(age<0||age>90*DAY)continue;
             double weight=Math.exp(-Math.log(2)*age/(event.skip?14d*DAY:21d*DAY));
             if(event.artist.equals(artist))artistScore+=(event.skip?-.7:.45)*weight;
@@ -49,8 +49,8 @@ final class TasteProfile {
         }
         return Math.max(-2,Math.min(2,artistScore))+songScore;
     }
-    private static final class Event{
-        final String artist,song;final boolean skip;final long at;
-        Event(String artist,String song,boolean skip,long at){this.artist=artist;this.song=song;this.skip=skip;this.at=at;}
-    }
+    /** Two recent skips hide this recording from automatic picks, regardless of upload ID.
+     * A completed listen clears the cooldown; otherwise it expires after two weeks. */
+    boolean suppresses(Track track){return suppresses(RecordingIdentity.key(track.title,track.artist));}
+    boolean suppresses(String song){return SkipCooldown.suppresses(events,song,System.currentTimeMillis());}
 }

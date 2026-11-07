@@ -131,9 +131,9 @@ final class OnlineCatalogSource implements CatalogSource {
         String uploader = item.getUploaderName().toLowerCase(java.util.Locale.ROOT);
         int score = 0;
         for (String word : query.toLowerCase(java.util.Locale.ROOT).split("\\s+")) if (word.length() > 1 && title.contains(word)) score += 8;
-        if (uploader.endsWith(" - topic") || uploader.contains("vevo")) score += 55;
+        if (uploader.endsWith(" - topic")) score += 55;
         if (title.contains("official audio") || title.contains("audio")) score += 40;
-        if (title.contains("official music video") || title.contains("music video")) score -= 70;
+        if (VersionPolicy.isMusicVideo(item.getName()) || uploader.contains("vevo")) score -= 20;
         if (VersionPolicy.exclude(item.getName(),query)) score -= 100;
         if (title.contains("reaction") || title.contains("interview")) score -= 100;
         return score;
@@ -150,11 +150,11 @@ final class OnlineCatalogSource implements CatalogSource {
         if (duration > 0 && (duration < 75 || duration > 10 * 60)) return false;
         String title = item.getName().toLowerCase(java.util.Locale.ROOT);
         String uploader = item.getUploaderName().toLowerCase(java.util.Locale.ROOT);
+        if (VersionPolicy.isMusicVideo(item.getName()) || uploader.contains("vevo")) return false;
         String artist = seedArtist.toLowerCase(java.util.Locale.ROOT).replace(" - topic", "").trim();
-        boolean trustedMusicChannel = uploader.endsWith(" - topic") || uploader.contains("vevo")
-                || uploader.contains("music") || uploader.contains("records")
+        boolean trustedMusicChannel = uploader.endsWith(" - topic") || uploader.contains("music") || uploader.contains("records")
                 || uploader.contains("recordings") || uploader.contains("official");
-        boolean labelledMusic = title.contains("official audio") || title.contains("audio") || title.contains("lyrics") || title.contains("visualizer");
+        boolean labelledMusic = title.contains("official audio") || title.contains("audio");
         boolean artistMatch = artist.length() > 2 && (uploader.contains(artist) || title.contains(artist));
         // Related feeds are useful specifically because they cross artists and genres. Once
         // obvious spoken/video content and bad durations are excluded, retain normal song-length
@@ -266,6 +266,9 @@ final class OnlineCatalogSource implements CatalogSource {
 
     /** Interleave artists before the service takes the next five radio tracks. */
     static List<Track> diverseMix(List<Track> input,int limit,String seedArtist){
+        return diverseMix(input,limit,seedArtist,Collections.emptySet(),0);
+    }
+    static List<Track> diverseMix(List<Track> input,int limit,String seedArtist,Set<String> recentSongs,int varietySeed){
         List<Track> remaining=new ArrayList<>(input),output=new ArrayList<>();
         java.util.Map<String,Integer> counts=new java.util.HashMap<>();
         String previous=seedArtist,secondPrevious="";
@@ -273,7 +276,10 @@ final class OnlineCatalogSource implements CatalogSource {
             int best=-1,bestScore=Integer.MAX_VALUE;
             for(int i=0;i<remaining.size();i++){
                 String artist=RecordingIdentity.artist(remaining.get(i).artist);
-                int score=counts.getOrDefault(artist,0)*100+(artist.equals(previous)?60:0)+(artist.equals(secondPrevious)?25:0)+(artist.equals(seedArtist)?35:0);
+                Track candidate=remaining.get(i);
+                int score=counts.getOrDefault(artist,0)*100+(artist.equals(previous)?60:0)+(artist.equals(secondPrevious)?25:0)+(artist.equals(seedArtist)?35:0)
+                        +(recentSongs.contains(RecordingIdentity.key(candidate.title,candidate.artist))?85:0)
+                        +(varietySeed==0?0:Math.floorMod(31*varietySeed+candidate.stableId.hashCode(),23));
                 if(score<bestScore){best=i;bestScore=score;}
             }
             Track next=remaining.remove(best);String artist=RecordingIdentity.artist(next.artist);

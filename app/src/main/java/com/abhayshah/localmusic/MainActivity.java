@@ -460,13 +460,15 @@ public final class MainActivity extends Activity {
         Track current=currentTrack();if(current==null)return;Track track=current.original();
         String download=DownloadStore.contains(this,track.stableId)?"Remove download":DownloadTasks.active(this,track.stableId)?"Download activity":"Download";
         String favorite=FavoriteStore.contains(this,track)?"Remove favorite":"Add to favorites";
-        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{download,"Add to playlist",favorite,"Open artist","Lyrics","Equalizer"},(d,which)->{
+        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{download,"Add to playlist",favorite,"Open artist","Lyrics","Equalizer",AvoidedStore.contains(this,track)?"Allow in recommendations":"Avoid this song",BlacklistedStore.contains(this,track)?"Remove from blacklist":"Blacklist song and versions"},(d,which)->{
             if(which==0){if(download.equals("Remove download"))new AppDialogBuilder(this).setTitle("Remove download?").setMessage(track.title+" will remain available to stream.").setNegativeButton("Cancel",null).setPositiveButton("Remove",(confirm,button)->DownloadStore.remove(this,track.stableId)).show();else if(download.equals("Download activity"))showDownloadActivity();else requestDownload(track);}
             else if(which==1)addTrackToPlaylist(track);
             else if(which==2)toggleTrackFavorite(track);
             else if(which==3)showArtistPage(track.artist);
             else if(which==4)showLyrics(track);
-            else openEqualizer();
+            else if(which==5)openEqualizer();
+            else if(which==6)toggleAvoid(track);
+            else toggleBlacklist(track);
         }).show();
     }
 
@@ -553,6 +555,7 @@ public final class MainActivity extends Activity {
         content.addView(settingsAction("Appearance", "Dark palette accent and home card size", this::showHomeAppearance));
         content.addView(settingsAction("Equalizer", "Presets and five-band controls", this::openEqualizer));
         content.addView(settingsAction("Listening stats", "Top songs, artists and genres for any date range", ()->{if(!panelShowing("stats"))rememberPanel("stats",StatsPanel.show(this,io,main));}));
+        content.addView(settingsAction("Blacklisted songs", "Manage recordings hidden from automatic picks", this::showBlacklistedSongs));
         content.addView(settingsAction("Music permission", hasAudioPermission() ? "Allowed for on-device songs" : "Tap to allow on-device songs", () -> { if (hasAudioPermission()) openAppSettings(); else requestAudioPermission(); }));
 
         long downloads = DownloadStore.bytes(this), streams = PlaybackCache.bytes(), artwork = ArtworkLoader.bytes(this);
@@ -657,18 +660,18 @@ public final class MainActivity extends Activity {
     private void loadMoreMixSeeds(List<Track> visible,java.util.Set<String> seen,java.util.function.Consumer<List<Track>> done){
         if(visible.isEmpty()){done.accept(java.util.Collections.emptyList());return;}
         int page=++mixBrowsePage;streamIo.execute(()->{
-            List<Track> candidates=new ArrayList<>();java.util.Set<String> known=new java.util.HashSet<>(seen);
+            List<Track> candidates=new ArrayList<>();java.util.Set<String> known=new java.util.HashSet<>(seen);TasteProfile taste=TasteProfile.load(this);
             try{OnlineCatalogSource source=onlineSource();for(int attempt=0;attempt<Math.min(3,visible.size())&&candidates.size()<12;attempt++){
                 Track seed=visible.get(Math.floorMod(page*7+attempt*13,visible.size())).original();
                 if(!seed.stableId.startsWith("online:")){
                     List<Track> matches=source.page(seed.artist+" "+seed.title,0,5);if(matches.isEmpty())continue;seed=matches.get(0);
                 }
                 for(Track candidate:source.songMix(seed,known)){
-                    String id=Track.originalId(candidate.stableId);if(!known.add(id)||AvoidedStore.contains(this,candidate)||VersionPolicy.isMusicVideo(candidate.title))continue;
+                    String id=Track.originalId(candidate.stableId);if(!known.add(id)||AvoidedStore.contains(this,candidate)||BlacklistedStore.contains(this,candidate)||taste.suppresses(candidate)||VersionPolicy.isMusicVideo(candidate.title))continue;
                     candidates.add(candidate.original());if(candidates.size()>=12)break;
                 }
                 if(candidates.size()<8)for(Track candidate:source.page(seed.artist,Math.floorMod(page+attempt,3)*20,20)){
-                    String id=Track.originalId(candidate.stableId);if(!known.add(id)||AvoidedStore.contains(this,candidate)||VersionPolicy.isMusicVideo(candidate.title))continue;
+                    String id=Track.originalId(candidate.stableId);if(!known.add(id)||AvoidedStore.contains(this,candidate)||BlacklistedStore.contains(this,candidate)||taste.suppresses(candidate)||VersionPolicy.isMusicVideo(candidate.title))continue;
                     candidates.add(candidate.original());if(candidates.size()>=12)break;
                 }
             }}catch(RuntimeException unavailable){android.util.Log.w("LocalMusic","Could not load more song mixes",unavailable);}
@@ -690,7 +693,7 @@ public final class MainActivity extends Activity {
 
     private void loadPlaylistSuggestions(List<Track> playlist,java.util.function.Consumer<List<Track>> done){
         streamIo.execute(()->{
-            List<Track> found=new ArrayList<>(),existing=new ArrayList<>(playlist);
+            List<Track> found=new ArrayList<>(),existing=new ArrayList<>(playlist);TasteProfile taste=TasteProfile.load(this);
             try{
                 if(!playlist.isEmpty()){
                     Track seed=playlist.get((int)(System.nanoTime()&Integer.MAX_VALUE)%playlist.size()).original();
@@ -698,7 +701,7 @@ public final class MainActivity extends Activity {
                     OnlineCatalogSource source=onlineSource();
                     List<Track> artistSongs=source.page(seed.artist,0,35);
                     for(Track candidate:artistSongs){
-                        if(!RecordingIdentity.artist(candidate.artist).equals(seedArtist)||AvoidedStore.contains(this,candidate))continue;
+                        if(!RecordingIdentity.artist(candidate.artist).equals(seedArtist)||AvoidedStore.contains(this,candidate)||BlacklistedStore.contains(this,candidate)||taste.suppresses(candidate))continue;
                         boolean duplicate=false;for(Track old:existing)if(sameDownload(candidate,old)){duplicate=true;break;}
                         if(!duplicate){found.add(candidate);existing.add(candidate);if(found.size()>=5)break;}
                     }
@@ -708,7 +711,7 @@ public final class MainActivity extends Activity {
                             if(RecordingIdentity.same(seed.title,seed.artist,candidate.title,candidate.artist)){onlineSeed=candidate;break;}
                     }
                     if(onlineSeed!=null)for(Track candidate:source.songMix(onlineSeed)){
-                        if(AvoidedStore.contains(this,candidate))continue;
+                        if(AvoidedStore.contains(this,candidate)||BlacklistedStore.contains(this,candidate)||taste.suppresses(candidate))continue;
                         boolean duplicate=false;for(Track old:existing)if(sameDownload(candidate,old)){duplicate=true;break;}
                         if(!duplicate){found.add(candidate);existing.add(candidate);if(found.size()>=12)break;}
                     }
@@ -719,21 +722,52 @@ public final class MainActivity extends Activity {
     }
 
     private void showCollectionTrackActions(Track track) {
-        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{"Play now","Play next","Add to queue","Download","Add to playlist","Open artist","Start song mix",AvoidedStore.contains(this,track)?"Allow in recommendations":"Avoid this song"},(dialog,index)->{
+        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{"Play now","Play next","Add to queue","Download","Add to playlist","Open artist","Start song mix",AvoidedStore.contains(this,track)?"Allow in recommendations":"Avoid this song",BlacklistedStore.contains(this,track)?"Remove from blacklist":"Blacklist song and versions"},(dialog,index)->{
             if(index==0)playMixTracks(java.util.Collections.singletonList(track),0);
             else if(index==1||index==2){if(track.stableId.startsWith("online:"))enqueueOnline(track,index==1);else if(controller!=null)controller.addMediaItem(index==1?Math.min(controller.getCurrentMediaItemIndex()+1,controller.getMediaItemCount()):controller.getMediaItemCount(),track.toMediaItem());}
             else if(index==3)requestDownload(track);
             else if(index==4)addTrackToPlaylist(track);
             else if(index==5)showArtistPage(track.artist);
             else if(index==6)showSeedMix(track,false);
-            else toggleAvoid(track);
+            else if(index==7)toggleAvoid(track);
+            else toggleBlacklist(track);
         }).show();
     }
 
     private void toggleAvoid(Track track){
         boolean avoided=AvoidedStore.toggle(this,track);
-        Toast.makeText(this,avoided?"This song will be skipped in automatic picks":"This song can appear in automatic picks again",Toast.LENGTH_SHORT).show();
-        if(avoided)startService(new Intent(this,PlaybackService.class).setAction(PlaybackService.ACTION_REFRESH_RADIO));
+        Toast.makeText(this,avoided?"This upload is out of your queue and automatic picks":"This upload can appear in automatic picks again",Toast.LENGTH_SHORT).show();
+        if(avoided){removeBlockedQueueEntries(track,false);startService(new Intent(this,PlaybackService.class).setAction(PlaybackService.ACTION_REFRESH_RADIO));}
+    }
+
+    private void toggleBlacklist(Track track){
+        boolean blocked=BlacklistedStore.toggle(this,track);
+        Toast.makeText(this,blocked?"Blacklisted this recording and its versions":"Removed from blacklist",Toast.LENGTH_SHORT).show();
+        if(blocked){removeBlockedQueueEntries(track,true);startService(new Intent(this,PlaybackService.class).setAction(PlaybackService.ACTION_REFRESH_RADIO));}
+    }
+
+    private void removeBlockedQueueEntries(Track blocked,boolean allVersions){
+        if(controller==null)return;
+        java.util.function.Predicate<Track> matches=candidate->allVersions?BlacklistedStore.key(candidate.title,candidate.artist).equals(BlacklistedStore.key(blocked.title,blocked.artist))
+                :Track.originalId(candidate.stableId).equals(Track.originalId(blocked.stableId));
+        int current=controller.getCurrentMediaItemIndex(),count=controller.getMediaItemCount();
+        if(current>=0&&current<count&&matches.test(queueTrack(controller.getMediaItemAt(current)))){
+            int next=-1;for(int i=current+1;i<count;i++)if(!matches.test(queueTrack(controller.getMediaItemAt(i)))){next=i;break;}
+            if(next>=0)controller.seekTo(next,0);else controller.pause();
+        }
+        for(int i=count-1;i>=0;i--)if(matches.test(queueTrack(controller.getMediaItemAt(i))))controller.removeMediaItem(i);
+    }
+
+    private void showBlacklistedSongs(){
+        List<BlacklistedStore.Entry> entries=BlacklistedStore.list(this);
+        if(entries.isEmpty()){new AppDialogBuilder(this).setTitle("Blacklisted songs").setMessage("No songs are blacklisted.").setPositiveButton("Done",null).show();return;}
+        String[] labels=new String[entries.size()];for(int i=0;i<entries.size();i++)labels[i]=entries.get(i).title+" · "+entries.get(i).artist;
+        new AppDialogBuilder(this).setTitle("Blacklisted songs").setItems(labels,(dialog,index)->{
+            BlacklistedStore.Entry entry=entries.get(index);
+            new AppDialogBuilder(this).setTitle("Allow "+entry.title+" again?").setMessage("This recording and its versions can appear in automatic picks again.")
+                    .setNegativeButton("Cancel",(d,w)->showBlacklistedSongs())
+                    .setPositiveButton("Remove",(d,w)->{BlacklistedStore.remove(this,entry.key);showBlacklistedSongs();}).show();
+        }).setPositiveButton("Done",null).show();
     }
 
     private boolean savingBatch;
@@ -924,10 +958,13 @@ public final class MainActivity extends Activity {
         Track track = tracks.get(position);
         boolean online = track.stableId.startsWith("online:");
         String avoid=AvoidedStore.contains(this,track)?"Allow in recommendations":"Avoid this song";
-        String[] actions = online ? new String[]{"Play now", "Play next", "Add to queue", DownloadStore.contains(this, track.stableId) ? "Remove download" : "Download", "Add to playlist", "Open artist", FavoriteStore.contains(this,track) ? "Remove favorite" : "Add to favorites", "Start song mix",avoid} : new String[]{"Play now", "Play next", "Add to queue", FavoriteStore.contains(this,track) ? "Remove favorite" : "Add to favorites", "Add to playlist", "Start song mix",avoid};
+        String blacklist=BlacklistedStore.contains(this,track)?"Remove from blacklist":"Blacklist song and versions";
+        String[] actions = online ? new String[]{"Play now", "Play next", "Add to queue", DownloadStore.contains(this, track.stableId) ? "Remove download" : "Download", "Add to playlist", "Open artist", FavoriteStore.contains(this,track) ? "Remove favorite" : "Add to favorites", "Start song mix",avoid,blacklist} : new String[]{"Play now", "Play next", "Add to queue", FavoriteStore.contains(this,track) ? "Remove favorite" : "Add to favorites", "Add to playlist", "Start song mix",avoid,blacklist};
         new AppDialogBuilder(this).setTitle(track.title).setItems(actions, (d, which) -> {
-            if (controller == null) return;
             String action = actions[which];
+            if (action.equals("Blacklist song and versions")||action.equals("Remove from blacklist")){toggleBlacklist(track);return;}
+            if (action.equals("Avoid this song")||action.equals("Allow in recommendations")){toggleAvoid(track);return;}
+            if (controller == null) return;
             if (action.equals("Play now")) playFrom(position);
             else if ((action.equals("Play next") || action.equals("Add to queue")) && online) {
                 enqueueOnline(track, action.equals("Play next"));
@@ -942,7 +979,6 @@ public final class MainActivity extends Activity {
             else if (action.equals("Open artist")) showArtistPage(track.artist);
             else if (action.equals("Add to favorites") || action.equals("Remove favorite")) toggleTrackFavorite(track);
             else if (action.equals("Start song mix")) showSeedMix(track,false);
-            else if (action.equals("Avoid this song")||action.equals("Allow in recommendations")) toggleAvoid(track);
         }).show();
     }
 
@@ -1054,7 +1090,7 @@ public final class MainActivity extends Activity {
     private void showQueueActions(androidx.media3.common.MediaItem item,int hint) {
         Track track=queueTrack(item);
         String download=DownloadStore.contains(this,track.stableId)?"Remove download":DownloadTasks.active(this,track.stableId)?"Download activity":"Download";
-        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{"Play", "Play next", download, "Add to playlist", "Artist", AvoidedStore.contains(this,track)?"Allow in recommendations":"Avoid this song", "Remove from queue"},(d,which)->{
+        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{"Play", "Play next", download, "Add to playlist", "Artist", AvoidedStore.contains(this,track)?"Allow in recommendations":"Avoid this song", BlacklistedStore.contains(this,track)?"Remove from blacklist":"Blacklist song and versions", "Remove from queue"},(d,which)->{
             int at=queueIndex(item,hint);
             if(which==0&&at>=0){controller.seekTo(at,0);controller.play();}
             else if(which==1&&at>=0){int next=Math.min(controller.getCurrentMediaItemIndex()+1,controller.getMediaItemCount()-1);controller.moveMediaItem(at,next);}
@@ -1062,7 +1098,8 @@ public final class MainActivity extends Activity {
             else if(which==3)addTrackToPlaylist(track);
             else if(which==4)showArtistPage(track.artist);
             else if(which==5)toggleAvoid(track);
-            else if(which==6&&at>=0)controller.removeMediaItem(at);
+            else if(which==6)toggleBlacklist(track);
+            else if(which==7&&at>=0)controller.removeMediaItem(at);
         }).show();
     }
 

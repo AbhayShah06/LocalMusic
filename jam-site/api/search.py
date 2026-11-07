@@ -22,7 +22,10 @@ class handler(BaseHTTPRequestHandler):
             return self.reply(400, {"error": "Search is too short"})
         try:
             client = YTMusic()
-            results = client.search(query, filter="songs", limit=35)
+            # Unfiltered search carries the catalogue's popular top result. Songs-only
+            # search can rank obscure exact-title uploads ahead of the known recording.
+            results = [item for item in client.search(query, limit=25) if item.get("resultType") in ("song", "video")]
+            results.extend(client.search(query, filter="songs", limit=35))
             if not results or max((search_score(query, item) for item in results), default=0) < 0.58:
                 suggestions = client.get_search_suggestions(query)
                 if suggestions:
@@ -122,17 +125,40 @@ class handler(BaseHTTPRequestHandler):
 def normalized(value):
     text = str(value or "").lower()
     text = re.sub(r"\b(?:i['’]?m a|ima)\b", "im a", text)
+    text = re.sub(r"\band\b", " ", text)
     return re.sub(r"[^a-z0-9]+", " ", text).strip()
+
+
+def song_title(value, artists=""):
+    text = str(value or "")
+    parts = re.split(r"\s[-–—]\s", text, maxsplit=1)
+    if len(parts) == 2 and normalized(parts[0]) and normalized(parts[0]) in normalized(artists):
+        text = parts[1]
+    text = re.sub(r"\s*[\[(](?:feat\.?|ft\.?|official|audio|video|lyrics?).*?[\])]", "", text, flags=re.I)
+    text = re.sub(r"\s+(?:feat\.?|ft\.?)\s+.*$", "", text, flags=re.I)
+    return normalized(text)
+
+
+def view_count(value):
+    match = re.search(r"([\d.]+)\s*([KMB])?", str(value or ""), re.I)
+    if not match:
+        return 0
+    return float(match.group(1)) * {"K": 1e3, "M": 1e6, "B": 1e9}.get((match.group(2) or "").upper(), 1)
 
 
 def search_score(query, item):
     wanted = normalized(query)
     artists = " ".join(artist.get("name", "") for artist in item.get("artists", []))
-    candidate = normalized(f"{item.get('title', '')} {artists}")
-    if not wanted or not candidate:
+    title = song_title(item.get("title"), artists)
+    candidate = normalized(f"{title} {artists}")
+    if not wanted or not title:
         return 0
-    sequence = difflib.SequenceMatcher(None, wanted, candidate).ratio()
+    sequence = difflib.SequenceMatcher(None, wanted, title).ratio()
     wanted_tokens, candidate_tokens = set(wanted.split()), set(candidate.split())
     overlap = len(wanted_tokens & candidate_tokens) / max(1, len(wanted_tokens))
-    prefix = 0.15 if candidate.startswith(wanted) or wanted.startswith(candidate) else 0
-    return sequence * 0.55 + overlap * 0.45 + prefix
+    title_match = 1.3 if title == wanted else 0.45 if title.startswith(wanted + " ") else 0
+    artist_match = 0.4 if normalized(artists) and normalized(artists) in wanted else 0
+    popularity = min(0.18, len(str(int(view_count(item.get("views"))))) * 0.025) if item.get("views") else 0
+    top = 0.25 if item.get("category") == "Top result" else 0
+    video = -0.18 if item.get("videoType") == "MUSIC_VIDEO_TYPE_OMV" else 0
+    return sequence * 0.45 + overlap * 0.55 + title_match + artist_match + popularity + top + video

@@ -107,14 +107,24 @@ public final class PlaybackService extends MediaSessionService {
     private long previousTasteStarted;
     private final Runnable recordCurrentItem = () -> {
         if (player != null && player.isPlaying() && !currentItemRecorded) {
-            if(player.getCurrentMediaItem()!=null){MediaItem played=player.getCurrentMediaItem().buildUpon().setMediaMetadata(player.getMediaMetadata()).build();ListeningHistory.record(PlaybackService.this,played);TasteProfile.record(PlaybackService.this,played,false);}currentItemRecorded = true;
+            if(player.getCurrentMediaItem()!=null){MediaItem played=player.getCurrentMediaItem().buildUpon().setMediaMetadata(player.getMediaMetadata()).build();ListeningHistory.record(PlaybackService.this,played);}currentItemRecorded = true;
         }
     };
     private final Player.Listener persistenceListener = new Player.Listener() {
         @Override public void onMediaItemTransition(MediaItem item, int reason) {
-            if(previousTasteItem!=null&&!currentItemRecorded&&reason==Player.MEDIA_ITEM_TRANSITION_REASON_SEEK
-                    &&android.os.SystemClock.elapsedRealtime()-previousTasteStarted<30_000)
-                TasteProfile.record(PlaybackService.this,previousTasteItem,true);
+            if(previousTasteItem!=null){
+                if(reason==Player.MEDIA_ITEM_TRANSITION_REASON_AUTO||reason==Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)
+                    TasteProfile.record(PlaybackService.this,previousTasteItem,false);
+                else if(reason==Player.MEDIA_ITEM_TRANSITION_REASON_SEEK
+                        &&android.os.SystemClock.elapsedRealtime()-previousTasteStarted<90_000){
+                    TasteProfile.record(PlaybackService.this,previousTasteItem,true);
+                    MediaItem skipped=previousTasteItem;
+                    String title=skipped.mediaMetadata.title==null?"":skipped.mediaMetadata.title.toString();
+                    String artist=skipped.mediaMetadata.artist==null?"":skipped.mediaMetadata.artist.toString();
+                    if(autoplayQueue!=null&&TasteProfile.load(PlaybackService.this).suppresses(RecordingIdentity.key(title,artist)))
+                        stateHandler.post(()->{if(autoplayQueue!=null)autoplayQueue.refresh();});
+                }
+            }
             previousTasteItem=item;previousTasteStarted=android.os.SystemClock.elapsedRealtime();
             currentItemRecorded = false; lastRecoveryId = ""; stateHandler.removeCallbacks(recordCurrentItem);
             if (player != null && player.isPlaying()) stateHandler.postDelayed(recordCurrentItem, 30_000);

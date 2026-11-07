@@ -23,7 +23,8 @@ final class ForYouDialog {
         if(!history.isEmpty())sections.addView(rail(activity,history.subList(0,Math.min(8,history.size())),track->track.title,play,menu,compact,accent,null));
         List<Track> seeds=new ArrayList<>(FavoriteStore.remoteTracks(activity));
         seeds.addAll(ListeningHistory.dailyMix(activity,50));Set<String> ids=new HashSet<>(),artists=new HashSet<>();
-        List<Track> unique=new ArrayList<>();for(Track seed:seeds)if(ids.add(Track.originalId(seed.stableId)))unique.add(seed.original());
+        TasteProfile taste=TasteProfile.load(activity);
+        List<Track> unique=new ArrayList<>();for(Track seed:seeds)if(!taste.suppresses(seed)&&!BlacklistedStore.contains(activity,seed)&&ids.add(Track.originalId(seed.stableId)))unique.add(seed.original());
         Collections.shuffle(unique,new Random(refreshSeed));
         if(!unique.isEmpty()){
             sections.addView(label(activity,"Song mixes",20));
