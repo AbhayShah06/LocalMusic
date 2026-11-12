@@ -20,7 +20,7 @@ final class ForYouDialog {
         root.addView(heading);
         ScrollView scroll=new ScrollView(activity);LinearLayout sections=new LinearLayout(activity);sections.setOrientation(LinearLayout.VERTICAL);scroll.addView(sections);androidx.swiperefreshlayout.widget.SwipeRefreshLayout pull=new androidx.swiperefreshlayout.widget.SwipeRefreshLayout(activity);pull.setContentDescription("Refresh home");pull.setColorSchemeColors(0xffff5c35);pull.setProgressBackgroundColorSchemeColor(0xff24201e);pull.addView(scroll);pull.setOnChildScrollUpCallback((parent,child)->scroll.canScrollVertically(-1));pull.setOnRefreshListener(refresh::run);root.addView(pull,new LinearLayout.LayoutParams(-1,0,1));
         List<Track> history=ListeningHistory.recent(activity,50);
-        sections.addView(action(activity,"Recently played  ›",recent));
+        sections.addView(action(activity,"Recently played",recent));
         if(history.isEmpty())sections.addView(label(activity,"Your listening history will appear here.",15));
         if(!history.isEmpty())sections.addView(rail(activity,history.subList(0,Math.min(8,history.size())),track->track.title,play,menu,compact,accent,null,null));
         List<Track> seeds=new ArrayList<>(FavoriteStore.remoteTracks(activity));

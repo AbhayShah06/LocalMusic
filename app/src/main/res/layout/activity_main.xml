@@ -9,15 +9,13 @@
     <ScrollView android:id="@+id/recentSearchScroll" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginStart="@dimen/page_gutter" android:layout_marginTop="6dp" android:layout_marginEnd="@dimen/page_gutter" android:background="@drawable/bg_search" android:fillViewport="false" android:scrollbars="none" android:visibility="gone">
         <LinearLayout android:id="@+id/recentSearches" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingStart="8dp" android:paddingTop="4dp" android:paddingEnd="8dp" android:paddingBottom="4dp" />
     </ScrollView>
-    <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:fillViewport="false" android:scrollbars="none">
-        <LinearLayout android:id="@+id/tabs" android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:paddingStart="@dimen/page_gutter" android:paddingEnd="@dimen/page_gutter">
+    <LinearLayout android:id="@+id/tabs" android:layout_marginTop="8dp" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:paddingStart="@dimen/page_gutter" android:paddingEnd="@dimen/page_gutter">
             <TextView android:id="@+id/forYou" style="@style/LibraryTab" android:text="For You" />
             <TextView android:id="@+id/songs" style="@style/LibraryTab" android:text="Songs" />
             <TextView android:id="@+id/albums" style="@style/LibraryTab" android:text="Albums" />
             <TextView android:id="@+id/artists" style="@style/LibraryTab" android:text="Artists" />
             <TextView android:id="@+id/playlists" style="@style/LibraryTab" android:text="Playlists" />
-        </LinearLayout>
-    </HorizontalScrollView>
+    </LinearLayout>
     <TextView android:id="@+id/status" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingStart="@dimen/page_gutter" android:paddingTop="13dp" android:paddingEnd="@dimen/page_gutter" android:paddingBottom="7dp" android:text="Loading your music…" android:textColor="#A6A19A" android:textSize="13sp" />
     <LinearLayout android:id="@+id/librarySelectionBar" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:paddingStart="@dimen/page_gutter" android:paddingEnd="@dimen/page_gutter" android:visibility="gone">
         <TextView android:id="@+id/librarySelectionCount" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:textColor="#F6F1E8" android:textSize="15sp" />
