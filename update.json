@@ -1,7 +1,7 @@
 {
-  "versionCode": 32,
-  "versionName": "0.12.15",
-  "notes": "Search carries across Stream, This phone, and Backblaze. Recent searches can be reopened or removed individually.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.15/LocalMusic-0.12.15.apk",
-  "sha256": "C50246C29CB83FD3D0DC4E7FBCD662432FD6B5C562073B9CA953CEB9B2A97775"
+  "versionCode": 33,
+  "versionName": "0.12.16",
+  "notes": "Cleaner home and queue screens, recent searches only while searching, and your playlists on their own page.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.16/LocalMusic-0.12.16.apk",
+  "sha256": "A2E9891492B1B52E1DCF6C045B38D6FC2C7FC9911737E431110138AF73A93F46"
 }
