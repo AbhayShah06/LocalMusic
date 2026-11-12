@@ -78,6 +78,7 @@ public final class MainActivity extends Activity {
     private String group = "";
     private final Handler ticker = new Handler(Looper.getMainLooper());
     private final Handler searchHandler = new Handler(Looper.getMainLooper());
+    private final Handler searchHistoryHandler = new Handler(Looper.getMainLooper());
     private Runnable seekTicker;
     private final Handler jamTicker = new Handler(Looper.getMainLooper());
     private JamClient.Room activeJam;
@@ -143,10 +144,15 @@ public final class MainActivity extends Activity {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
                 query = s.toString(); if(showingForYou && !query.trim().isEmpty())selectTab(R.id.songs); searchHandler.removeCallbacksAndMessages(null);
+                searchHistoryHandler.removeCallbacksAndMessages(null);
+                if(search.hasFocus()&&query.trim().length()>=2)searchHistoryHandler.postDelayed(()->rememberSearch(query),1800);
+                renderSearchHistory();
                 searchHandler.postDelayed(MainActivity.this::resetAndLoad, onlineMode ? 350 : 120);
             }
             @Override public void afterTextChanged(Editable s) { }
         });
+        search.setOnFocusChangeListener((view,focused)->renderSearchHistory());
+        renderSearchHistory();
         onlineMode = true; remoteMode = true; b2Mode = false;
         permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE);
         ((TextView)findViewById(R.id.source)).setText("Stream  ▾");
@@ -260,6 +266,57 @@ public final class MainActivity extends Activity {
     }
 
     private void setGroup(String value) { selectTab(R.id.songs); group = value; query = ""; search.setText(""); resetAndLoad(); }
+
+    private void switchSource(boolean online,boolean remote,boolean backblaze,String label){
+        if(!query.trim().isEmpty())rememberSearch(query);
+        onlineMode=online;remoteMode=remote;b2Mode=backblaze;
+        ((TextView)findViewById(R.id.source)).setText(label+"  ▾");
+        selectTab(R.id.songs);group="";
+        if(remote){permissionPanel.setVisibility(View.GONE);findViewById(R.id.tracks).setVisibility(View.VISIBLE);}
+        resetAndLoad();
+        if(!remote)refreshPermissionState();
+    }
+
+    private List<String> recentSearches(){
+        List<String> values=new ArrayList<>();
+        try{org.json.JSONArray saved=new org.json.JSONArray(getSharedPreferences("search_history",MODE_PRIVATE).getString("queries","[]"));
+            for(int i=0;i<saved.length()&&values.size()<10;i++){String value=saved.optString(i).trim();if(!value.isEmpty())values.add(value);}
+        }catch(org.json.JSONException ignored){}
+        return values;
+    }
+    private void saveRecentSearches(List<String> values){
+        org.json.JSONArray saved=new org.json.JSONArray();for(String value:values)saved.put(value);
+        getSharedPreferences("search_history",MODE_PRIVATE).edit().putString("queries",saved.toString()).apply();
+        renderSearchHistory();
+    }
+    private void rememberSearch(String value){
+        String normalized=value.trim();if(normalized.length()<2)return;
+        final String text=normalized.length()>120?normalized.substring(0,120).trim():normalized;
+        List<String> values=recentSearches();values.removeIf(old->old.equalsIgnoreCase(text));values.add(0,text);
+        if(values.size()>10)values=values.subList(0,10);
+        saveRecentSearches(values);
+    }
+    private void forgetSearch(String value){
+        List<String> values=recentSearches();values.removeIf(old->old.equalsIgnoreCase(value));saveRecentSearches(values);
+    }
+    private void renderSearchHistory(){
+        if(search==null)return;
+        android.widget.HorizontalScrollView scroll=findViewById(R.id.recentSearchScroll);
+        android.widget.LinearLayout row=findViewById(R.id.recentSearches);
+        if(scroll==null||row==null)return;
+        List<String> values=recentSearches();
+        if(!search.hasFocus()||!query.trim().isEmpty()||values.isEmpty()){scroll.setVisibility(View.GONE);return;}
+        row.removeAllViews();
+        TextView label=new TextView(this);label.setText("RECENT");label.setTextSize(10);label.setLetterSpacing(.08f);label.setTextColor(0xff8a867f);label.setPadding(0,0,queueDp(12),0);row.addView(label);
+        for(String value:values){
+            android.widget.LinearLayout chip=new android.widget.LinearLayout(this);chip.setGravity(android.view.Gravity.CENTER_VERTICAL);chip.setBackgroundResource(R.drawable.bg_source_chip);
+            TextView term=new TextView(this);term.setText(value);term.setTextSize(13);term.setSingleLine(true);term.setMaxWidth(queueDp(180));term.setEllipsize(android.text.TextUtils.TruncateAt.END);term.setTextColor(0xfff6f1e8);term.setPadding(queueDp(12),0,queueDp(4),0);
+            term.setContentDescription("Search "+value);term.setOnClickListener(v->{search.setText(value);search.setSelection(search.length());search.clearFocus();rememberSearch(value);});chip.addView(term,new android.widget.LinearLayout.LayoutParams(-2,queueDp(40)));
+            TextView remove=new TextView(this);remove.setText("×");remove.setTextSize(20);remove.setGravity(android.view.Gravity.CENTER);remove.setTextColor(0xffaaa29b);remove.setContentDescription("Delete recent search "+value);remove.setOnClickListener(v->forgetSearch(value));chip.addView(remove,new android.widget.LinearLayout.LayoutParams(queueDp(38),queueDp(40)));
+            android.widget.LinearLayout.LayoutParams params=new android.widget.LinearLayout.LayoutParams(-2,queueDp(40));params.setMargins(0,0,queueDp(8),0);row.addView(chip,params);
+        }
+        scroll.setVisibility(View.VISIBLE);
+    }
 
     private boolean libraryPaged = true;
     private int libraryGeneration;
@@ -1410,27 +1467,22 @@ public final class MainActivity extends Activity {
             String[] options = new String[]{"Stream online", "Backblaze library", "This phone"};
             new AppDialogBuilder(this).setTitle("Music source").setItems(options, (dialog, which) -> {
                 if (which == 0) {
-                    onlineMode = true; remoteMode = true; b2Mode = false; permissionPanel.setVisibility(View.GONE);
-                    findViewById(R.id.tracks).setVisibility(View.VISIBLE);
-                    ((TextView)findViewById(R.id.source)).setText("Stream  ▾"); setGroup("");
+                    switchSource(true,true,false,"Stream");
                 } else if (which == 1) {
-                    onlineMode = false; remoteMode = true; b2Mode = true; permissionPanel.setVisibility(View.GONE);
-                    findViewById(R.id.tracks).setVisibility(View.VISIBLE);
-                    ((TextView)findViewById(R.id.source)).setText("Backblaze  ▾"); setGroup("");
+                    switchSource(false,true,true,"Backblaze");
                 } else {
-                    onlineMode = false; remoteMode = false; b2Mode = false;
-                    ((TextView)findViewById(R.id.source)).setText("This phone  ▾"); refreshPermissionState();
+                    switchSource(false,false,false,"This phone");
                 }
             }).show();
             return;
         }
         String[] options = new String[]{"Stream online", "This phone", b2Settings.configured() ? "Backblaze library" : "Set up Backblaze", serverSettings.configured() ? "Navidrome" : "Set up Navidrome", "Backblaze settings", "Navidrome settings"};
         new AppDialogBuilder(this).setTitle("Music library").setItems(options, (dialog, which) -> {
-            if (which == 0) { onlineMode = true; remoteMode = true; b2Mode = false; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Stream  ▾"); setGroup(""); }
-            else if (which == 1) { onlineMode = false; remoteMode = false; b2Mode = false; ((TextView)findViewById(R.id.source)).setText("This phone  ▾"); refreshPermissionState(); setGroup(""); }
-            else if (which == 2 && b2Settings.configured()) { onlineMode = false; remoteMode = true; b2Mode = true; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Backblaze  ▾"); setGroup(""); }
+            if (which == 0) switchSource(true,true,false,"Stream");
+            else if (which == 1) switchSource(false,false,false,"This phone");
+            else if (which == 2 && b2Settings.configured()) switchSource(false,true,true,"Backblaze");
             else if (which == 2) configureBackblaze();
-            else if (which == 3 && serverSettings.configured()) { onlineMode = false; remoteMode = true; b2Mode = false; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Navidrome  ▾"); setGroup(""); }
+            else if (which == 3 && serverSettings.configured()) switchSource(false,true,false,"Navidrome");
             else if (which == 3 || which == 5) configureServer();
             else configureBackblaze();
         }).show();
@@ -1445,7 +1497,7 @@ public final class MainActivity extends Activity {
         new AppDialogBuilder(this).setTitle("Backblaze music").setMessage("Use a read-only key restricted to this bucket. Credentials are encrypted on this phone and never included in the APK.").setView(form).setNegativeButton("Cancel", null).setPositiveButton("Connect", (d, w) -> {
             String id = keyId.getText().toString().trim(), secret = applicationKey.getText().toString().trim(), bucketName = bucket.getText().toString().trim();
             if (id.isEmpty() || secret.isEmpty() || bucketName.isEmpty()) { Toast.makeText(this, "Enter the key ID, application key, and bucket name.", Toast.LENGTH_LONG).show(); return; }
-            b2Settings.save(id, secret, bucketName); status.setText("Connecting to Backblaze…"); io.execute(() -> { boolean ok = new B2CatalogClient(b2Settings).ping(); main.post(() -> { if (ok) { reconnectPlaybackService(); onlineMode = false; remoteMode = true; b2Mode = true; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Backblaze  ▾"); setGroup(""); } else status.setText("Backblaze connection failed. Check the bucket-restricted key and bucket name."); }); });
+            b2Settings.save(id, secret, bucketName); status.setText("Connecting to Backblaze…"); io.execute(() -> { boolean ok = new B2CatalogClient(b2Settings).ping(); main.post(() -> { if (ok) { reconnectPlaybackService(); switchSource(false,true,true,"Backblaze"); } else status.setText("Backblaze connection failed. Check the bucket-restricted key and bucket name."); }); });
         }).show();
     }
 
@@ -1460,7 +1512,7 @@ public final class MainActivity extends Activity {
             if (!address.startsWith("https://") || user.isEmpty() || pass.isEmpty()) { Toast.makeText(this, "Use an HTTPS address and enter your username and password.", Toast.LENGTH_LONG).show(); return; }
             serverSettings.save(address, user, pass); status.setText("Connecting to Navidrome…");
             io.execute(() -> { boolean ok = new OpenSubsonicClient(serverSettings).ping(); main.post(() -> {
-                if (ok) { onlineMode = false; remoteMode = true; b2Mode = false; permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE); ((TextView)findViewById(R.id.source)).setText("Navidrome  ▾"); setGroup(""); }
+                if (ok) switchSource(false,true,false,"Navidrome");
                 else status.setText("Connection failed. Check the HTTPS address, login, and whether the server is running.");
             }); });
         }).show();
@@ -1489,5 +1541,5 @@ public final class MainActivity extends Activity {
         rememberPanel("equalizer",dialog);dialog.show();dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{android.content.SharedPreferences.Editor edit=prefs.edit().putBoolean("eq_enabled",false);for(int i=0;i<5;i++)edit.putInt("eq_band_"+i,0);edit.apply();refresh.run();});refresh.run();installSwipeBack(dialog.findViewById(android.R.id.content),dialog::dismiss);
     }
 
-    @Override public void onDestroy() { searchHandler.removeCallbacksAndMessages(null);if(pageSearch!=null)pageSearch.cancel(true);searchIo.shutdownNow();importCancelled.set(true);importIo.shutdownNow();if(offlinePrompt!=null)offlinePrompt.stop();AppDialogBuilder.dismissAll(this);for(android.app.Dialog panel:new java.util.ArrayList<>(panels.values()))if(panel.isShowing())panel.dismiss();panels.clear();jamTicker.removeCallbacksAndMessages(null); io.shutdown(); jamSyncIo.shutdown(); jamSearchIo.shutdown(); super.onDestroy(); }
+    @Override public void onDestroy() { searchHandler.removeCallbacksAndMessages(null);searchHistoryHandler.removeCallbacksAndMessages(null);if(pageSearch!=null)pageSearch.cancel(true);searchIo.shutdownNow();importCancelled.set(true);importIo.shutdownNow();if(offlinePrompt!=null)offlinePrompt.stop();AppDialogBuilder.dismissAll(this);for(android.app.Dialog panel:new java.util.ArrayList<>(panels.values()))if(panel.isShowing())panel.dismiss();panels.clear();jamTicker.removeCallbacksAndMessages(null); io.shutdown(); jamSyncIo.shutdown(); jamSearchIo.shutdown(); super.onDestroy(); }
 }
