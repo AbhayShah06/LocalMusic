@@ -97,7 +97,6 @@ public final class MainActivity extends Activity {
     private String group = "";
     private final Handler ticker = new Handler(Looper.getMainLooper());
     private final Handler searchHandler = new Handler(Looper.getMainLooper());
-    private final Handler searchHistoryHandler = new Handler(Looper.getMainLooper());
     private Runnable seekTicker;
     private final Handler jamTicker = new Handler(Looper.getMainLooper());
     private JamClient.Room activeJam;
@@ -163,15 +162,14 @@ public final class MainActivity extends Activity {
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                query = s.toString(); if(showingForYou && !query.trim().isEmpty())selectTab(R.id.songs); searchHandler.removeCallbacksAndMessages(null);
-                searchHistoryHandler.removeCallbacksAndMessages(null);
-                if(search.hasFocus()&&query.trim().length()>=2)searchHistoryHandler.postDelayed(()->rememberSearch(query),1800);
+                query = s.toString(); if((showingForYou||playlistContent!=null) && !query.trim().isEmpty())selectTab(R.id.songs); searchHandler.removeCallbacksAndMessages(null);
                 renderSearchHistory();
                 searchHandler.postDelayed(MainActivity.this::resetAndLoad, onlineMode ? 350 : 120);
             }
             @Override public void afterTextChanged(Editable s) { }
         });
-        search.setOnFocusChangeListener((view,focused)->renderSearchHistory());
+        search.setOnFocusChangeListener((view,focused)->{if(!focused&&!query.trim().isEmpty())rememberSearch(query);renderSearchHistory();});
+        search.setOnEditorActionListener((view,action,event)->{if(action!=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH)return false;findViewById(R.id.root).requestFocus();android.view.inputmethod.InputMethodManager keyboard=(android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);if(keyboard!=null)keyboard.hideSoftInputFromWindow(search.getWindowToken(),0);return true;});
         renderSearchHistory();
         onlineMode = true; remoteMode = true; b2Mode = false;
         permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE);
@@ -252,9 +250,14 @@ public final class MainActivity extends Activity {
     }
 
     private View forYouContent;
+    private View playlistContent;
     private boolean showingForYou;
     private void selectTab(int selectedId) {
         if(selectedId!=R.id.songs&&librarySelection.active())clearLibrarySelection();
+        if(selectedId!=R.id.playlists&&playlistContent!=null){
+            ((android.widget.FrameLayout)findViewById(R.id.libraryContent)).removeView(playlistContent);playlistContent=null;
+            findViewById(R.id.tracks).setVisibility(View.VISIBLE);status.setVisibility(View.VISIBLE);
+        }
         if (selectedId != R.id.forYou && showingForYou) {
             showingForYou=false;
             if(forYouContent!=null){((android.widget.FrameLayout)findViewById(R.id.libraryContent)).removeView(forYouContent);forYouContent=null;}
@@ -1439,31 +1442,30 @@ public final class MainActivity extends Activity {
     private void showPlaylists() {
         android.content.SharedPreferences prefs = getSharedPreferences("library", MODE_PRIVATE);
         List<String> names = playlistNames(prefs);
-        android.app.Dialog dialog=new android.app.Dialog(this);
-        android.widget.LinearLayout sheet=new android.widget.LinearLayout(this);sheet.setOrientation(android.widget.LinearLayout.VERTICAL);sheet.setPadding(queueDp(20),queueDp(10),queueDp(20),queueDp(20));
-        android.graphics.drawable.GradientDrawable background=new android.graphics.drawable.GradientDrawable();background.setColor(0xff191819);background.setCornerRadii(new float[]{queueDp(22),queueDp(22),queueDp(22),queueDp(22),0,0,0,0});sheet.setBackground(background);
-        View handle=new View(this);android.graphics.drawable.GradientDrawable handleShape=new android.graphics.drawable.GradientDrawable();handleShape.setColor(0xff514c49);handleShape.setCornerRadius(queueDp(2));handle.setBackground(handleShape);android.widget.LinearLayout.LayoutParams handleParams=new android.widget.LinearLayout.LayoutParams(queueDp(36),queueDp(4));handleParams.gravity=android.view.Gravity.CENTER_HORIZONTAL;handleParams.bottomMargin=queueDp(16);sheet.addView(handle,handleParams);
-        android.widget.LinearLayout titleRow=new android.widget.LinearLayout(this);titleRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        TextView heading=new TextView(this);heading.setText("Your playlists");heading.setTextColor(0xfff6f1e8);heading.setTextSize(23);heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);titleRow.addView(heading,new android.widget.LinearLayout.LayoutParams(0,-2,1));
-        TextView close=new TextView(this);close.setText("×");close.setTextSize(25);close.setTextColor(0xffaaa29b);close.setGravity(android.view.Gravity.CENTER);close.setContentDescription("Close playlists");close.setOnClickListener(v->dialog.dismiss());titleRow.addView(close,new android.widget.LinearLayout.LayoutParams(queueDp(44),queueDp(44)));sheet.addView(titleRow);
-        TextView subtitle=new TextView(this);subtitle.setText(names.size()+(names.size()==1?" playlist":" playlists")+" saved on this phone");subtitle.setTextColor(0xffaaa29b);subtitle.setTextSize(13);sheet.addView(subtitle);
-        android.widget.LinearLayout actions=new android.widget.LinearLayout(this);actions.setPadding(0,queueDp(16),0,queueDp(8));
-        TextView create=new TextView(this);create.setText("+  Create");create.setTextColor(0xfff6f1e8);create.setTextSize(14);create.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);create.setGravity(android.view.Gravity.CENTER);create.setBackgroundResource(R.drawable.bg_search);create.setOnClickListener(v->{dialog.dismiss();createPlaylist();});android.widget.LinearLayout.LayoutParams createParams=new android.widget.LinearLayout.LayoutParams(0,queueDp(46),1);createParams.rightMargin=queueDp(8);actions.addView(create,createParams);
-        TextView importButton=new TextView(this);importButton.setText("Import");importButton.setTextColor(0xfff6f1e8);importButton.setTextSize(14);importButton.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);importButton.setGravity(android.view.Gravity.CENTER);importButton.setBackgroundResource(R.drawable.bg_search);importButton.setOnClickListener(v->{dialog.dismiss();showImportOptions();});actions.addView(importButton,new android.widget.LinearLayout.LayoutParams(0,queueDp(46),1));sheet.addView(actions);
-        android.widget.ScrollView scroll=new android.widget.ScrollView(this);android.widget.LinearLayout rows=new android.widget.LinearLayout(this);rows.setOrientation(android.widget.LinearLayout.VERTICAL);scroll.addView(rows);
-        if(names.isEmpty()){TextView empty=new TextView(this);empty.setText("Create a playlist or import one to get started.");empty.setTextColor(0xffaaa29b);empty.setPadding(0,queueDp(24),0,queueDp(24));rows.addView(empty);}
+        selectTab(R.id.playlists);
+        libraryGeneration++;libraryPaged=false;loading=false;searchHandler.removeCallbacksAndMessages(null);
+        if(!query.trim().isEmpty()){rememberSearch(query);query="";search.setText("");searchHandler.removeCallbacksAndMessages(null);}
+        android.widget.FrameLayout frame=findViewById(R.id.libraryContent);
+        if(playlistContent!=null)frame.removeView(playlistContent);
+        findViewById(R.id.tracks).setVisibility(View.GONE);permissionPanel.setVisibility(View.GONE);status.setVisibility(View.GONE);
+        android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(0xff0b0b0c);
+        android.widget.LinearLayout content=new android.widget.LinearLayout(this);content.setOrientation(android.widget.LinearLayout.VERTICAL);content.setPadding(queueDp(20),queueDp(12),queueDp(20),queueDp(20));scroll.addView(content);
+        TextView heading=new TextView(this);heading.setText("Your playlists");heading.setTextColor(0xfff6f1e8);heading.setTextSize(23);heading.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);content.addView(heading);
+        TextView subtitle=new TextView(this);subtitle.setText(names.size()+(names.size()==1?" playlist":" playlists")+" saved on this phone");subtitle.setTextColor(0xffaaa29b);subtitle.setTextSize(13);subtitle.setPadding(0,queueDp(4),0,queueDp(8));content.addView(subtitle);
+        android.widget.LinearLayout actions=new android.widget.LinearLayout(this);actions.setPadding(0,queueDp(12),0,queueDp(12));
+        TextView create=new TextView(this);create.setText("+ Create playlist");create.setTextColor(0xfff6f1e8);create.setTextSize(14);create.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);create.setGravity(android.view.Gravity.CENTER);create.setBackgroundResource(R.drawable.bg_search);create.setOnClickListener(v->createPlaylist());android.widget.LinearLayout.LayoutParams createParams=new android.widget.LinearLayout.LayoutParams(0,queueDp(46),1);createParams.rightMargin=queueDp(8);actions.addView(create,createParams);
+        TextView importButton=new TextView(this);importButton.setText("+ Import playlist");importButton.setTextColor(0xfff6f1e8);importButton.setTextSize(14);importButton.setGravity(android.view.Gravity.CENTER);importButton.setBackgroundResource(R.drawable.bg_search);importButton.setOnClickListener(v->showImportOptions());actions.addView(importButton,new android.widget.LinearLayout.LayoutParams(0,queueDp(46),1));content.addView(actions);
+        if(names.isEmpty()){TextView empty=new TextView(this);empty.setText("Your saved playlists will appear here.");empty.setTextColor(0xffaaa29b);empty.setPadding(0,queueDp(24),0,queueDp(24));content.addView(empty);}
         for(String name:names){int count=prefs.getStringSet("playlist:"+name,java.util.Collections.emptySet()).size();
             android.widget.LinearLayout row=new android.widget.LinearLayout(this);row.setGravity(android.view.Gravity.CENTER_VERTICAL);row.setPadding(queueDp(8),0,queueDp(4),0);row.setBackgroundResource(android.R.drawable.list_selector_background);
             android.widget.LinearLayout text=new android.widget.LinearLayout(this);text.setOrientation(android.widget.LinearLayout.VERTICAL);
             TextView label=new TextView(this);label.setText(name);label.setTextSize(16);label.setTextColor(0xfff6f1e8);label.setSingleLine(true);label.setEllipsize(android.text.TextUtils.TruncateAt.END);text.addView(label);
             TextView detail=new TextView(this);detail.setText(count+(count==1?" song":" songs"));detail.setTextColor(0xffaaa29b);detail.setTextSize(12);text.addView(detail);row.addView(text,new android.widget.LinearLayout.LayoutParams(0,-2,1));
             TextView arrow=new TextView(this);arrow.setText("›");arrow.setTextSize(24);arrow.setTextColor(0xff8f8a83);arrow.setGravity(android.view.Gravity.CENTER);row.addView(arrow,new android.widget.LinearLayout.LayoutParams(queueDp(30),queueDp(48)));
-            row.setContentDescription("Open playlist "+name);row.setOnClickListener(v->{dialog.dismiss();loadPlaylist(name);});rows.addView(row,new android.widget.LinearLayout.LayoutParams(-1,queueDp(68)));
-            View divider=new View(this);divider.setBackgroundColor(0xff302d2b);rows.addView(divider,new android.widget.LinearLayout.LayoutParams(-1,queueDp(1)));
+            row.setContentDescription("Open playlist "+name);row.setOnClickListener(v->loadPlaylist(name));content.addView(row,new android.widget.LinearLayout.LayoutParams(-1,queueDp(68)));
+            View divider=new View(this);divider.setBackgroundColor(0xff302d2b);content.addView(divider,new android.widget.LinearLayout.LayoutParams(-1,queueDp(1)));
         }
-        int listHeight=Math.min(queueDp(Math.max(1,names.size())*69+24),(int)(getResources().getDisplayMetrics().heightPixels*.53f));sheet.addView(scroll,new android.widget.LinearLayout.LayoutParams(-1,listHeight));
-        dialog.setContentView(sheet);installSwipeBack(sheet,dialog::dismiss);rememberPanel("playlists",dialog);dialog.show();
-        if(dialog.getWindow()!=null){dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);dialog.getWindow().setLayout(-1,-2);dialog.getWindow().setGravity(android.view.Gravity.BOTTOM);}
+        playlistContent=scroll;frame.addView(scroll,new android.widget.FrameLayout.LayoutParams(-1,-1));
     }
 
     private void createPlaylist() {
@@ -1569,5 +1571,5 @@ public final class MainActivity extends Activity {
         rememberPanel("equalizer",dialog);dialog.show();dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{android.content.SharedPreferences.Editor edit=prefs.edit().putBoolean("eq_enabled",false);for(int i=0;i<5;i++)edit.putInt("eq_band_"+i,0);edit.apply();refresh.run();});refresh.run();installSwipeBack(dialog.findViewById(android.R.id.content),dialog::dismiss);
     }
 
-    @Override public void onDestroy() { searchHandler.removeCallbacksAndMessages(null);searchHistoryHandler.removeCallbacksAndMessages(null);if(pageSearch!=null)pageSearch.cancel(true);searchIo.shutdownNow();importCancelled.set(true);importIo.shutdownNow();if(offlinePrompt!=null)offlinePrompt.stop();AppDialogBuilder.dismissAll(this);for(android.app.Dialog panel:new java.util.ArrayList<>(panels.values()))if(panel.isShowing())panel.dismiss();panels.clear();jamTicker.removeCallbacksAndMessages(null); io.shutdown(); jamSyncIo.shutdown(); jamSearchIo.shutdown(); super.onDestroy(); }
+    @Override public void onDestroy() { searchHandler.removeCallbacksAndMessages(null);if(pageSearch!=null)pageSearch.cancel(true);searchIo.shutdownNow();importCancelled.set(true);importIo.shutdownNow();if(offlinePrompt!=null)offlinePrompt.stop();AppDialogBuilder.dismissAll(this);for(android.app.Dialog panel:new java.util.ArrayList<>(panels.values()))if(panel.isShowing())panel.dismiss();panels.clear();jamTicker.removeCallbacksAndMessages(null); io.shutdown(); jamSyncIo.shutdown(); jamSearchIo.shutdown(); super.onDestroy(); }
 }

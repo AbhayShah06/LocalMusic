@@ -10,6 +10,7 @@ import static androidx.test.espresso.action.ViewActions.click;
 import static androidx.test.espresso.assertion.ViewAssertions.matches;
 import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
+import static androidx.test.espresso.matcher.ViewMatchers.withText;
 import static org.hamcrest.Matchers.not;
 
 @RunWith(AndroidJUnit4.class)
@@ -28,6 +29,15 @@ public class HomeUiTest {
         }finally{
             if(previous==null)history.edit().remove("queries").commit();
             else history.edit().putString("queries",previous).commit();
+        }
+    }
+    @Test public void playlistsStayVisibleAfterImportDialogCloses() {
+        try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
+            onView(withId(R.id.playlists)).perform(click());
+            onView(withText("Your playlists")).check(matches(isDisplayed()));
+            onView(withText("+ Import playlist")).perform(click());
+            androidx.test.espresso.Espresso.pressBack();
+            onView(withText("Your playlists")).check(matches(isDisplayed()));
         }
     }
 }
