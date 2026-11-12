@@ -152,7 +152,7 @@ public class FeatureRuntimeTest {
             onView(withId(R.id.source)).perform(click());onView(withText("This phone")).perform(click());
             waitForText("Test Song navigation");
             for(int round=0;round<2;round++){
-                onView(withId(R.id.playlists)).perform(click());androidx.test.espresso.Espresso.pressBack();onView(withId(R.id.songs)).perform(click());waitForText("Test Song navigation");
+                onView(withId(R.id.playlists)).perform(click());onView(withText("Your playlists")).check(matches(isDisplayed()));onView(withId(R.id.songs)).perform(click());waitForText("Test Song navigation");
                 onView(withId(R.id.albums)).perform(click());waitForText("Fixtures \u00b7 Runtime Test");onView(withId(R.id.songs)).perform(click());waitForText("Test Song navigation");
                 onView(withId(R.id.forYou)).perform(click());onView(withId(R.id.songs)).perform(click());waitForText("Test Song navigation");
                 onView(withId(R.id.source)).perform(click());onView(withText("Stream online")).perform(click());
