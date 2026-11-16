@@ -873,7 +873,7 @@ public final class MainActivity extends Activity {
     private void showCollectionTrackActions(Track track) {
         new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{"Play now","Play next","Add to queue","Download","Add to playlist","Open artist","Start song mix","I don't fw this song",BlacklistedStore.contains(this,track)?"Allow this song":"Avoid this song",AvoidedStore.contains(this,track)?"Allow this upload":"Wrong audio/video"},(dialog,index)->{
             if(index==0)playMixTracks(java.util.Collections.singletonList(track),0);
-            else if(index==1||index==2){if(track.stableId.startsWith("online:"))enqueueOnline(track,index==1);else if(controller!=null)controller.addMediaItem(index==1?Math.min(controller.getCurrentMediaItemIndex()+1,controller.getMediaItemCount()):controller.getMediaItemCount(),track.toMediaItem());}
+            else if(index==1||index==2){if(track.stableId.startsWith("online:"))enqueueOnline(track,index==1);else if(controller!=null)controller.addMediaItem(index==1?Math.min(controller.getCurrentMediaItemIndex()+1,controller.getMediaItemCount()):manualQueueEnd(),track.toMediaItem());}
             else if(index==3)requestDownload(track);
             else if(index==4)addTrackToPlaylist(track);
             else if(index==5)showArtistPage(track.artist);
@@ -1138,7 +1138,7 @@ public final class MainActivity extends Activity {
             } else if (action.equals("Play next") || action.equals("Add to queue")) {
                 androidx.media3.common.MediaItem item = track.toMediaItem();
                 if (action.equals("Play next") && controller.getMediaItemCount() > 0) controller.addMediaItem(Math.min(controller.getCurrentMediaItemIndex() + 1, controller.getMediaItemCount()), item);
-                else controller.addMediaItem(item);
+                else controller.addMediaItem(manualQueueEnd(), item);
                 Toast.makeText(this, action.equals("Play next") ? "Queued next" : "Added to queue", Toast.LENGTH_SHORT).show();
             } else if (action.equals("Download")) { requestDownload(track); }
             else if (action.equals("Remove download")) new AppDialogBuilder(this).setTitle("Remove download?").setMessage(track.title + " will remain available to stream.").setNegativeButton("Cancel", null).setPositiveButton("Remove", (dialog, button) -> { DownloadStore.remove(this, track.stableId); Toast.makeText(this, "Download removed", Toast.LENGTH_SHORT).show(); }).show();
@@ -1158,12 +1158,19 @@ public final class MainActivity extends Activity {
                     if (controller == null) return;
                     int target = Math.min(controller.getCurrentMediaItemIndex() + 1, controller.getMediaItemCount());
                     if (next && controller.getMediaItemCount() > 0) controller.addMediaItem(target, resolved.toMediaItem());
-                    else controller.addMediaItem(resolved.toMediaItem());
+                    else controller.addMediaItem(manualQueueEnd(), resolved.toMediaItem());
                     status.setText(next ? "Queued next" : "Added to queue");
                     publishJamPlayback();
                 });
             } catch (RuntimeException error) { main.post(() -> status.setText("Could not prepare this song")); }
         });
+    }
+
+    private int manualQueueEnd() {
+        if (controller == null) return 0;
+        for (int i = Math.max(0, controller.getCurrentMediaItemIndex() + 1); i < controller.getMediaItemCount(); i++)
+            if (controller.getMediaItemAt(i).mediaId.startsWith("auto:")) return i;
+        return controller.getMediaItemCount();
     }
 
     private void showQueue() {

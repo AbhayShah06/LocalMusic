@@ -30,6 +30,29 @@ final class AutoplayQueue {
     }
     void stop(){generation++;seed=null;pool.clear();used.clear();usedSongs.clear();unavailable.clear();busy=false;deferredTail=false;main.removeCallbacks(retry);context.getSharedPreferences("radio",0).edit().remove("seed").remove("collection").apply();}
     void markUnavailable(String id){unavailable.add(id);used.add(id);pool.removeIf(track->id.equals(Track.originalId(track.stableId)));}
+    boolean canRefill(){return !closed && seed!=null && player.getRepeatMode()==androidx.media3.common.Player.REPEAT_MODE_OFF
+            && context.getSharedPreferences("settings",0).getBoolean("autoplay",true);}
+    void followManualQueueTail(){
+        if(!canRefill()||player.getMediaItemCount()<2)return;
+        Track tail=null;
+        for(int i=Math.max(0,player.getCurrentMediaItemIndex());i<player.getMediaItemCount();i++){
+            MediaItem item=player.getMediaItemAt(i);
+            if(item.mediaId.startsWith("auto:"))continue;
+            String id=Track.originalId(item.mediaId);
+            if(!id.startsWith("online:"))continue;
+            String title=item.mediaMetadata.title==null?"":item.mediaMetadata.title.toString();
+            String artist=item.mediaMetadata.artist==null?"":item.mediaMetadata.artist.toString();
+            String album=item.mediaMetadata.albumTitle==null?"":item.mediaMetadata.albumTitle.toString();
+            tail=new Track(id,Uri.EMPTY,title,artist,album,item.mediaMetadata.artworkUri);
+        }
+        if(tail==null||tail.stableId.equals(seed.stableId))return;
+        String saved;
+        try{saved=JamClient.hostCatalog(Collections.singletonList(tail));}catch(Exception invalid){return;}
+        seed=tail;
+        used.add(tail.stableId);
+        context.getSharedPreferences("radio",0).edit().putString("seed",saved).apply();
+        refresh();
+    }
     void refresh(){
         if(closed||seed==null)return;
         generation++;busy=false;pool.clear();main.removeCallbacks(retry);

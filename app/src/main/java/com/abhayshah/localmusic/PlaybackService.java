@@ -68,6 +68,13 @@ public final class PlaybackService extends MediaSessionService {
     private volatile String lastRecoveryId = "";
     private int consecutivePlaybackFailures;
     private MediaItem waitingForAutoplayReplacement;
+    private final Runnable replacementTimeout = () -> {
+        if (waitingForAutoplayReplacement == null || player == null) return;
+        MediaItem waiting = waitingForAutoplayReplacement;
+        waitingForAutoplayReplacement = null;
+        if (player.getCurrentMediaItem() != null && waiting.mediaId.equals(player.getCurrentMediaItem().mediaId)
+                && !player.hasNextMediaItem()) stopAfterUnavailableItem();
+    };
     private final java.util.concurrent.atomic.AtomicLong jamPlaybackSequence = new java.util.concurrent.atomic.AtomicLong();
     private final java.util.concurrent.atomic.AtomicBoolean jamPublishRunning = new java.util.concurrent.atomic.AtomicBoolean();
     private boolean jamPublishPending;
@@ -116,6 +123,7 @@ public final class PlaybackService extends MediaSessionService {
         @Override public void onMediaItemTransition(MediaItem item, int reason) {
             if (waitingForAutoplayReplacement != null && (item == null || !waitingForAutoplayReplacement.mediaId.equals(item.mediaId)))
                 waitingForAutoplayReplacement = null;
+            if (waitingForAutoplayReplacement == null) stateHandler.removeCallbacks(replacementTimeout);
             if(previousTasteItem!=null){
                 if(reason==Player.MEDIA_ITEM_TRANSITION_REASON_AUTO||reason==Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)
                     TasteProfile.record(PlaybackService.this,previousTasteItem,false);
@@ -146,11 +154,15 @@ public final class PlaybackService extends MediaSessionService {
             stateHandler.postDelayed(debouncedSave, 750);
             if (jamRoom != null) stateHandler.postDelayed(PlaybackService.this::publishJamPlayback, 120);
             scheduleUpcomingPreloads();
-            if(autoplayQueue!=null)autoplayQueue.refill();
+            if(autoplayQueue!=null){
+                if(events.contains(Player.EVENT_TIMELINE_CHANGED))autoplayQueue.followManualQueueTail();
+                autoplayQueue.refill();
+            }
             if (waitingForAutoplayReplacement != null && player.hasNextMediaItem()) {
                 MediaItem waiting = waitingForAutoplayReplacement;
                 waitingForAutoplayReplacement = null;
-                skipFailedAutoplay(waiting, originalOnlineId(waiting.mediaId));
+                stateHandler.removeCallbacks(replacementTimeout);
+                skipFailedOnlineItem(waiting, originalOnlineId(waiting.mediaId));
             }
         }
     };
@@ -429,7 +441,7 @@ public final class PlaybackService extends MediaSessionService {
         consecutivePlaybackFailures++;
         android.util.Log.w("PlaybackService", "Online playback failed: " + failed.mediaId + " code=" + error.errorCode, error);
         if (isUnavailableVideo(error) || failed.mediaId.equals(lastRecoveryId)) {
-            skipFailedAutoplay(failed, sourceId);
+            skipFailedOnlineItem(failed, sourceId);
             return;
         }
         lastRecoveryId = failed.mediaId; int index = player.getCurrentMediaItemIndex(); long position = Math.max(0, player.getCurrentPosition());
@@ -442,7 +454,7 @@ public final class PlaybackService extends MediaSessionService {
                 stateHandler.post(() -> { if (player == null || destroyed || index != player.getCurrentMediaItemIndex() || index < 0 || index >= player.getMediaItemCount() || !player.getMediaItemAt(index).mediaId.equals(failed.mediaId)) return; boolean resume = player.getPlayWhenReady(); player.replaceMediaItem(index, replacement); player.seekTo(index, position); player.prepare(); player.setPlayWhenReady(resume); });
             } catch (RuntimeException retryFailure) {
                 android.util.Log.w("PlaybackService", "Online stream retry failed: " + failed.mediaId, retryFailure);
-                stateHandler.post(() -> skipFailedAutoplay(failed, sourceId));
+                stateHandler.post(() -> skipFailedOnlineItem(failed, sourceId));
             }
         });
     }
@@ -453,15 +465,22 @@ public final class PlaybackService extends MediaSessionService {
         return false;
     }
 
-    private void skipFailedAutoplay(MediaItem failed, String sourceId) {
+    private void skipFailedOnlineItem(MediaItem failed, String sourceId) {
         if (player == null || destroyed || player.getCurrentMediaItem() == null
                 || !failed.mediaId.equals(player.getCurrentMediaItem().mediaId)) return;
-        if (!failed.mediaId.startsWith("auto:")) return;
-        autoplayQueue.markUnavailable(sourceId);
-        if (consecutivePlaybackFailures > 5) return;
+        boolean automatic = failed.mediaId.startsWith("auto:");
+        if (automatic) autoplayQueue.markUnavailable(sourceId);
+        if (consecutivePlaybackFailures > 5) {
+            stopAfterUnavailableItem();
+            return;
+        }
         if (!player.hasNextMediaItem()) {
-            waitingForAutoplayReplacement = failed;
-            autoplayQueue.refresh();
+            if (autoplayQueue.canRefill()) {
+                waitingForAutoplayReplacement = failed;
+                autoplayQueue.refresh();
+                stateHandler.removeCallbacks(replacementTimeout);
+                stateHandler.postDelayed(replacementTimeout, 20_000);
+            } else stopAfterUnavailableItem();
             return;
         }
         boolean resume = player.getPlayWhenReady();
@@ -469,6 +488,12 @@ public final class PlaybackService extends MediaSessionService {
         player.prepare();
         player.setPlayWhenReady(resume);
         autoplayQueue.refill();
+    }
+
+    private void stopAfterUnavailableItem() {
+        player.setPlayWhenReady(false);
+        player.stop(); // Retain the queue so the user can retry or choose another song.
+        android.widget.Toast.makeText(this, "This song is unavailable. Choose another song to continue.", android.widget.Toast.LENGTH_LONG).show();
     }
 
     private static String originalOnlineId(String mediaId) {
