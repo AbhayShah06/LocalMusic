@@ -1,7 +1,7 @@
 {
-  "versionCode": 34,
-  "versionName": "0.12.17",
-  "notes": "Autoplay skips unavailable online videos and continues to the next queued song.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.17/LocalMusic-0.12.17.apk",
-  "sha256": "41A2C0F7784B24D5EC70318B867282BB55E4B1D34684E01D323F7C36F1339208"
+  "versionCode": 35,
+  "versionName": "0.12.18",
+  "notes": "Shuffle saved downloads offline and optionally wait for Wi-Fi on new downloads; smoother playback recovery.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.18/LocalMusic-0.12.18.apk",
+  "sha256": "5DCDE46735C5DAAD6FFF9D0286C84196FF077F2B56CC46AC8F6ACDE646DC3186"
 }
