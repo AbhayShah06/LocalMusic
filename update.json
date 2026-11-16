@@ -1,7 +1,7 @@
 {
-  "versionCode": 36,
-  "versionName": "0.12.19",
-  "notes": "Dislike feedback tunes radio and hides unwanted songs for 30 days. New genre mixes and faster catalog discovery.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.19/LocalMusic-0.12.19.apk",
-  "sha256": "69A46B4BAA8CE90BB1555CC0EE5789BCEDE03EDE469D33903AF2480FA9B06EAD"
+  "versionCode": 37,
+  "versionName": "0.12.20",
+  "notes": "Keeps playback moving past unavailable videos and continues radio after queued or Jam songs.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.20/LocalMusic-0.12.20.apk",
+  "sha256": "2C32BE6018618A422A7A39B3F4BDDDAB581D6DC6684F1BA3F262B3F3C725CC26"
 }
