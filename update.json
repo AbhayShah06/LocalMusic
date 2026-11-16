@@ -1,7 +1,7 @@
 {
-  "versionCode": 33,
-  "versionName": "0.12.16",
-  "notes": "Cleaner home and queue screens, recent searches only while searching, and your playlists on their own page.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.16/LocalMusic-0.12.16.apk",
-  "sha256": "A2E9891492B1B52E1DCF6C045B38D6FC2C7FC9911737E431110138AF73A93F46"
+  "versionCode": 34,
+  "versionName": "0.12.17",
+  "notes": "Autoplay skips unavailable online videos and continues to the next queued song.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.17/LocalMusic-0.12.17.apk",
+  "sha256": "41A2C0F7784B24D5EC70318B867282BB55E4B1D34684E01D323F7C36F1339208"
 }
