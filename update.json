@@ -1,7 +1,7 @@
 {
-  "versionCode": 35,
-  "versionName": "0.12.18",
-  "notes": "Shuffle saved downloads offline and optionally wait for Wi-Fi on new downloads; smoother playback recovery.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.18/LocalMusic-0.12.18.apk",
-  "sha256": "5DCDE46735C5DAAD6FFF9D0286C84196FF077F2B56CC46AC8F6ACDE646DC3186"
+  "versionCode": 36,
+  "versionName": "0.12.19",
+  "notes": "Dislike feedback tunes radio and hides unwanted songs for 30 days. New genre mixes and faster catalog discovery.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.19/LocalMusic-0.12.19.apk",
+  "sha256": "69A46B4BAA8CE90BB1555CC0EE5789BCEDE03EDE469D33903AF2480FA9B06EAD"
 }
