@@ -109,4 +109,16 @@ public class PlaybackExperienceTest {
             assertNull(FeatureRuntimeTest.value(controller::getPlayerError));
         }finally{FeatureRuntimeTest.main(()->{controller.pause();controller.release();});}
     }
+    @Test public void h_shuffleDownloadsPlaysSavedFiles()throws Exception{
+        FeatureRuntimeTest helper=new FeatureRuntimeTest();Track first=helper.fixture("offline-shuffle-first"),second=helper.fixture("offline-shuffle-second");
+        DownloadStore.put(context,first,new java.io.File(first.playbackUri.getPath()));
+        DownloadStore.put(context,second,new java.io.File(second.playbackUri.getPath()));
+        MediaController controller=helper.connect();
+        try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
+            onView(withId(R.id.more)).perform(click());onView(withText("Shuffle downloads")).perform(click());
+            FeatureRuntimeTest.await("Downloaded songs did not start playing",()->FeatureRuntimeTest.value(()->controller.isPlaying()&&controller.getMediaItemCount()>=2),15000);
+            Set<String> ids=FeatureRuntimeTest.value(()->{Set<String> found=new HashSet<>();for(int i=0;i<controller.getMediaItemCount();i++)found.add(controller.getMediaItemAt(i).mediaId);return found;});
+            assertTrue(ids.contains(first.stableId));assertTrue(ids.contains(second.stableId));
+        }finally{FeatureRuntimeTest.main(()->{controller.pause();controller.release();});DownloadStore.remove(context,first.stableId);DownloadStore.remove(context,second.stableId);}
+    }
 }

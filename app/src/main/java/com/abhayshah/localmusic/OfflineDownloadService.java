@@ -19,7 +19,8 @@ final class OfflineDownloadService {
         context.getSharedPreferences("download_notifications",Context.MODE_PRIVATE).edit().remove(track.stableId).apply();
         DownloadTasks.put(context,track,"queued",0,-1,"Waiting for a connection; safe to close the app");
         Data data=new Data.Builder().putString("id",track.stableId).putString("title",track.title).putString("artist",track.artist).putString("album",track.album).putString("uri",track.playbackUri.toString()).putString("artwork",track.artworkUri==null?"":track.artworkUri.toString()).build();
-        OneTimeWorkRequest request=new OneTimeWorkRequest.Builder(DownloadWorker.class).setInputData(data).setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).setRequiresStorageNotLow(true).build())
+        NetworkType network=context.getSharedPreferences("settings",Context.MODE_PRIVATE).getBoolean("downloads_unmetered",false)?NetworkType.UNMETERED:NetworkType.CONNECTED;
+        OneTimeWorkRequest request=new OneTimeWorkRequest.Builder(DownloadWorker.class).setInputData(data).setConstraints(new Constraints.Builder().setRequiredNetworkType(network).setRequiresStorageNotLow(true).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,30,TimeUnit.SECONDS).addTag("offline-download").build();
         WorkManager.getInstance(context).enqueueUniqueWork(workName(track.stableId),ExistingWorkPolicy.KEEP,request);
     }

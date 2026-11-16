@@ -593,16 +593,18 @@ public final class MainActivity extends Activity {
     }
 
     private void showMoreMenu() {
-        String[] actions = {"Your mix", "Recently played", "Downloads", "Start a Jam", "Favorites", "Playlists", "Sleep timer", "Contact developer", "Settings"};
+        String[] actions = {"Your mix", "Recently played", "Downloads", "Shuffle downloads", "Start a Jam", "Favorites", "Playlists", "Sleep timer", "Contact developer", "Settings"};
         new AppDialogBuilder(this).setTitle("Local Music").setItems(actions, (d, which) -> {
-            if (which == 0) loadListeningList(true);
-            else if (which == 1) loadListeningList(false);
-            else if (which == 2) loadDownloads();
-            else if (which == 3) startJam();
-            else if (which == 4) { selectTab(R.id.playlists); loadSavedTracks("favorites", "Favorites"); }
-            else if (which == 5) { selectTab(R.id.playlists); showPlaylists(); }
-            else if (which == 6) chooseSleepTimer();
-            else if (which == 7) showFeedback();
+            String action=actions[which];
+            if (action.equals("Your mix")) loadListeningList(true);
+            else if (action.equals("Recently played")) loadListeningList(false);
+            else if (action.equals("Downloads")) loadDownloads();
+            else if (action.equals("Shuffle downloads")) shuffleDownloads();
+            else if (action.equals("Start a Jam")) startJam();
+            else if (action.equals("Favorites")) { selectTab(R.id.playlists); loadSavedTracks("favorites", "Favorites"); }
+            else if (action.equals("Playlists")) { selectTab(R.id.playlists); showPlaylists(); }
+            else if (action.equals("Sleep timer")) chooseSleepTimer();
+            else if (action.equals("Contact developer")) showFeedback();
             else showSettings();
         }).show();
     }
@@ -647,6 +649,7 @@ public final class MainActivity extends Activity {
         content.addView(settingsAction("GitHub releases", "", () -> { try { startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse("https://github.com/AbhayShah06/LocalMusic/releases/latest"))); } catch (android.content.ActivityNotFoundException missing) { Toast.makeText(this,"No browser available. Install a browser to open releases.",Toast.LENGTH_SHORT).show(); } }));
         content.addView(settingsAction("Offline downloads", formatBytes(downloads) + " saved permanently", this::loadDownloads));
         android.widget.Switch musicFolder=settingsSwitch("Save copies in Music/LocalMusic","Make downloads available outside the app",prefs.getBoolean("export_music",true));musicFolder.setOnCheckedChangeListener((button,checked)->{prefs.edit().putBoolean("export_music",checked).apply();if(checked)MusicExportWorker.enqueue(this);});content.addView(musicFolder);
+        android.widget.Switch wifiDownloads=settingsSwitch("Wi-Fi-only new downloads","New downloads wait for an unmetered connection; streaming is unchanged",prefs.getBoolean("downloads_unmetered",false));wifiDownloads.setOnCheckedChangeListener((button,checked)->prefs.edit().putBoolean("downloads_unmetered",checked).apply());content.addView(wifiDownloads);
         content.addView(settingsAction("Export downloads",MusicExportWorker.status(this),()->{if(Build.VERSION.SDK_INT<29&&checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},15);return;}MusicExportWorker.enqueue(this);Toast.makeText(this,"Saving downloads to Music/LocalMusic",Toast.LENGTH_SHORT).show();}));
         content.addView(settingsAction("Clear temporary cache", formatBytes(streams + artwork) + " of streams and artwork. Downloads stay.", () -> {
             PlaybackCache.clear(); ArtworkLoader.clear(this); LyricsClient.clear(this);
@@ -908,6 +911,15 @@ public final class MainActivity extends Activity {
         List<Track> found = DownloadStore.all(this); group = ""; tracks.clear(); tracks.addAll(found); adapter.clear();
         for (Track track : found) adapter.add(track.title + "\n" + track.artist + " · " + track.album);
         status.setText(found.isEmpty() ? "No offline downloads yet" : found.size() + " downloads · " + Math.max(1, DownloadStore.bytes(this) / (1024 * 1024)) + " MB");
+    }
+
+    private void shuffleDownloads() {
+        List<Track> saved=DownloadStore.all(this);
+        if(saved.isEmpty()){Toast.makeText(this,"No downloads to shuffle yet",Toast.LENGTH_SHORT).show();return;}
+        java.util.Collections.shuffle(saved);
+        if(saved.size()>200)saved=new ArrayList<>(saved.subList(0,200));
+        PlaybackCollection.request(this,saved,0);
+        status.setText("Shuffling "+saved.size()+" downloaded songs");
     }
 
     private void useDownloadedMusic(){
