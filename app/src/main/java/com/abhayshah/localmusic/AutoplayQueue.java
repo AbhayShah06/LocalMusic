@@ -17,18 +17,19 @@ final class AutoplayQueue {
     private final List<Track> pool=new ArrayList<>();private final LinkedHashSet<String> used=new LinkedHashSet<>();
     private final LinkedHashSet<String> usedSongs=new LinkedHashSet<>();
     private final Set<String> unavailable=ConcurrentHashMap.newKeySet();
-    private Track seed;private volatile int generation;private boolean busy,deferredTail;private volatile boolean closed;private final Runnable retry=this::refill;
+    private Track seed;private String genre;private int genreQueryIndex;private volatile int generation;private boolean busy,deferredTail;private volatile boolean closed;private final Runnable retry=this::refill;
     AutoplayQueue(Context context,ExoPlayer player,Handler main){this.context=context;this.player=player;this.main=main;
-        try{String saved=context.getSharedPreferences("radio",0).getString("seed","");if(!saved.isEmpty()){seed=read(new JSONArray(saved)).get(0);used.add(seed.stableId);deferredTail=context.getSharedPreferences("radio",0).getBoolean("collection",false);}}catch(Exception ignored){}
+        try{String saved=context.getSharedPreferences("radio",0).getString("seed","");if(!saved.isEmpty()){seed=read(new JSONArray(saved)).get(0);used.add(seed.stableId);deferredTail=context.getSharedPreferences("radio",0).getBoolean("collection",false);genre=context.getSharedPreferences("radio",0).getString("genre",null);}}catch(Exception ignored){}
     }
     void configure(String seedJson,String candidates){
-        configure(seedJson,candidates,false);
+        configure(seedJson,candidates,false,null);
     }
     void followCollection(Track original){try{configure(JamClient.hostCatalog(Collections.singletonList(original.original())),"[]",true);}catch(Exception invalid){stop();android.util.Log.w("AutoplayQueue","Could not start collection autoplay",invalid);}}
-    void configure(String seedJson,String candidates,boolean collection){
-        stop();try{seed=read(new JSONArray(seedJson)).get(0).original();pool.addAll(read(new JSONArray(candidates)));used.add(seed.stableId);deferredTail=collection;context.getSharedPreferences("radio",0).edit().putString("seed",seedJson).putBoolean("collection",collection).apply();refill();}catch(Exception ignored){stop();}
+    void configure(String seedJson,String candidates,boolean collection){configure(seedJson,candidates,collection,null);}
+    void configure(String seedJson,String candidates,boolean collection,String selectedGenre){
+        stop();try{seed=read(new JSONArray(seedJson)).get(0).original();pool.addAll(read(new JSONArray(candidates)));used.add(seed.stableId);deferredTail=collection;genre=selectedGenre;context.getSharedPreferences("radio",0).edit().putString("seed",seedJson).putBoolean("collection",collection).putString("genre",selectedGenre).apply();refill();}catch(Exception ignored){stop();}
     }
-    void stop(){generation++;seed=null;pool.clear();used.clear();usedSongs.clear();unavailable.clear();busy=false;deferredTail=false;main.removeCallbacks(retry);context.getSharedPreferences("radio",0).edit().remove("seed").remove("collection").apply();}
+    void stop(){generation++;seed=null;genre=null;genreQueryIndex=0;pool.clear();used.clear();usedSongs.clear();unavailable.clear();busy=false;deferredTail=false;main.removeCallbacks(retry);context.getSharedPreferences("radio",0).edit().remove("seed").remove("collection").remove("genre").apply();}
     void markUnavailable(String id){unavailable.add(id);used.add(id);pool.removeIf(track->id.equals(Track.originalId(track.stableId)));}
     boolean canRefill(){return !closed && seed!=null && player.getRepeatMode()==androidx.media3.common.Player.REPEAT_MODE_OFF
             && context.getSharedPreferences("settings",0).getBoolean("autoplay",true);}
@@ -49,8 +50,9 @@ final class AutoplayQueue {
         String saved;
         try{saved=JamClient.hostCatalog(Collections.singletonList(tail));}catch(Exception invalid){return;}
         seed=tail;
+        genre=null;
         used.add(tail.stableId);
-        context.getSharedPreferences("radio",0).edit().putString("seed",saved).apply();
+        context.getSharedPreferences("radio",0).edit().putString("seed",saved).remove("genre").apply();
         refresh();
     }
     void refresh(){
@@ -63,15 +65,19 @@ final class AutoplayQueue {
     private int upcoming(){int count=0;for(int i=player.getCurrentMediaItemIndex()+1;i<player.getMediaItemCount();i++)if(player.getMediaItemAt(i).mediaId.startsWith("auto:"))count++;return count;}
     void refill(){
         if(closed||busy||seed==null||player.getMediaItemCount()==0||player.getRepeatMode()!=androidx.media3.common.Player.REPEAT_MODE_OFF||!context.getSharedPreferences("settings",0).getBoolean("autoplay",true)||upcoming()>=5)return;
-        if(deferredTail&&player.getMediaItemCount()-player.getCurrentMediaItemIndex()-1>=5)return;
-        int request=generation,needed=5-upcoming();Track originalSeed=seed;List<Track> candidates=new ArrayList<>(pool);pool.clear();
+        if(deferredTail&&player.getMediaItemCount()-player.getCurrentMediaItemIndex()-1>=(genre==null?5:2))return;
+        int request=generation,needed=5-upcoming(),genreRound=genreQueryIndex++;Track originalSeed=seed;String requestedGenre=genre;List<Track> candidates=new ArrayList<>(pool);pool.clear();
         Set<String> known=new HashSet<>(used),knownSongs=new HashSet<>(usedSongs),knownTitles=new HashSet<>();knownSongs.add(RecordingIdentity.key(originalSeed.title,originalSeed.artist));knownTitles.add(RecordingIdentity.title(originalSeed.title,originalSeed.artist));
         for(int i=0;i<player.getMediaItemCount();i++){MediaItem item=player.getMediaItemAt(i);known.add(Track.originalId(item.mediaId));String title=item.mediaMetadata.title==null?"":item.mediaMetadata.title.toString(),artist=item.mediaMetadata.artist==null?"":item.mediaMetadata.artist.toString();knownSongs.add(RecordingIdentity.key(title,artist));knownTitles.add(RecordingIdentity.title(title,artist));}busy=true;
         io.execute(()->{
             List<Track> ready=new ArrayList<>(),remaining=new ArrayList<>();
             try{
                 OnlineCatalogSource source=null;
-                if(candidates.isEmpty()&&originalSeed.stableId.startsWith("online:")){source=new OnlineCatalogSource(context.getSharedPreferences("settings",0).getBoolean("avoid_clean",true));candidates.addAll(source.songMix(originalSeed,known));}
+                if(candidates.isEmpty()&&originalSeed.stableId.startsWith("online:")){
+                    source=new OnlineCatalogSource(context.getSharedPreferences("settings",0).getBoolean("avoid_clean",true));
+                    if(requestedGenre!=null){String[] queries=GenreMixes.queries(requestedGenre);candidates.addAll(source.genreSearch(queries[Math.floorMod(genreRound,queries.length)],40));}
+                    if(candidates.size()<8)candidates.addAll(source.songMix(originalSeed,known));
+                }
                 TasteProfile taste=TasteProfile.load(context);Set<String> recentSongs=RadioHistory.recent(context),disliked=DislikedStore.songs(context);
                 Map<String,Double> penalties=DislikedStore.seedPenalties(context,originalSeed);
                 Map<String,Double> scores=new HashMap<>();

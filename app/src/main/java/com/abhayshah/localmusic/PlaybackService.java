@@ -196,7 +196,8 @@ public final class PlaybackService extends MediaSessionService {
                 if(!collection.isEmpty()){autoplayQueue.stop();player.setShuffleModeEnabled(false);player.setRepeatMode(Player.REPEAT_MODE_OFF);int position=Math.max(0,Math.min(collection.size()-1,intent.getIntExtra("position",0)));player.setMediaItems(collection,position,0);player.prepare();player.play();MediaItem first=collection.get(position);MediaMetadata metadata=first.mediaMetadata;String id=Track.originalId(first.mediaId);if(id.startsWith("online:"))autoplayQueue.followCollection(new Track(id,Uri.EMPTY,String.valueOf(metadata.title),String.valueOf(metadata.artist),String.valueOf(metadata.albumTitle)));}
             }catch(Exception invalid){android.widget.Toast.makeText(this,"Could not open this collection",android.widget.Toast.LENGTH_SHORT).show();}
         } else if(intent!=null && ACTION_SET_RADIO.equals(intent.getAction())){
-            autoplayQueue.configure(intent.getStringExtra("radio_seed"),intent.getStringExtra("radio_candidates"));
+            autoplayQueue.configure(intent.getStringExtra("radio_seed"),intent.getStringExtra("radio_candidates"),
+                    intent.getBooleanExtra("radio_collection",false),intent.getStringExtra("radio_genre"));
         } else if(intent!=null && ACTION_REFRESH_RADIO.equals(intent.getAction())){
             autoplayQueue.refresh();
         } else if(intent!=null && ACTION_STOP_RADIO.equals(intent.getAction())){

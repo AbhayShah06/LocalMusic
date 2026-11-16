@@ -806,15 +806,7 @@ public final class MainActivity extends Activity {
         });
     }
     private void showGenreMix(String genre){
-        String[] queries;
-        switch(genre){
-            case "High energy":queries=new String[]{"Dua Lipa dance official audio","The Weeknd dance official audio","Calvin Harris dance official audio"};break;
-            case "Rock":queries=new String[]{"Foo Fighters rock official audio","The Killers rock official audio","The Strokes rock official audio"};break;
-            case "Workout":queries=new String[]{"Eminem workout official audio","Kanye West workout official audio","Travis Scott workout official audio"};break;
-            case "Psychedelic rock":queries=new String[]{"Tame Impala psychedelic rock official audio","MGMT psychedelic rock official audio","Pond psychedelic rock official audio"};break;
-            case "Hip-hop":queries=new String[]{"Kendrick Lamar hip hop official audio","Drake hip hop official audio","J Cole hip hop official audio"};break;
-            default:queries=new String[]{"Frank Ocean chill official audio","SZA chill official audio","Daniel Caesar chill official audio"};
-        }
+        String[] queries=GenreMixes.queries(genre);
         Toast.makeText(this,"Finding "+genre.toLowerCase(java.util.Locale.ROOT)+" songs…",Toast.LENGTH_SHORT).show();
         streamIo.execute(()->{
             List<Track> found=new ArrayList<>();TasteProfile taste=TasteProfile.load(this);
@@ -829,15 +821,27 @@ public final class MainActivity extends Activity {
             main.post(()->{
                 if(isDestroyed()||isFinishing())return;
                 if(mix.isEmpty()){Toast.makeText(this,"Couldn't load this mix. Try again.",Toast.LENGTH_SHORT).show();return;}
-                if(panelShowing("mix"))return;
-                rememberPanel("mix",MixDialog.show(this,genre+" Mix",mix,this::playMixTracks,this::addTracksToPlaylist,this::downloadCollection,this::showCollectionTrackActions,null,null));
+                playGenreMix(genre,mix);
             });
         });
+    }
+    private void playGenreMix(String genre,List<Track> mix){
+        int initial=Math.min(5,mix.size());
+        List<Track> start=new ArrayList<>(mix.subList(0,initial));
+        List<Track> later=new ArrayList<>(mix.subList(initial,mix.size()));
+        try{
+            streamRequest.incrementAndGet();
+            PlaybackCollection.request(this,start,0);
+            startService(new Intent(this,PlaybackService.class).setAction(PlaybackService.ACTION_SET_RADIO)
+                    .putExtra("radio_seed",JamClient.hostCatalog(java.util.Collections.singletonList(start.get(start.size()-1))))
+                    .putExtra("radio_candidates",JamClient.hostCatalog(later))
+                    .putExtra("radio_collection",true).putExtra("radio_genre",genre));
+        }catch(Exception error){Toast.makeText(this,"Couldn't start this mix. Try again.",Toast.LENGTH_SHORT).show();}
     }
     void previewPersonalMix(String name, List<Track> mix) {
         if(isDestroyed()||isFinishing()||panelShowing("mix"))return;
         rememberPanel("mix",MixDialog.show(this,name,mix,this::playMixTracks,this::addTracksToPlaylist,this::downloadCollection,this::showCollectionTrackActions,
-                done->loadPlaylistSuggestions(mix,done),track->{saveTrackToPlaylist(name,track);mix.add(track);}));
+                done->loadPlaylistSuggestions(mix,done),(track,done)->saveTrackToPlaylist(name,track,added->{if(added)mix.add(track);done.accept(added);}),track->{removeTrackFromPlaylist(name,track);mix.removeIf(saved->saved.stableId.equals(track.stableId));}));
     }
 
     private void loadPlaylistSuggestions(List<Track> playlist,java.util.function.Consumer<List<Track>> done){
@@ -927,8 +931,11 @@ public final class MainActivity extends Activity {
         }).setPositiveButton("Done",null).show();
     }
 
-    private boolean savingBatch;
-    private void saveTracksToPlaylist(String name,List<Track> tracks){savingBatch=true;try{for(Track track:tracks)saveTrackToPlaylist(name,track);}finally{savingBatch=false;}Toast.makeText(this,"Added "+tracks.size()+" songs to "+name,Toast.LENGTH_SHORT).show();}
+    private void saveTracksToPlaylist(String name,List<Track> tracks){saveTracksToPlaylist(name,tracks,0,0);}
+    private void saveTracksToPlaylist(String name,List<Track> tracks,int index,int added){
+        if(index>=tracks.size()){Toast.makeText(this,"Added "+added+" songs to "+name,Toast.LENGTH_SHORT).show();return;}
+        saveTrackToPlaylist(name,tracks.get(index),saved->main.post(()->saveTracksToPlaylist(name,tracks,index+1,added+(saved?1:0))));
+    }
 
     private void addTracksToPlaylist(List<Track> selected) {
         android.content.SharedPreferences prefs=getSharedPreferences("library",MODE_PRIVATE);List<String> names=playlistNames(prefs);names.add("+ New playlist");
@@ -1487,17 +1494,52 @@ public final class MainActivity extends Activity {
     }
 
     private void saveTrackToPlaylist(String playlist, Track track) {
-        android.content.SharedPreferences prefs = getSharedPreferences("library", MODE_PRIVATE); String key = "playlist:" + playlist;
-        java.util.Set<String> entries = new java.util.LinkedHashSet<>(prefs.getStringSet(key, new java.util.LinkedHashSet<>()));
-        try {
-            org.json.JSONObject value = new org.json.JSONObject(); value.put("id", track.stableId); value.put("uri", track.playbackUri.toString()); value.put("title", track.title);
-            value.put("artist", track.artist); value.put("album", track.album); value.put("artwork", track.artworkUri == null ? "" : track.artworkUri.toString()); entries.add(value.toString());
-        } catch (Exception ignored) { return; }
-        org.json.JSONArray order; try { order = new org.json.JSONArray(prefs.getString("playlist_order:" + playlist, "[]")); } catch (Exception ignored) { order = new org.json.JSONArray(); }
-        String added = null; for (String entry : entries) if (entry.contains("\"id\":\"" + track.stableId.replace("\"", "") + "\"")) added = entry;
-        if (added != null) { boolean present = false; for (int i = 0; i < order.length(); i++) if (added.equals(order.optString(i))) present = true; if (!present) order.put(added); }
-        prefs.edit().putStringSet(key, entries).putString("playlist_order:" + playlist, order.toString()).putString("last_playlist", playlist).apply(); if(!savingBatch)Toast.makeText(this, "Added to " + playlist, Toast.LENGTH_SHORT).show();
+        saveTrackToPlaylist(playlist,track,added->{if(added)Toast.makeText(this,"Added to "+playlist,Toast.LENGTH_SHORT).show();});
     }
+    private void saveTrackToPlaylist(String playlist,Track track,java.util.function.Consumer<Boolean> done){
+        android.content.SharedPreferences prefs=getSharedPreferences("library",MODE_PRIVATE);
+        java.util.Set<String> entries=prefs.getStringSet("playlist:"+playlist,java.util.Collections.emptySet());
+        for(String entry:entries)if(Track.originalId(playlistEntryId(entry)).equals(Track.originalId(track.stableId))){done.accept(false);return;}
+        String title=RecordingIdentity.title(track.title,track.artist);
+        for(String entry:entries){
+            try{
+                org.json.JSONObject saved=new org.json.JSONObject(entry);
+                String oldTitle=saved.optString("title"),oldArtist=saved.optString("artist");
+                if(!title.isEmpty()&&title.equals(RecordingIdentity.title(oldTitle,oldArtist))){
+                    java.util.concurrent.atomic.AtomicBoolean completed=new java.util.concurrent.atomic.AtomicBoolean();
+                    java.util.function.Consumer<Boolean> finish=added->{if(completed.compareAndSet(false,true))done.accept(added);};
+                    android.app.AlertDialog confirm=new AppDialogBuilder(this).setTitle("Similar song in playlist")
+                            .setMessage("“"+track.title+" — "+track.artist+"” seems similar to “"+oldTitle+" — "+oldArtist+"”. Add it anyway?")
+                            .setNegativeButton("No",(dialog,which)->finish.accept(false))
+                            .setPositiveButton("Add anyway",(dialog,which)->finish.accept(writeTrackToPlaylist(playlist,track))).create();
+                    confirm.setOnDismissListener(dialog->finish.accept(false));confirm.show();
+                    return;
+                }
+            }catch(org.json.JSONException ignored){}
+        }
+        done.accept(writeTrackToPlaylist(playlist,track));
+    }
+    private boolean writeTrackToPlaylist(String playlist,Track track){
+        android.content.SharedPreferences prefs=getSharedPreferences("library",MODE_PRIVATE);
+        String saved=savedMediaItem(track.toMediaItem());if(saved.isEmpty())return false;
+        java.util.Set<String> entries=new java.util.LinkedHashSet<>(prefs.getStringSet("playlist:"+playlist,java.util.Collections.emptySet()));
+        if(!entries.add(saved))return false;
+        org.json.JSONArray order;try{order=new org.json.JSONArray(prefs.getString("playlist_order:"+playlist,"[]"));}catch(Exception invalid){order=new org.json.JSONArray();}
+        order.put(saved);
+        prefs.edit().putStringSet("playlist:"+playlist,entries).putString("playlist_order:"+playlist,order.toString()).putString("last_playlist",playlist).apply();
+        return true;
+    }
+    private void removeTrackFromPlaylist(String playlist,Track track){
+        android.content.SharedPreferences prefs=getSharedPreferences("library",MODE_PRIVATE);
+        String key="playlist:"+playlist;
+        java.util.Set<String> entries=new java.util.LinkedHashSet<>(prefs.getStringSet(key,java.util.Collections.emptySet()));
+        entries.removeIf(entry->playlistEntryId(entry).equals(track.stableId));
+        org.json.JSONArray old;try{old=new org.json.JSONArray(prefs.getString("playlist_order:"+playlist,"[]"));}catch(Exception invalid){old=new org.json.JSONArray();}
+        org.json.JSONArray order=new org.json.JSONArray();for(int i=0;i<old.length();i++){String entry=old.optString(i);if(!playlistEntryId(entry).equals(track.stableId))order.put(entry);}
+        prefs.edit().putStringSet(key,entries).putString("playlist_order:"+playlist,order.toString()).apply();
+        Toast.makeText(this,"Removed from "+playlist,Toast.LENGTH_SHORT).show();
+    }
+    private static String playlistEntryId(String entry){try{return new org.json.JSONObject(entry).optString("id");}catch(Exception ignored){return entry;}}
 
     private void showPlaylists() {
         android.content.SharedPreferences prefs = getSharedPreferences("library", MODE_PRIVATE);

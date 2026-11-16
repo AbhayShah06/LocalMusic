@@ -34,7 +34,7 @@ final class ForYouDialog {
 
         }
         sections.addView(label(activity,"Genre mixes",18));
-        sections.addView(genreRail(activity,genre,accent));
+        sections.addView(genreRail(activity,genre,accent,ListeningHistory.dailyMix(activity,50)));
         sections.addView(label(activity,"Recommended for You",18));
         if(unique.isEmpty())sections.addView(label(activity,"Listen to a few songs to discover something new.",15));
         else sections.addView(rail(activity,Collections.emptyList(),track->track.title,play,menu,compact,accent,recommendations,"More recommendations"));
@@ -46,16 +46,18 @@ final class ForYouDialog {
         for(Track track:input)if(ids.add(Track.originalId(track.stableId))){result.add(track);if(result.size()>=limit)break;}
         return result;
     }
-    private static View genreRail(Activity activity,Consumer<String> open,int accent){
+    private static View genreRail(Activity activity,Consumer<String> open,int accent,List<Track> history){
         HorizontalScrollView scroll=new HorizontalScrollView(activity);scroll.setHorizontalScrollBarEnabled(false);
         LinearLayout row=new LinearLayout(activity);row.setPadding(0,dp(activity,4),0,dp(activity,10));scroll.addView(row);
         String[] names={"High energy","Rock","Workout","Psychedelic rock","Hip-hop","Chill"};
         for(int i=0;i<names.length;i++){
-            String name=names[i];TextView card=label(activity,name,15);card.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-            card.setTextColor(i%2==0?0xfff6f1e8:accent);card.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            card.setPadding(dp(activity,16),0,dp(activity,12),0);
-            android.graphics.drawable.GradientDrawable background=new android.graphics.drawable.GradientDrawable();background.setColor(0xff25211f);background.setCornerRadius(dp(activity,10));card.setBackground(background);
-            card.setContentDescription("Open "+name+" mix");card.setOnClickListener(v->open.accept(name));
+            String name=names[i];FrameLayout card=new FrameLayout(activity);
+            android.graphics.drawable.GradientDrawable background=new android.graphics.drawable.GradientDrawable();background.setColor(0xff25211f);background.setCornerRadius(dp(activity,10));card.setBackground(background);card.setClipToOutline(true);
+            Track cover=GenreMixes.cover(name,history);
+            if(cover!=null){ImageView image=new ImageView(activity);image.setScaleType(ImageView.ScaleType.CENTER_CROP);card.addView(image,new FrameLayout.LayoutParams(-1,-1));ArtworkLoader.into(image,cover.artworkUri,R.mipmap.ic_brand);}
+            View shade=new View(activity);shade.setBackground(new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP,new int[]{0xdd090909,0x22090909}));card.addView(shade,new FrameLayout.LayoutParams(-1,-1));
+            TextView title=label(activity,name,15);title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);title.setPadding(dp(activity,12),0,dp(activity,8),dp(activity,10));title.setGravity(android.view.Gravity.BOTTOM);card.addView(title,new FrameLayout.LayoutParams(-1,-1));
+            card.setContentDescription("Play "+name+" mix");card.setOnClickListener(v->open.accept(name));
             LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(dp(activity,154),dp(activity,74));params.setMargins(0,0,dp(activity,10),0);row.addView(card,params);
         }
         return scroll;

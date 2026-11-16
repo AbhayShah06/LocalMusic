@@ -8,7 +8,10 @@ import java.util.function.*;
 /** A collection view uses the same artwork rows as the library, with optional selection. */
 final class MixDialog {
     static Dialog show(Activity activity,String title,List<Track> input,BiConsumer<List<Track>,Integer> play,Consumer<List<Track>> add,Consumer<List<Track>> download,Consumer<Track> menu,Consumer<Consumer<List<Track>>> suggestions,Consumer<Track> addSuggestion){
-        List<Track> tracks=Collections.unmodifiableList(new ArrayList<>(input));Set<Integer> selected=new TreeSet<>();boolean[] selecting={false};Dialog dialog=new Dialog(activity);
+        return show(activity,title,input,play,add,download,menu,suggestions,(track,done)->{addSuggestion.accept(track);done.accept(true);},null);
+    }
+    static Dialog show(Activity activity,String title,List<Track> input,BiConsumer<List<Track>,Integer> play,Consumer<List<Track>> add,Consumer<List<Track>> download,Consumer<Track> menu,Consumer<Consumer<List<Track>>> suggestions,BiConsumer<Track,Consumer<Boolean>> addSuggestion,Consumer<Track> remove){
+        List<Track> tracks=new ArrayList<>(input);Set<Integer> selected=new TreeSet<>();boolean[] selecting={false};Dialog dialog=new Dialog(activity);
         LinearLayout root=new LinearLayout(activity);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(0xff121111);root.setPadding(dp(activity,16),dp(activity,12),dp(activity,16),dp(activity,12));
         LinearLayout header=new LinearLayout(activity);Button back=new Button(activity);back.setText("Close");back.setContentDescription("Close mix");back.setOnClickListener(v->dialog.dismiss());header.addView(back);
         TextView heading=new TextView(activity);heading.setText(title);heading.setTextSize(21);heading.setTextColor(0xfff6f1e8);heading.setPadding(dp(activity,12),0,0,0);header.addView(heading,new LinearLayout.LayoutParams(0,-2,1));root.addView(header);
@@ -25,7 +28,7 @@ final class MixDialog {
                 ((TextView)row.findViewById(R.id.title)).setText(track.title);((TextView)row.findViewById(R.id.subtitle)).setText(track.artist);ArtworkLoader.into(row.findViewById(R.id.artwork),track.artworkUri,android.R.drawable.ic_media_play);
                 TextView more=row.findViewById(R.id.trackMenu);more.setText(selecting[0]?(selected.contains(position)?"✓":"○"):"⋮");more.setTextSize(selecting[0]?21:26);more.setContentDescription((selecting[0]?"Select ":"More options for ")+track.title);
                 Runnable toggle=()->{if(!selected.remove(position))selected.add(position);playlist.setText(selected.isEmpty()?"Add to playlist":"Add "+selected.size());save.setText(selected.isEmpty()?"Download all":"Download "+selected.size());start.setEnabled(!selected.isEmpty());shuffle.setEnabled(!selected.isEmpty());playlist.setEnabled(!selected.isEmpty());save.setEnabled(!selected.isEmpty());notifyDataSetChanged();};
-                more.setOnClickListener(v->{if(selecting[0])toggle.run();else menu.accept(track);});row.setOnClickListener(v->{if(selecting[0])toggle.run();else{dialog.dismiss();play.accept(tracks,position);}});
+                more.setOnClickListener(v->{if(selecting[0])toggle.run();else if(remove==null)menu.accept(track);else new AppDialogBuilder(activity).setTitle(track.title).setItems(new String[]{"Song options","Remove from playlist"},(d,which)->{if(which==0)menu.accept(track);else{remove.accept(track);tracks.remove(position);selected.clear();notifyDataSetChanged();}}).show();});row.setOnClickListener(v->{if(selecting[0])toggle.run();else{dialog.dismiss();play.accept(tracks,position);}});
                 row.setOnLongClickListener(v->{selecting[0]=true;select.setText("Done");toggle.run();return true;});row.setActivated(selected.contains(position));return row;
             }
         };list.setAdapter(adapter);
@@ -44,7 +47,7 @@ final class MixDialog {
                 for(Track track:found){
                     LinearLayout row=new LinearLayout(activity);row.setGravity(android.view.Gravity.CENTER_VERTICAL);
                     TextView song=new TextView(activity);song.setText(track.title+"\n"+track.artist);song.setTextColor(0xfff6f1e8);song.setMaxLines(2);song.setEllipsize(android.text.TextUtils.TruncateAt.END);row.addView(song,new LinearLayout.LayoutParams(0,dp(activity,54),1));
-                    Button addButton=new Button(activity);addButton.setText("Add");addButton.setContentDescription("Add "+track.title+" to playlist");addButton.setOnClickListener(v->{addSuggestion.accept(track);addButton.setEnabled(false);addButton.setText("Added");});row.addView(addButton);footer.addView(row);
+                    Button addButton=new Button(activity);addButton.setText("Add");addButton.setContentDescription("Add "+track.title+" to playlist");addButton.setOnClickListener(v->{addButton.setEnabled(false);addSuggestion.accept(track,added->{addButton.setEnabled(!added);addButton.setText(added?"Added":"Add");});});row.addView(addButton);footer.addView(row);
                 }
                 Button refresh=new Button(activity);refresh.setText("Refresh suggestions");refresh.setOnClickListener(v->loadSuggestions[0].run());footer.addView(refresh);
             }));
