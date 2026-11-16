@@ -115,6 +115,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        AppDialogBuilder.dismissOrphanedDialogs();
         setContentView(R.layout.activity_main);
         findViewById(R.id.root).requestFocus();
         applyAppearance();

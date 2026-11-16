@@ -28,6 +28,7 @@ public class BatchSelectionTest {
                 FeatureRuntimeTest.main(()->{controller.setMediaItems(Arrays.asList(first.toMediaItem(),second.toMediaItem(),third.toMediaItem()));controller.prepare();});
                 FeatureRuntimeTest.await("Queue was not ready",()->FeatureRuntimeTest.value(controller::getMediaItemCount)==3,10000);
                 activity.onActivity(a->AudioExperienceTest.invoke(a,"showQueue"));
+                onView(withText("Queue")).inRoot(FeatureRuntimeTest.focusedDialog()).check(matches(isDisplayed()));
                 onView(withContentDescription("Queue song "+second.title)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(longClick());
                 onView(withContentDescription("Queue song "+third.title)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());
                 onView(withText("2 selected")).inRoot(FeatureRuntimeTest.focusedDialog()).check(matches(isDisplayed()));

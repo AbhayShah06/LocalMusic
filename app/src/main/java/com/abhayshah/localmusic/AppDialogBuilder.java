@@ -15,6 +15,8 @@ final class AppDialogBuilder extends AlertDialog.Builder {
         });return dialog;
     }
     static void dismissAll(Context context){for(java.lang.ref.WeakReference<AlertDialog> ref:new java.util.ArrayList<>(dialogs)){AlertDialog dialog=ref.get();if(dialog!=null&&dialog.isShowing()&&WindowTapGuard.owner(dialog.getContext())==WindowTapGuard.owner(context))dialog.dismiss();}}
+    /** Clear dialogs left by a destroyed activity before another activity takes focus. */
+    static void dismissOrphanedDialogs(){for(java.lang.ref.WeakReference<AlertDialog> ref:new java.util.ArrayList<>(dialogs)){AlertDialog dialog=ref.get();if(dialog!=null&&dialog.isShowing()&&WindowTapGuard.owner(dialog.getContext()) instanceof android.app.Activity&&((android.app.Activity)WindowTapGuard.owner(dialog.getContext())).isDestroyed())dialog.dismiss();}}
     private static final class Guard extends FrameLayout {
         private boolean ignore;private float x,y;
         Guard(Context context){super(context);}
