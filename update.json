@@ -1,7 +1,7 @@
 {
-  "versionCode": 37,
-  "versionName": "0.12.20",
-  "notes": "Keeps playback moving past unavailable videos and continues radio after queued or Jam songs.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.20/LocalMusic-0.12.20.apk",
-  "sha256": "2C32BE6018618A422A7A39B3F4BDDDAB581D6DC6684F1BA3F262B3F3C725CC26"
+  "versionCode": 38,
+  "versionName": "0.12.21",
+  "notes": "Remove songs from playlists, confirm similar additions, and play five-song genre mixes with ongoing genre radio.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.21/LocalMusic-0.12.21.apk",
+  "sha256": "58FDFD1A41DE1145683EEF5832B65D1D361CB1A3CAB0FB101C5365B625B724DF"
 }
