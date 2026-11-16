@@ -16,6 +16,7 @@ final class AutoplayQueue {
     private final ExecutorService io=Executors.newSingleThreadExecutor();
     private final List<Track> pool=new ArrayList<>();private final LinkedHashSet<String> used=new LinkedHashSet<>();
     private final LinkedHashSet<String> usedSongs=new LinkedHashSet<>();
+    private final Set<String> unavailable=ConcurrentHashMap.newKeySet();
     private Track seed;private volatile int generation;private boolean busy,deferredTail;private volatile boolean closed;private final Runnable retry=this::refill;
     AutoplayQueue(Context context,ExoPlayer player,Handler main){this.context=context;this.player=player;this.main=main;
         try{String saved=context.getSharedPreferences("radio",0).getString("seed","");if(!saved.isEmpty()){seed=read(new JSONArray(saved)).get(0);used.add(seed.stableId);deferredTail=context.getSharedPreferences("radio",0).getBoolean("collection",false);}}catch(Exception ignored){}
@@ -27,7 +28,8 @@ final class AutoplayQueue {
     void configure(String seedJson,String candidates,boolean collection){
         stop();try{seed=read(new JSONArray(seedJson)).get(0).original();pool.addAll(read(new JSONArray(candidates)));used.add(seed.stableId);deferredTail=collection;context.getSharedPreferences("radio",0).edit().putString("seed",seedJson).putBoolean("collection",collection).apply();refill();}catch(Exception ignored){stop();}
     }
-    void stop(){generation++;seed=null;pool.clear();used.clear();usedSongs.clear();busy=false;deferredTail=false;main.removeCallbacks(retry);context.getSharedPreferences("radio",0).edit().remove("seed").remove("collection").apply();}
+    void stop(){generation++;seed=null;pool.clear();used.clear();usedSongs.clear();unavailable.clear();busy=false;deferredTail=false;main.removeCallbacks(retry);context.getSharedPreferences("radio",0).edit().remove("seed").remove("collection").apply();}
+    void markUnavailable(String id){unavailable.add(id);used.add(id);pool.removeIf(track->id.equals(Track.originalId(track.stableId)));}
     void refresh(){
         if(closed||seed==null)return;
         generation++;busy=false;pool.clear();main.removeCallbacks(retry);
@@ -54,7 +56,7 @@ final class AutoplayQueue {
                 for(Track track:OnlineCatalogSource.diverseMix(candidates,candidates.size(),RecordingIdentity.artist(originalSeed.artist),recentSongs,varietySeed)){
                     if(closed||request!=generation)return;
                     String id=Track.originalId(track.stableId),song=RecordingIdentity.key(track.title,track.artist),title=RecordingIdentity.title(track.title,track.artist),seedTitle=RecordingIdentity.title(track.title,originalSeed.artist);
-                    if(knownSongs.contains(song)||knownTitles.contains(title)||knownTitles.contains(seedTitle)||AvoidedStore.contains(context,track)||BlacklistedStore.contains(context,track)||taste.suppresses(track)||VersionPolicy.isMusicVideo(track.title)||context.getSharedPreferences("settings",0).getBoolean("avoid_clean",true)&&VersionPolicy.exclude(track.title,originalSeed.title)||!picked.add(id))continue;
+                    if(knownSongs.contains(song)||knownTitles.contains(title)||knownTitles.contains(seedTitle)||unavailable.contains(id)||AvoidedStore.contains(context,track)||BlacklistedStore.contains(context,track)||taste.suppresses(track)||VersionPolicy.isMusicVideo(track.title)||context.getSharedPreferences("settings",0).getBoolean("avoid_clean",true)&&VersionPolicy.exclude(track.title,originalSeed.title)||!picked.add(id))continue;
                     if(ready.size()>=needed){remaining.add(track.original());continue;}
                     Track downloaded=DownloadStore.offline(context,track.original());ready.add(downloaded==null?track.original():downloaded);knownSongs.add(song);knownTitles.add(title);
                 }

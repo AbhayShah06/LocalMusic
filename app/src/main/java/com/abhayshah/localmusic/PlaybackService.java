@@ -66,6 +66,8 @@ public final class PlaybackService extends MediaSessionService {
     private volatile JamClient.Room jamRoom;
     private volatile boolean jamRequestRunning;
     private volatile String lastRecoveryId = "";
+    private int consecutivePlaybackFailures;
+    private MediaItem waitingForAutoplayReplacement;
     private final java.util.concurrent.atomic.AtomicLong jamPlaybackSequence = new java.util.concurrent.atomic.AtomicLong();
     private final java.util.concurrent.atomic.AtomicBoolean jamPublishRunning = new java.util.concurrent.atomic.AtomicBoolean();
     private boolean jamPublishPending;
@@ -112,6 +114,8 @@ public final class PlaybackService extends MediaSessionService {
     };
     private final Player.Listener persistenceListener = new Player.Listener() {
         @Override public void onMediaItemTransition(MediaItem item, int reason) {
+            if (waitingForAutoplayReplacement != null && (item == null || !waitingForAutoplayReplacement.mediaId.equals(item.mediaId)))
+                waitingForAutoplayReplacement = null;
             if(previousTasteItem!=null){
                 if(reason==Player.MEDIA_ITEM_TRANSITION_REASON_AUTO||reason==Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)
                     TasteProfile.record(PlaybackService.this,previousTasteItem,false);
@@ -130,10 +134,11 @@ public final class PlaybackService extends MediaSessionService {
             if (player != null && player.isPlaying()) stateHandler.postDelayed(recordCurrentItem, 30_000);
         }
         @Override public void onIsPlayingChanged(boolean isPlaying) {
+            if (isPlaying) consecutivePlaybackFailures = 0;
             stateHandler.removeCallbacks(recordCurrentItem);
             if (isPlaying && !currentItemRecorded) stateHandler.postDelayed(recordCurrentItem, 30_000);
         }
-        @Override public void onPlayerError(PlaybackException error) { recoverExpiredOnlineStream(); }
+        @Override public void onPlayerError(PlaybackException error) { recoverExpiredOnlineStream(error); }
         @Override public void onEvents(Player player, Player.Events events) {
             if (destroyed) return;
             bufferingForDownloads = player.getPlayWhenReady() && player.getPlaybackState() == Player.STATE_BUFFERING;
@@ -142,6 +147,11 @@ public final class PlaybackService extends MediaSessionService {
             if (jamRoom != null) stateHandler.postDelayed(PlaybackService.this::publishJamPlayback, 120);
             scheduleUpcomingPreloads();
             if(autoplayQueue!=null)autoplayQueue.refill();
+            if (waitingForAutoplayReplacement != null && player.hasNextMediaItem()) {
+                MediaItem waiting = waitingForAutoplayReplacement;
+                waitingForAutoplayReplacement = null;
+                skipFailedAutoplay(waiting, originalOnlineId(waiting.mediaId));
+            }
         }
     };
 
@@ -411,11 +421,17 @@ public final class PlaybackService extends MediaSessionService {
         }
     }
 
-    /** Refresh a short-lived online URL once after a playback failure, preserving queue position. */
-    private void recoverExpiredOnlineStream() {
+    /** Retry expired addresses; move past unavailable autoplay videos without losing the queue. */
+    private void recoverExpiredOnlineStream(PlaybackException error) {
         if (player == null || player.getCurrentMediaItem() == null) return;
         MediaItem failed = player.getCurrentMediaItem(); String sourceId = originalOnlineId(failed.mediaId);
-        if (sourceId == null || failed.mediaId.equals(lastRecoveryId)) return;
+        if (sourceId == null) return;
+        consecutivePlaybackFailures++;
+        android.util.Log.w("PlaybackService", "Online playback failed: " + failed.mediaId + " code=" + error.errorCode, error);
+        if (isUnavailableVideo(error) || failed.mediaId.equals(lastRecoveryId)) {
+            skipFailedAutoplay(failed, sourceId);
+            return;
+        }
         lastRecoveryId = failed.mediaId; int index = player.getCurrentMediaItemIndex(); long position = Math.max(0, player.getCurrentPosition());
         preloadIo.execute(() -> {
             try {
@@ -424,8 +440,35 @@ public final class PlaybackService extends MediaSessionService {
                 Track resolved = new OnlineCatalogSource().resolve(unresolved);
                 MediaItem replacement = resolved.toMediaItem().buildUpon().setMediaId(failed.mediaId).setCustomCacheKey(sourceId).build();
                 stateHandler.post(() -> { if (player == null || destroyed || index != player.getCurrentMediaItemIndex() || index < 0 || index >= player.getMediaItemCount() || !player.getMediaItemAt(index).mediaId.equals(failed.mediaId)) return; boolean resume = player.getPlayWhenReady(); player.replaceMediaItem(index, replacement); player.seekTo(index, position); player.prepare(); player.setPlayWhenReady(resume); });
-            } catch (RuntimeException ignored) { }
+            } catch (RuntimeException retryFailure) {
+                android.util.Log.w("PlaybackService", "Online stream retry failed: " + failed.mediaId, retryFailure);
+                stateHandler.post(() -> skipFailedAutoplay(failed, sourceId));
+            }
         });
+    }
+
+    private static boolean isUnavailableVideo(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause())
+            if (cause instanceof org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException) return true;
+        return false;
+    }
+
+    private void skipFailedAutoplay(MediaItem failed, String sourceId) {
+        if (player == null || destroyed || player.getCurrentMediaItem() == null
+                || !failed.mediaId.equals(player.getCurrentMediaItem().mediaId)) return;
+        if (!failed.mediaId.startsWith("auto:")) return;
+        autoplayQueue.markUnavailable(sourceId);
+        if (consecutivePlaybackFailures > 5) return;
+        if (!player.hasNextMediaItem()) {
+            waitingForAutoplayReplacement = failed;
+            autoplayQueue.refresh();
+            return;
+        }
+        boolean resume = player.getPlayWhenReady();
+        player.seekToNextMediaItem();
+        player.prepare();
+        player.setPlayWhenReady(resume);
+        autoplayQueue.refill();
     }
 
     private static String originalOnlineId(String mediaId) {
