@@ -77,6 +77,13 @@ final class OnlineCatalogSource implements CatalogSource {
         return new ArrayList<>(unique.subList(0, Math.min(limit, unique.size())));
     }
 
+    /** Fast catalog-only search for themed mixes; avoids general-video search results. */
+    List<Track> genreSearch(String query,int limit){
+        List<Track> found=new ArrayList<>();searchCloud(query,found,limit);
+        found.removeIf(track->isUnwantedTitle(track.title,query)||VersionPolicy.isMusicVideo(track.title));
+        return found;
+    }
+
     private boolean isUnwantedTitle(String value, String query) {
         return SearchPolicy.unwanted(value,query,avoidCleanVersions);
     }
@@ -234,7 +241,7 @@ final class OnlineCatalogSource implements CatalogSource {
             if(RecordingIdentity.title(candidate.title,seed.artist).equals(RecordingIdentity.title(seed.title,seed.artist))||!known.add(key))continue;
             result.add(candidate.original());if(result.size()==80)break;
         }
-        return diverseMix(result,20,RecordingIdentity.artist(seed.artist));
+        return diverseMix(result,60,RecordingIdentity.artist(seed.artist));
     }
 
     private static List<Track> cloudMix(Track seed){
@@ -279,7 +286,8 @@ final class OnlineCatalogSource implements CatalogSource {
                 Track candidate=remaining.get(i);
                 int score=counts.getOrDefault(artist,0)*100+(artist.equals(previous)?60:0)+(artist.equals(secondPrevious)?25:0)+(artist.equals(seedArtist)?35:0)
                         +(recentSongs.contains(RecordingIdentity.key(candidate.title,candidate.artist))?85:0)
-                        +(varietySeed==0?0:Math.floorMod(31*varietySeed+candidate.stableId.hashCode(),23));
+                        +(varietySeed==0?0:Math.floorMod(31*varietySeed+candidate.stableId.hashCode(),23))
+                        +i*2;
                 if(score<bestScore){best=i;bestScore=score;}
             }
             Track next=remaining.remove(best);String artist=RecordingIdentity.artist(next.artist);

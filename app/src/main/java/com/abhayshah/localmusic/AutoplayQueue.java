@@ -49,14 +49,17 @@ final class AutoplayQueue {
             try{
                 OnlineCatalogSource source=null;
                 if(candidates.isEmpty()&&originalSeed.stableId.startsWith("online:")){source=new OnlineCatalogSource(context.getSharedPreferences("settings",0).getBoolean("avoid_clean",true));candidates.addAll(source.songMix(originalSeed,known));}
-                TasteProfile taste=TasteProfile.load(context);Set<String> recentSongs=RadioHistory.recent(context);
-                candidates.sort((a,b)->Double.compare(taste.score(b),taste.score(a)));
+                TasteProfile taste=TasteProfile.load(context);Set<String> recentSongs=RadioHistory.recent(context),disliked=DislikedStore.songs(context);
+                Map<String,Double> penalties=DislikedStore.seedPenalties(context,originalSeed);
+                Map<String,Double> scores=new HashMap<>();
+                for(Track track:candidates)scores.put(track.stableId,taste.score(track)+penalties.getOrDefault(RecordingIdentity.artist(track.artist),0d));
+                candidates.sort((a,b)->Double.compare(scores.getOrDefault(b.stableId,0d),scores.getOrDefault(a.stableId,0d)));
                 Set<String> picked=new HashSet<>(known);
                 int varietySeed=Objects.hash(originalSeed.stableId,System.currentTimeMillis()/86_400_000L,request);
                 for(Track track:OnlineCatalogSource.diverseMix(candidates,candidates.size(),RecordingIdentity.artist(originalSeed.artist),recentSongs,varietySeed)){
                     if(closed||request!=generation)return;
                     String id=Track.originalId(track.stableId),song=RecordingIdentity.key(track.title,track.artist),title=RecordingIdentity.title(track.title,track.artist),seedTitle=RecordingIdentity.title(track.title,originalSeed.artist);
-                    if(knownSongs.contains(song)||knownTitles.contains(title)||knownTitles.contains(seedTitle)||unavailable.contains(id)||AvoidedStore.contains(context,track)||BlacklistedStore.contains(context,track)||taste.suppresses(track)||VersionPolicy.isMusicVideo(track.title)||context.getSharedPreferences("settings",0).getBoolean("avoid_clean",true)&&VersionPolicy.exclude(track.title,originalSeed.title)||!picked.add(id))continue;
+                    if(knownSongs.contains(song)||knownTitles.contains(title)||knownTitles.contains(seedTitle)||unavailable.contains(id)||AvoidedStore.contains(context,track)||BlacklistedStore.contains(context,track)||disliked.contains(BlacklistedStore.key(track.title,track.artist))||taste.suppresses(track)||VersionPolicy.isMusicVideo(track.title)||context.getSharedPreferences("settings",0).getBoolean("avoid_clean",true)&&VersionPolicy.exclude(track.title,originalSeed.title)||!picked.add(id))continue;
                     if(ready.size()>=needed){remaining.add(track.original());continue;}
                     Track downloaded=DownloadStore.offline(context,track.original());ready.add(downloaded==null?track.original():downloaded);knownSongs.add(song);knownTitles.add(title);
                 }

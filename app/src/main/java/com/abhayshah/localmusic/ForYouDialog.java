@@ -9,7 +9,7 @@ import java.util.function.*;
 /** Personal listening shortcuts; opening a section never changes playback. */
 final class ForYouDialog {
     interface MixLoader { void load(List<Track> visible,Set<String> seen,Consumer<List<Track>> done); }
-    static View create(Activity activity,Consumer<Track> play,BiConsumer<Track,Boolean> mix,Consumer<Track> menu,Runnable recent,Runnable favorites,Runnable refresh,MixLoader moreMixes,MixLoader recommendations,long refreshSeed){
+    static View create(Activity activity,Consumer<Track> play,BiConsumer<Track,Boolean> mix,Consumer<Track> menu,Consumer<String> genre,Runnable recent,Runnable favorites,Runnable refresh,MixLoader moreMixes,MixLoader recommendations,long refreshSeed){
         android.content.SharedPreferences appearance=activity.getSharedPreferences("settings",0);
         boolean compact=appearance.getBoolean("home_compact",false);
         int accent=appearance.getInt("home_accent",0xffff805f);
@@ -26,13 +26,15 @@ final class ForYouDialog {
         List<Track> seeds=new ArrayList<>(FavoriteStore.remoteTracks(activity));
         seeds.addAll(ListeningHistory.dailyMix(activity,50));Set<String> ids=new HashSet<>(),artists=new HashSet<>();
         TasteProfile taste=TasteProfile.load(activity);
-        List<Track> unique=new ArrayList<>();for(Track seed:seeds)if(!taste.suppresses(seed)&&!BlacklistedStore.contains(activity,seed)&&!AvoidedStore.contains(activity,seed)&&ids.add(Track.originalId(seed.stableId)))unique.add(seed.original());
+        List<Track> unique=new ArrayList<>();for(Track seed:seeds)if(!taste.suppresses(seed)&&!DislikedStore.contains(activity,seed)&&!BlacklistedStore.contains(activity,seed)&&!AvoidedStore.contains(activity,seed)&&ids.add(Track.originalId(seed.stableId)))unique.add(seed.original());
         Collections.shuffle(unique,new Random(refreshSeed));
         if(!unique.isEmpty()){
             sections.addView(label(activity,"Song mixes",18));
             sections.addView(rail(activity,diverseSeeds(unique,10),track->track.title+" Mix",track->mix.accept(track,false),menu,compact,accent,moreMixes,"More mixes"));
 
         }
+        sections.addView(label(activity,"Genre mixes",18));
+        sections.addView(genreRail(activity,genre,accent));
         sections.addView(label(activity,"Recommended for You",18));
         if(unique.isEmpty())sections.addView(label(activity,"Listen to a few songs to discover something new.",15));
         else sections.addView(rail(activity,Collections.emptyList(),track->track.title,play,menu,compact,accent,recommendations,"More recommendations"));
@@ -43,6 +45,20 @@ final class ForYouDialog {
         for(Track track:input)if(artists.add(RecordingIdentity.artist(track.artist))&&ids.add(Track.originalId(track.stableId))){result.add(track);if(result.size()>=limit)return result;}
         for(Track track:input)if(ids.add(Track.originalId(track.stableId))){result.add(track);if(result.size()>=limit)break;}
         return result;
+    }
+    private static View genreRail(Activity activity,Consumer<String> open,int accent){
+        HorizontalScrollView scroll=new HorizontalScrollView(activity);scroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout row=new LinearLayout(activity);row.setPadding(0,dp(activity,4),0,dp(activity,10));scroll.addView(row);
+        String[] names={"High energy","Rock","Workout","Psychedelic rock","Hip-hop","Chill"};
+        for(int i=0;i<names.length;i++){
+            String name=names[i];TextView card=label(activity,name,15);card.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            card.setTextColor(i%2==0?0xfff6f1e8:accent);card.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            card.setPadding(dp(activity,16),0,dp(activity,12),0);
+            android.graphics.drawable.GradientDrawable background=new android.graphics.drawable.GradientDrawable();background.setColor(0xff25211f);background.setCornerRadius(dp(activity,10));card.setBackground(background);
+            card.setContentDescription("Open "+name+" mix");card.setOnClickListener(v->open.accept(name));
+            LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(dp(activity,154),dp(activity,74));params.setMargins(0,0,dp(activity,10),0);row.addView(card,params);
+        }
+        return scroll;
     }
     private static TextView label(Activity activity,String text,int size){TextView view=new TextView(activity);view.setText(text);view.setTextSize(size);view.setTextColor(0xfff6f1e8);view.setPadding(0,dp(activity,10),0,dp(activity,8));return view;}
     private static View action(Activity activity,String text,Runnable action){TextView view=label(activity,text,18);view.setBackgroundResource(android.R.drawable.list_selector_background);view.setOnClickListener(v->action.run());return view;}

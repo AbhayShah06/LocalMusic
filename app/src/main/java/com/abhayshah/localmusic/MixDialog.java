@@ -49,7 +49,7 @@ final class MixDialog {
                 Button refresh=new Button(activity);refresh.setText("Refresh suggestions");refresh.setOnClickListener(v->loadSuggestions[0].run());footer.addView(refresh);
             }));
         };
-        loadSuggestions[0].run();
+        if(suggestions!=null)loadSuggestions[0].run();
         return dialog;
     }
     private static int dp(Activity activity,int value){return Math.round(value*activity.getResources().getDisplayMetrics().density);}

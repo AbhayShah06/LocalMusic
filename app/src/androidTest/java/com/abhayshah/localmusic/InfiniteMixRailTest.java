@@ -25,7 +25,7 @@ public class InfiniteMixRailTest {
         history.edit().putString("tracks",seeds.toString()).commit();
         AtomicInteger loads=new AtomicInteger();AtomicReference<HorizontalScrollView> rail=new AtomicReference<>();
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
-            activity.onActivity(a->{View home=ForYouDialog.create(a,track->{},(track,artist)->{},track->{},()->{},()->{},()->{},(visible,seen,done)->{
+            activity.onActivity(a->{View home=ForYouDialog.create(a,track->{},(track,artist)->{},track->{},genre->{},()->{},()->{},()->{},(visible,seen,done)->{
                 int page=loads.incrementAndGet();List<Track> next=new ArrayList<>();for(int i=0;i<8;i++)next.add(new Track("online:0:more-"+page+"-"+i,Uri.EMPTY,"More "+page+"-"+i,"New Artist "+page+"-"+i,""));done.accept(next);
             },(visible,seen,done)->done.accept(java.util.Collections.emptyList()),1L);((ViewGroup)a.findViewById(android.R.id.content)).addView(home,new ViewGroup.LayoutParams(-1,-1));rail.set(mixRail(home));});
             FeatureRuntimeTest.await("Mix rail did not lay out",()->FeatureRuntimeTest.value(()->rail.get()!=null&&rail.get().getWidth()>0),4000);

@@ -542,14 +542,15 @@ public final class MainActivity extends Activity {
         Track current=currentTrack();if(current==null)return;Track track=current.original();
         String download=DownloadStore.contains(this,track.stableId)?"Remove download":DownloadTasks.active(this,track.stableId)?"Download activity":"Download";
         String favorite=FavoriteStore.contains(this,track)?"Remove favorite":"Add to favorites";
-        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{download,"Add to playlist",favorite,"Open artist","Lyrics","Equalizer",BlacklistedStore.contains(this,track)?"Allow this song":"Avoid this song",AvoidedStore.contains(this,track)?"Allow this upload":"Wrong audio/video"},(d,which)->{
+        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{download,"Add to playlist",favorite,"Open artist","Lyrics","Equalizer","I don't fw this song",BlacklistedStore.contains(this,track)?"Allow this song":"Avoid this song",AvoidedStore.contains(this,track)?"Allow this upload":"Wrong audio/video"},(d,which)->{
             if(which==0){if(download.equals("Remove download"))new AppDialogBuilder(this).setTitle("Remove download?").setMessage(track.title+" will remain available to stream.").setNegativeButton("Cancel",null).setPositiveButton("Remove",(confirm,button)->DownloadStore.remove(this,track.stableId)).show();else if(download.equals("Download activity"))showDownloadActivity();else requestDownload(track);}
             else if(which==1)addTrackToPlaylist(track);
             else if(which==2)toggleTrackFavorite(track);
             else if(which==3)showArtistPage(track.artist);
             else if(which==4)showLyrics(track);
             else if(which==5)openEqualizer();
-            else if(which==6)toggleAvoid(track);
+            else if(which==6)dislikeSong(track);
+            else if(which==7)toggleAvoid(track);
             else toggleWrongUpload(track);
         }).show();
     }
@@ -736,7 +737,7 @@ public final class MainActivity extends Activity {
         android.widget.FrameLayout frame=findViewById(R.id.libraryContent);
         if(forYouContent!=null)frame.removeView(forYouContent);
         showingForYou=true;findViewById(R.id.tracks).setVisibility(View.GONE);permissionPanel.setVisibility(View.GONE);status.setVisibility(View.GONE);
-        forYouContent=ForYouDialog.create(this, track -> playMixTracks(java.util.Collections.singletonList(track), 0), this::showSeedMix,this::showCollectionTrackActions,
+        forYouContent=ForYouDialog.create(this, track -> playMixTracks(java.util.Collections.singletonList(track), 0), this::showSeedMix,this::showCollectionTrackActions,this::showGenreMix,
                 () -> loadListeningList(false), () -> loadSavedTracks("favorites", "Favorites"), ()->{personalMixes.clear();homeRefreshSeed=System.nanoTime();showForYou();forYouContent.announceForAccessibility("Home refreshed");},this::loadMoreMixSeeds,this::loadRecommendedSongs,homeRefreshSeed);
         frame.addView(forYouContent,new android.widget.FrameLayout.LayoutParams(-1,-1));selectTab(R.id.forYou);
     }
@@ -757,7 +758,7 @@ public final class MainActivity extends Activity {
             try{OnlineCatalogSource source=onlineSource();int used=0;
                 for(Track seed:seeds){
                     if(used>=3||candidates.size()>=30)break;
-                    if(taste.suppresses(seed)||BlacklistedStore.contains(this,seed)||AvoidedStore.contains(this,seed))continue;
+                    if(taste.suppresses(seed)||DislikedStore.contains(this,seed)||BlacklistedStore.contains(this,seed)||AvoidedStore.contains(this,seed))continue;
                     Track onlineSeed=seed.original();
                     if(!onlineSeed.stableId.startsWith("online:")){
                         List<Track> matches=source.page(seed.artist+" "+seed.title,0,5);
@@ -766,7 +767,7 @@ public final class MainActivity extends Activity {
                     used++;
                     for(Track candidate:source.songMix(onlineSeed,knownIds)){
                         String id=Track.originalId(candidate.stableId),song=RecordingIdentity.key(candidate.title,candidate.artist);
-                        if(knownIds.contains(id)||knownSongs.contains(song)||AvoidedStore.contains(this,candidate)||BlacklistedStore.contains(this,candidate)||taste.suppresses(candidate)||VersionPolicy.isMusicVideo(candidate.title))continue;
+                        if(knownIds.contains(id)||knownSongs.contains(song)||AvoidedStore.contains(this,candidate)||BlacklistedStore.contains(this,candidate)||DislikedStore.contains(this,candidate)||taste.suppresses(candidate)||VersionPolicy.isMusicVideo(candidate.title))continue;
                         knownIds.add(id);knownSongs.add(song);candidates.add(candidate.original());
                     }
                 }
@@ -786,11 +787,11 @@ public final class MainActivity extends Activity {
                     List<Track> matches=source.page(seed.artist+" "+seed.title,0,5);if(matches.isEmpty())continue;seed=matches.get(0);
                 }
                 for(Track candidate:source.songMix(seed,known)){
-                    String id=Track.originalId(candidate.stableId);if(!known.add(id)||AvoidedStore.contains(this,candidate)||BlacklistedStore.contains(this,candidate)||taste.suppresses(candidate)||VersionPolicy.isMusicVideo(candidate.title))continue;
+                    String id=Track.originalId(candidate.stableId);if(!known.add(id)||AvoidedStore.contains(this,candidate)||BlacklistedStore.contains(this,candidate)||DislikedStore.contains(this,candidate)||taste.suppresses(candidate)||VersionPolicy.isMusicVideo(candidate.title))continue;
                     candidates.add(candidate.original());if(candidates.size()>=12)break;
                 }
                 if(candidates.size()<8)for(Track candidate:source.page(seed.artist,Math.floorMod(page+attempt,3)*20,20)){
-                    String id=Track.originalId(candidate.stableId);if(!known.add(id)||AvoidedStore.contains(this,candidate)||BlacklistedStore.contains(this,candidate)||taste.suppresses(candidate)||VersionPolicy.isMusicVideo(candidate.title))continue;
+                    String id=Track.originalId(candidate.stableId);if(!known.add(id)||AvoidedStore.contains(this,candidate)||BlacklistedStore.contains(this,candidate)||DislikedStore.contains(this,candidate)||taste.suppresses(candidate)||VersionPolicy.isMusicVideo(candidate.title))continue;
                     candidates.add(candidate.original());if(candidates.size()>=12)break;
                 }
             }}catch(RuntimeException unavailable){android.util.Log.w("LocalMusic","Could not load more song mixes",unavailable);}
@@ -802,6 +803,35 @@ public final class MainActivity extends Activity {
         playMixTracks(java.util.Collections.singletonList(seed),0);
         if(!Track.originalId(seed.stableId).startsWith("online:"))streamIo.execute(()->{
             try{List<Track> matches=onlineSource().page(seed.artist+" "+seed.title,0,5);if(matches.isEmpty())return;Track online=matches.get(0);String serialized=JamClient.hostCatalog(java.util.Collections.singletonList(online));main.post(()->{Track playing=currentTrack();if(!isDestroyed()&&playing!=null&&Track.originalId(playing.stableId).equals(Track.originalId(seed.stableId)))startService(new Intent(this,PlaybackService.class).setAction(PlaybackService.ACTION_SET_RADIO).putExtra("radio_seed",serialized).putExtra("radio_candidates","[]"));});}catch(Exception unavailable){/* The local song keeps playing without discovery. */}
+        });
+    }
+    private void showGenreMix(String genre){
+        String[] queries;
+        switch(genre){
+            case "High energy":queries=new String[]{"Dua Lipa dance official audio","The Weeknd dance official audio","Calvin Harris dance official audio"};break;
+            case "Rock":queries=new String[]{"Foo Fighters rock official audio","The Killers rock official audio","The Strokes rock official audio"};break;
+            case "Workout":queries=new String[]{"Eminem workout official audio","Kanye West workout official audio","Travis Scott workout official audio"};break;
+            case "Psychedelic rock":queries=new String[]{"Tame Impala psychedelic rock official audio","MGMT psychedelic rock official audio","Pond psychedelic rock official audio"};break;
+            case "Hip-hop":queries=new String[]{"Kendrick Lamar hip hop official audio","Drake hip hop official audio","J Cole hip hop official audio"};break;
+            default:queries=new String[]{"Frank Ocean chill official audio","SZA chill official audio","Daniel Caesar chill official audio"};
+        }
+        Toast.makeText(this,"Finding "+genre.toLowerCase(java.util.Locale.ROOT)+" songs…",Toast.LENGTH_SHORT).show();
+        streamIo.execute(()->{
+            List<Track> found=new ArrayList<>();TasteProfile taste=TasteProfile.load(this);
+            try{
+                OnlineCatalogSource source=onlineSource();
+                for(String query:queries)for(Track track:source.genreSearch(query,14))
+                    if(!track.title.matches("(?i).*\\b(?:playlist|compilation|full album|nonstop|one hour|1 hour)\\b.*")
+                            &&!BlacklistedStore.contains(this,track)&&!DislikedStore.contains(this,track)&&!AvoidedStore.contains(this,track)&&!taste.suppresses(track))found.add(track.original());
+            }catch(RuntimeException unavailable){android.util.Log.w("LocalMusic","Genre mix unavailable",unavailable);}
+            found.sort((a,b)->Double.compare(taste.score(b),taste.score(a)));
+            List<Track> mix=OnlineCatalogSource.diverseMix(found,20,"");
+            main.post(()->{
+                if(isDestroyed()||isFinishing())return;
+                if(mix.isEmpty()){Toast.makeText(this,"Couldn't load this mix. Try again.",Toast.LENGTH_SHORT).show();return;}
+                if(panelShowing("mix"))return;
+                rememberPanel("mix",MixDialog.show(this,genre+" Mix",mix,this::playMixTracks,this::addTracksToPlaylist,this::downloadCollection,this::showCollectionTrackActions,null,null));
+            });
         });
     }
     void previewPersonalMix(String name, List<Track> mix) {
@@ -820,7 +850,7 @@ public final class MainActivity extends Activity {
                     OnlineCatalogSource source=onlineSource();
                     List<Track> artistSongs=source.page(seed.artist,0,35);
                     for(Track candidate:artistSongs){
-                        if(!RecordingIdentity.artist(candidate.artist).equals(seedArtist)||AvoidedStore.contains(this,candidate)||BlacklistedStore.contains(this,candidate)||taste.suppresses(candidate))continue;
+                        if(!RecordingIdentity.artist(candidate.artist).equals(seedArtist)||AvoidedStore.contains(this,candidate)||BlacklistedStore.contains(this,candidate)||DislikedStore.contains(this,candidate)||taste.suppresses(candidate))continue;
                         boolean duplicate=false;for(Track old:existing)if(sameDownload(candidate,old)){duplicate=true;break;}
                         if(!duplicate){found.add(candidate);existing.add(candidate);if(found.size()>=5)break;}
                     }
@@ -830,7 +860,7 @@ public final class MainActivity extends Activity {
                             if(RecordingIdentity.same(seed.title,seed.artist,candidate.title,candidate.artist)){onlineSeed=candidate;break;}
                     }
                     if(onlineSeed!=null)for(Track candidate:source.songMix(onlineSeed)){
-                        if(AvoidedStore.contains(this,candidate)||BlacklistedStore.contains(this,candidate)||taste.suppresses(candidate))continue;
+                        if(AvoidedStore.contains(this,candidate)||BlacklistedStore.contains(this,candidate)||DislikedStore.contains(this,candidate)||taste.suppresses(candidate))continue;
                         boolean duplicate=false;for(Track old:existing)if(sameDownload(candidate,old)){duplicate=true;break;}
                         if(!duplicate){found.add(candidate);existing.add(candidate);if(found.size()>=12)break;}
                     }
@@ -841,14 +871,15 @@ public final class MainActivity extends Activity {
     }
 
     private void showCollectionTrackActions(Track track) {
-        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{"Play now","Play next","Add to queue","Download","Add to playlist","Open artist","Start song mix",BlacklistedStore.contains(this,track)?"Allow this song":"Avoid this song",AvoidedStore.contains(this,track)?"Allow this upload":"Wrong audio/video"},(dialog,index)->{
+        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{"Play now","Play next","Add to queue","Download","Add to playlist","Open artist","Start song mix","I don't fw this song",BlacklistedStore.contains(this,track)?"Allow this song":"Avoid this song",AvoidedStore.contains(this,track)?"Allow this upload":"Wrong audio/video"},(dialog,index)->{
             if(index==0)playMixTracks(java.util.Collections.singletonList(track),0);
             else if(index==1||index==2){if(track.stableId.startsWith("online:"))enqueueOnline(track,index==1);else if(controller!=null)controller.addMediaItem(index==1?Math.min(controller.getCurrentMediaItemIndex()+1,controller.getMediaItemCount()):controller.getMediaItemCount(),track.toMediaItem());}
             else if(index==3)requestDownload(track);
             else if(index==4)addTrackToPlaylist(track);
             else if(index==5)showArtistPage(track.artist);
             else if(index==6)showSeedMix(track,false);
-            else if(index==7)toggleAvoid(track);
+            else if(index==7)dislikeSong(track);
+            else if(index==8)toggleAvoid(track);
             else toggleWrongUpload(track);
         }).show();
     }
@@ -857,6 +888,13 @@ public final class MainActivity extends Activity {
         boolean avoided=BlacklistedStore.toggle(this,track);
         Toast.makeText(this,avoided?"This song and its versions will not play automatically":"This song can play automatically again",Toast.LENGTH_SHORT).show();
         if(avoided){removeBlockedQueueEntries(track,true);startService(new Intent(this,PlaybackService.class).setAction(PlaybackService.ACTION_REFRESH_RADIO));}
+    }
+
+    private void dislikeSong(Track track){
+        DislikedStore.add(this,track);
+        removeBlockedQueueEntries(track,true);
+        startService(new Intent(this,PlaybackService.class).setAction(PlaybackService.ACTION_REFRESH_RADIO));
+        Toast.makeText(this,"Got it. This song is out of recommendations for 30 days.",Toast.LENGTH_SHORT).show();
     }
 
     private void toggleWrongUpload(Track track){
@@ -1087,11 +1125,12 @@ public final class MainActivity extends Activity {
         boolean online = track.stableId.startsWith("online:");
         String avoid=BlacklistedStore.contains(this,track)?"Allow this song":"Avoid this song";
         String wrong=AvoidedStore.contains(this,track)?"Allow this upload":"Wrong audio/video";
-        String[] actions = online ? new String[]{"Play now", "Play next", "Add to queue", DownloadStore.contains(this, track.stableId) ? "Remove download" : "Download", "Add to playlist", "Open artist", FavoriteStore.contains(this,track) ? "Remove favorite" : "Add to favorites", "Start song mix",avoid,wrong} : new String[]{"Play now", "Play next", "Add to queue", FavoriteStore.contains(this,track) ? "Remove favorite" : "Add to favorites", "Add to playlist", "Start song mix",avoid,wrong};
+        String[] actions = online ? new String[]{"Play now", "Play next", "Add to queue", DownloadStore.contains(this, track.stableId) ? "Remove download" : "Download", "Add to playlist", "Open artist", FavoriteStore.contains(this,track) ? "Remove favorite" : "Add to favorites", "Start song mix","I don't fw this song",avoid,wrong} : new String[]{"Play now", "Play next", "Add to queue", FavoriteStore.contains(this,track) ? "Remove favorite" : "Add to favorites", "Add to playlist", "Start song mix","I don't fw this song",avoid,wrong};
         new AppDialogBuilder(this).setTitle(track.title).setItems(actions, (d, which) -> {
             String action = actions[which];
             if (action.equals("Wrong audio/video")||action.equals("Allow this upload")){toggleWrongUpload(track);return;}
             if (action.equals("Avoid this song")||action.equals("Allow this song")){toggleAvoid(track);return;}
+            if (action.equals("I don't fw this song")){dislikeSong(track);return;}
             if (controller == null) return;
             if (action.equals("Play now")) playFrom(position);
             else if ((action.equals("Play next") || action.equals("Add to queue")) && online) {
@@ -1219,16 +1258,17 @@ public final class MainActivity extends Activity {
     private void showQueueActions(androidx.media3.common.MediaItem item,int hint) {
         Track track=queueTrack(item);
         String download=DownloadStore.contains(this,track.stableId)?"Remove download":DownloadTasks.active(this,track.stableId)?"Download activity":"Download";
-        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{"Play", "Play next", download, "Add to playlist", "Artist", BlacklistedStore.contains(this,track)?"Allow this song":"Avoid this song", AvoidedStore.contains(this,track)?"Allow this upload":"Wrong audio/video", "Remove from queue"},(d,which)->{
+        new AppDialogBuilder(this).setTitle(track.title).setItems(new String[]{"Play", "Play next", download, "Add to playlist", "Artist", "I don't fw this song",BlacklistedStore.contains(this,track)?"Allow this song":"Avoid this song", AvoidedStore.contains(this,track)?"Allow this upload":"Wrong audio/video", "Remove from queue"},(d,which)->{
             int at=queueIndex(item,hint);
             if(which==0&&at>=0){controller.seekTo(at,0);controller.play();}
             else if(which==1&&at>=0){int next=Math.min(controller.getCurrentMediaItemIndex()+1,controller.getMediaItemCount()-1);controller.moveMediaItem(at,next);}
             else if(which==2){if(download.equals("Remove download")){DownloadStore.remove(this,track.stableId);Toast.makeText(this,"Download removed",Toast.LENGTH_SHORT).show();}else requestDownload(track);}
             else if(which==3)addTrackToPlaylist(track);
             else if(which==4)showArtistPage(track.artist);
-            else if(which==5)toggleAvoid(track);
-            else if(which==6)toggleWrongUpload(track);
-            else if(which==7&&at>=0)controller.removeMediaItem(at);
+            else if(which==5)dislikeSong(track);
+            else if(which==6)toggleAvoid(track);
+            else if(which==7)toggleWrongUpload(track);
+            else if(which==8&&at>=0)controller.removeMediaItem(at);
         }).show();
     }
 
