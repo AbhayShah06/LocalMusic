@@ -49,7 +49,7 @@ public class BatchSelectionTest {
             onView(withText("2 selected")).check(matches(isDisplayed()));
             onView(withContentDescription("Selected song actions")).perform(click());
             onView(withText("Download selected")).perform(click());
-            onView(withContentDescription("Done selecting songs")).check(matches(not(isDisplayed())));
+            activity.onActivity(a->{assertEquals(android.view.View.GONE,a.findViewById(R.id.librarySelectionBar).getVisibility());AppDialogBuilder.dismissAll(a);});
         }
     }
 }

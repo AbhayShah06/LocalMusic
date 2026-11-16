@@ -93,4 +93,20 @@ public class PlaybackExperienceTest {
             FeatureRuntimeTest.main(()->{player.get().setRepeatMode(androidx.media3.common.Player.REPEAT_MODE_OFF);radio.get().refill();});FeatureRuntimeTest.await("Autoplay did not resume after repeat off",()->FeatureRuntimeTest.value(()->player.get().getMediaItemCount())==6,5000);
         }finally{FeatureRuntimeTest.main(()->{if(radio.get()!=null){radio.get().stop();radio.get().close();}if(player.get()!=null)player.get().release();});context.getSharedPreferences("settings",0).edit().putBoolean("autoplay",autoplay).apply();}
     }
+    @Test public void g_unavailableAutoplayUploadContinuesToNextSong()throws Exception{
+        FeatureRuntimeTest helper=new FeatureRuntimeTest();Track next=helper.fixture("after-unavailable-upload");
+        Track unavailable=new Track("online:malformed",Uri.EMPTY,"Unavailable upload","Fixture artist","");
+        androidx.media3.common.MediaItem failed=StreamPlayback.item(context,unavailable).buildUpon()
+                .setMediaId("auto:"+unavailable.stableId).setCustomCacheKey(unavailable.stableId).build();
+        MediaController controller=helper.connect();
+        context.startService(new Intent(context,PlaybackService.class).setAction(PlaybackService.ACTION_STOP_RADIO));
+        try{
+            FeatureRuntimeTest.main(()->{controller.setRepeatMode(androidx.media3.common.Player.REPEAT_MODE_OFF);
+                controller.setShuffleModeEnabled(false);controller.setMediaItems(Arrays.asList(failed,next.toMediaItem()));controller.prepare();controller.play();});
+            FeatureRuntimeTest.await("Unavailable autoplay upload stopped the queue",()->FeatureRuntimeTest.value(()->
+                    controller.getCurrentMediaItemIndex()==1&&controller.isPlaying()),15000);
+            assertEquals(next.stableId,FeatureRuntimeTest.value(()->controller.getCurrentMediaItem().mediaId));
+            assertNull(FeatureRuntimeTest.value(controller::getPlayerError));
+        }finally{FeatureRuntimeTest.main(()->{controller.pause();controller.release();});}
+    }
 }
