@@ -85,6 +85,7 @@ public final class MainActivity extends Activity {
     private static final int IMPORT_PLAYLIST_REQUEST = 14;
     private MediaController controller;
     private ListenableFuture<MediaController> controllerFuture;
+    private boolean openPlayerWhenConnected;
     private int offset;
     private boolean loading, exhausted;
     private boolean remoteMode;
@@ -186,7 +187,9 @@ public final class MainActivity extends Activity {
         ListenableFuture<MediaController> pending=new MediaController.Builder(this, token).buildAsync();controllerFuture=pending;
         pending.addListener(() -> {
             if(controllerFuture!=pending||isFinishing()||isDestroyed())return;
-            try { controller = pending.get(); controller.addListener(uiPlayerListener); updateNowPlaying(); refreshLivePlayerViews(); }
+            try { controller = pending.get(); controller.addListener(uiPlayerListener); updateNowPlaying(); refreshLivePlayerViews();
+                if(openPlayerWhenConnected){openPlayerWhenConnected=false;showNowPlaying();}
+            }
             catch (Exception e) { controllerFuture=null;status.setText("Playback service could not be connected. Reopen the app to retry."); }
         }, command -> main.post(command));
     }
@@ -464,7 +467,8 @@ public final class MainActivity extends Activity {
 
     private void showNowPlaying() {
         if(panelShowing("player"))return;
-        if (controller == null || controller.getCurrentMediaItem() == null) { Toast.makeText(this, "Choose a song first", Toast.LENGTH_SHORT).show(); return; }
+        if(controller==null){openPlayerWhenConnected=true;connect();return;}
+        if (controller.getCurrentMediaItem() == null) { Toast.makeText(this, "Choose a song first", Toast.LENGTH_SHORT).show(); return; }
         android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar);
         dialog.setContentView(R.layout.dialog_now_playing);
         if(dialog.getWindow()!=null)dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));

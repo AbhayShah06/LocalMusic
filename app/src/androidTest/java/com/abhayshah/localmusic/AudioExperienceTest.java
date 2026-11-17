@@ -75,7 +75,7 @@ public class AudioExperienceTest {
     }
     @Test public void d_settingsButtonsRevealTheirDestinations()throws Exception{
         try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
-            settings();settingsAction("Music source");onView(withText("Music library")).check(matches(isDisplayed()));androidx.test.espresso.Espresso.pressBack();
+            settings();settingsAction("Music source");onView(withText("Music source")).inRoot(FeatureRuntimeTest.focusedDialog()).check(matches(isDisplayed()));androidx.test.espresso.Espresso.pressBack();
             settings();settingsAction("Import playlists");onView(withText("Import playlist")).check(matches(isDisplayed()));androidx.test.espresso.Espresso.pressBack();
             settings();settingsAction("Contact developer");onView(withText("Copy email address")).perform(click());
             settings();settingsAction("Download activity");onView(withText("Offline library")).perform(click());onView(withText("Settings")).check(doesNotExist());

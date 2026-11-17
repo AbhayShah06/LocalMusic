@@ -18,7 +18,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 final class ArtworkLoader {
-    private static final LruCache<String, Bitmap> CACHE = new LruCache<String, Bitmap>(16 * 1024) {
+    private static final int MAX_IMAGE_PX=720;
+    private static final int CACHE_KB=(int)Math.max(1024,Math.min(8*1024,Runtime.getRuntime().maxMemory()/8/1024));
+    private static final LruCache<String, Bitmap> CACHE = new LruCache<String, Bitmap>(CACHE_KB) {
         @Override protected int sizeOf(String key, Bitmap value) { return Math.max(1, value.getByteCount() / 1024); }
     };
     private static final ExecutorService IO = Executors.newFixedThreadPool(3);
@@ -64,7 +66,7 @@ final class ArtworkLoader {
     private static Bitmap decode(File file) {
         if (!file.isFile()) return null; file.setLastModified(System.currentTimeMillis());
         BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true; BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
-        int sample = 1; while (bounds.outWidth / sample > 1200 || bounds.outHeight / sample > 1200) sample *= 2;
+        int sample = 1; while (bounds.outWidth / sample > MAX_IMAGE_PX || bounds.outHeight / sample > MAX_IMAGE_PX) sample *= 2;
         BitmapFactory.Options options = new BitmapFactory.Options(); options.inSampleSize = sample; return BitmapFactory.decodeFile(file.getAbsolutePath(), options);
     }
 
@@ -73,7 +75,7 @@ final class ArtworkLoader {
             if(input==null)return null;
             BitmapFactory.Options bounds=new BitmapFactory.Options();bounds.inJustDecodeBounds=true;
             BitmapFactory.decodeStream(input,null,bounds);
-            int sample=1;while(bounds.outWidth/sample>1200||bounds.outHeight/sample>1200)sample*=2;
+            int sample=1;while(bounds.outWidth/sample>MAX_IMAGE_PX||bounds.outHeight/sample>MAX_IMAGE_PX)sample*=2;
             BitmapFactory.Options options=new BitmapFactory.Options();options.inSampleSize=sample;
             try(InputStream image=context.getContentResolver().openInputStream(uri)){
                 return image==null?null:BitmapFactory.decodeStream(image,null,options);

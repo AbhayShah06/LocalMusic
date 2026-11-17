@@ -43,7 +43,7 @@ public class LibraryExperienceTest {
         try(android.database.Cursor c=context.getContentResolver().query(uri,new String[]{MediaStore.Audio.Media.DISPLAY_NAME,MediaStore.Audio.Media.RELATIVE_PATH,MediaStore.Audio.Media.IS_PENDING},null,null,null)){
             assertTrue(c.moveToFirst());assertTrue(c.getString(0).endsWith(".wav"));assertEquals("Music/LocalMusic/",c.getString(1));assertEquals(0,c.getInt(2));
         }
-        try(InputStream shared=context.getContentResolver().openInputStream(uri);InputStream original=new FileInputStream(new File(track.playbackUri.getPath()))){assertNotNull(shared);assertArrayEquals(read(original),read(shared));}
+        try(InputStream shared=context.getContentResolver().openInputStream(uri);InputStream original=new FileInputStream(new File(track.playbackUri.getPath()))){assertNotNull(shared);assertArrayEquals(sha256(original),sha256(shared));}
         List<Track> phone=new PhoneCatalogSource(context).page(track.title,0,100);assertEquals(1,phone.size());assertEquals(track.stableId,phone.get(0).stableId);
     }
     @Test public void spotifyCsvNeedsOneImportAndConfirmsSavedCount()throws Exception{
@@ -83,5 +83,5 @@ public class LibraryExperienceTest {
             }finally{scenario.onActivity(AppDialogBuilder::dismissAll);shell("svc wifi enable");shell("svc data enable");}
         }
     }
-    private byte[] read(InputStream in)throws IOException{ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1)out.write(b,0,n);return out.toByteArray();}
+    private byte[] sha256(InputStream in)throws Exception{java.security.MessageDigest digest=java.security.MessageDigest.getInstance("SHA-256");byte[] b=new byte[8192];int n;while((n=in.read(b))!=-1)digest.update(b,0,n);return digest.digest();}
 }
