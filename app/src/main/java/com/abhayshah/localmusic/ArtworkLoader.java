@@ -27,8 +27,15 @@ final class ArtworkLoader {
     static void into(ImageView view, Uri uri, int fallback) {
         String key = uri == null ? "" : uri.toString(); view.setTag(key); view.setImageResource(fallback);
         if (key.isEmpty()) return;
-        if ("content".equals(uri.getScheme())) { view.setImageURI(uri); if (view.getDrawable() == null) view.setImageResource(fallback); return; }
         Bitmap cached = CACHE.get(key); if (cached != null) { view.setImageBitmap(cached); return; }
+        if ("content".equals(uri.getScheme())) {
+            android.content.Context context=view.getContext().getApplicationContext();
+            IO.execute(() -> {
+                Bitmap bitmap=decode(context,uri);
+                if(bitmap!=null){CACHE.put(key,bitmap);MAIN.post(() -> {if(key.equals(view.getTag()))view.setImageBitmap(bitmap);});}
+            });
+            return;
+        }
         File directory = new File(view.getContext().getCacheDir(), "artwork");
         File file = new File(directory, digest(key) + ".img");
         IO.execute(() -> {
@@ -59,6 +66,19 @@ final class ArtworkLoader {
         BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true; BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
         int sample = 1; while (bounds.outWidth / sample > 1200 || bounds.outHeight / sample > 1200) sample *= 2;
         BitmapFactory.Options options = new BitmapFactory.Options(); options.inSampleSize = sample; return BitmapFactory.decodeFile(file.getAbsolutePath(), options);
+    }
+
+    private static Bitmap decode(android.content.Context context,Uri uri){
+        try(InputStream input=context.getContentResolver().openInputStream(uri)){
+            if(input==null)return null;
+            BitmapFactory.Options bounds=new BitmapFactory.Options();bounds.inJustDecodeBounds=true;
+            BitmapFactory.decodeStream(input,null,bounds);
+            int sample=1;while(bounds.outWidth/sample>1200||bounds.outHeight/sample>1200)sample*=2;
+            BitmapFactory.Options options=new BitmapFactory.Options();options.inSampleSize=sample;
+            try(InputStream image=context.getContentResolver().openInputStream(uri)){
+                return image==null?null:BitmapFactory.decodeStream(image,null,options);
+            }
+        }catch(Exception ignored){return null;}
     }
 
     private static String digest(String value) {

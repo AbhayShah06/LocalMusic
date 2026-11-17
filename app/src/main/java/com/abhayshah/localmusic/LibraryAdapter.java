@@ -22,6 +22,17 @@ final class LibraryAdapter extends BaseAdapter {
     void add(String value) { labels.add(value); notifyDataSetChanged(); }
     void clear() { labels.clear(); notifyDataSetChanged(); }
     void remove(String value) { labels.remove(value); notifyDataSetChanged(); }
+    void appendTracks(List<Track> added) {
+        for (Track track : added) labels.add(track.title + "\n" + track.artist + " · " + track.album);
+        notifyDataSetChanged();
+    }
+    void replaceTracks(List<Track> values) {
+        labels.clear();
+        for (Track track : values) labels.add(track.title + "\n" + track.artist + " · " + track.album);
+        notifyDataSetChanged();
+    }
+    void replaceLabels(List<String> values) { labels.clear(); labels.addAll(values); notifyDataSetChanged(); }
+    void removeFirst(int count) { labels.subList(0,Math.min(count,labels.size())).clear(); notifyDataSetChanged(); }
     void clearPending() { if (!pendingId.isEmpty()) { pendingId = ""; notifyDataSetChanged(); } }
     @Override public int getCount() { return labels.size(); }
     @Override public String getItem(int position) { return labels.get(position); }

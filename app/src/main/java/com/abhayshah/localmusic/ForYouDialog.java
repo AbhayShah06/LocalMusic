@@ -23,10 +23,12 @@ final class ForYouDialog {
         sections.addView(action(activity,"Recently played",recent));
         if(history.isEmpty())sections.addView(label(activity,"Your listening history will appear here.",15));
         if(!history.isEmpty())sections.addView(rail(activity,history.subList(0,Math.min(8,history.size())),track->track.title,play,menu,compact,accent,null,null));
+        List<Track> daily=ListeningHistory.dailyMix(activity,50);
         List<Track> seeds=new ArrayList<>(FavoriteStore.remoteTracks(activity));
-        seeds.addAll(ListeningHistory.dailyMix(activity,50));Set<String> ids=new HashSet<>(),artists=new HashSet<>();
+        seeds.addAll(daily);Set<String> ids=new HashSet<>();
         TasteProfile taste=TasteProfile.load(activity);
-        List<Track> unique=new ArrayList<>();for(Track seed:seeds)if(!taste.suppresses(seed)&&!DislikedStore.contains(activity,seed)&&!BlacklistedStore.contains(activity,seed)&&!AvoidedStore.contains(activity,seed)&&ids.add(Track.originalId(seed.stableId)))unique.add(seed.original());
+        Set<String> disliked=DislikedStore.songs(activity);
+        List<Track> unique=new ArrayList<>();for(Track seed:seeds)if(!taste.suppresses(seed)&&!disliked.contains(BlacklistedStore.key(seed.title,seed.artist))&&!BlacklistedStore.contains(activity,seed)&&!AvoidedStore.contains(activity,seed)&&ids.add(Track.originalId(seed.stableId)))unique.add(seed.original());
         Collections.shuffle(unique,new Random(refreshSeed));
         if(!unique.isEmpty()){
             sections.addView(label(activity,"Song mixes",18));
@@ -34,7 +36,7 @@ final class ForYouDialog {
 
         }
         sections.addView(label(activity,"Genre mixes",18));
-        sections.addView(genreRail(activity,genre,accent,ListeningHistory.dailyMix(activity,50)));
+        sections.addView(genreRail(activity,genre,accent,daily));
         sections.addView(label(activity,"Recommended for You",18));
         if(unique.isEmpty())sections.addView(label(activity,"Listen to a few songs to discover something new.",15));
         else sections.addView(rail(activity,Collections.emptyList(),track->track.title,play,menu,compact,accent,recommendations,"More recommendations"));

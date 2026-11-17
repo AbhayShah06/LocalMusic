@@ -43,7 +43,12 @@ final class JamClient {
         if (searchValues != null) for (int i = 0; i < searchValues.length(); i++) { JSONObject item = searchValues.getJSONObject(i); searches.add(new Search(item.getString("id"), item.optString("query"), "pending".equals(item.optString("status")))); }
         List<Control> controls = new ArrayList<>(); JSONArray controlValues = body.getJSONObject("room").optJSONArray("controls");
         if (controlValues != null) for (int i = 0; i < controlValues.length(); i++) { JSONObject item = controlValues.getJSONObject(i); controls.add(new Control(item.getString("id"), item.optString("action"), item.optString("guest", "Guest"), item.optInt("index", -1), item.optInt("direction", 0), item.optInt("toIndex", -1), item.optBoolean("absolute", false), item.optLong("positionMs", -1))); }
-        return new State(entries, searches, controls);
+        return new State(body.getJSONObject("room").optBoolean("active"), entries, searches, controls);
+    }
+
+    boolean active(Room room) throws Exception {
+        JSONObject snapshot=get("/api/rooms/"+room.code,room.hostToken).getJSONObject("room");
+        return snapshot.optBoolean("active") && snapshot.has("controls");
     }
 
     void publish(Room room, String searchId, List<Track> tracks) throws Exception {
@@ -100,7 +105,7 @@ final class JamClient {
     }
 
     static final class Room { final String code, hostToken; Room(String code, String hostToken) { this.code = code; this.hostToken = hostToken; } String joinUrl() { return SITE_BASE + "?room=" + code; } }
-    static final class State { final List<Entry> entries; final List<Search> searches; final List<Control> controls; State(List<Entry> entries, List<Search> searches, List<Control> controls) { this.entries = entries; this.searches = searches; this.controls = controls; } }
+    static final class State { final boolean active; final List<Entry> entries; final List<Search> searches; final List<Control> controls; State(boolean active, List<Entry> entries, List<Search> searches, List<Control> controls) { this.active=active; this.entries = entries; this.searches = searches; this.controls = controls; } }
     static final class Search { final String id, query; final boolean pending; Search(String id, String query, boolean pending) { this.id = id; this.query = query; this.pending = pending; } }
     static final class Control { final String id, action, guest; final int index, direction, toIndex; final boolean absolute; final long positionMs; Control(String id, String action, String guest, int index, int direction, int toIndex, boolean absolute, long positionMs) { this.id = id; this.action = action; this.guest = guest; this.index = index; this.direction = direction; this.toIndex = toIndex; this.absolute = absolute; this.positionMs = positionMs; } }
     static final class Entry { final String id, trackId, guest, title, artist, placement; Entry(String id, String trackId, String guest, String title, String artist, String placement) { this.id = id; this.trackId = trackId; this.guest = guest; this.title = title; this.artist = artist; this.placement = placement; } }

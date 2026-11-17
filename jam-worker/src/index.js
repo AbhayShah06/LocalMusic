@@ -17,6 +17,8 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     if (url.pathname === "/api/health") return json({ ok: true }, 200, cors);
     if (url.pathname === "/api/rooms" && request.method === "POST") {
+      const limited = await limitRequest(env.ROOM_CREATION_LIMIT, request, cors);
+      if (limited) return limited;
       const roomCode = code();
       const id = env.JAM_ROOMS.idFromName(roomCode);
       const response = await env.JAM_ROOMS.get(id).fetch(new Request("https://room/create", request));
@@ -27,6 +29,13 @@ export default {
     if (!match) return json({ error: "Not found" }, 404, cors);
     const roomCode = match[1];
     const suffix = match[2] || "/";
+    if (request.method === "POST" && suffix === "/search") {
+      const limited = await limitRequest(env.ROOM_SEARCH_LIMIT, request, cors, roomCode);
+      if (limited) return limited;
+    } else if (request.method === "POST" && (suffix === "/queue" || suffix === "/control")) {
+      const limited = await limitRequest(env.ROOM_ACTION_LIMIT, request, cors, roomCode);
+      if (limited) return limited;
+    }
     const id = env.JAM_ROOMS.idFromName(roomCode);
     const target = new URL(request.url); target.hostname = "room"; target.pathname = suffix;
     const response = await env.JAM_ROOMS.get(id).fetch(new Request(target, request));
@@ -34,6 +43,15 @@ export default {
     return new Response(response.body, { status: response.status, headers, webSocket: response.webSocket });
   }
 };
+
+async function limitRequest(limiter, request, cors, roomCode = "") {
+  // Cloudflare sets this header at the edge. Never trust a caller-supplied
+  // X-Forwarded-For value; clients could rotate it to evade the limit.
+  const key = `${roomCode}:${request.headers.get("cf-connecting-ip") || "unknown"}`;
+  const { success } = await limiter.limit({ key });
+  return success ? null : json({ error: "Too many requests. Try again in a minute." }, 429,
+    { ...cors, "retry-after": "60", "cache-control": "no-store" });
+}
 
 function corsHeaders(request, env) {
   const origin = request.headers.get("origin") || "";

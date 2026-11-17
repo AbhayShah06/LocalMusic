@@ -205,6 +205,11 @@ public final class PlaybackService extends MediaSessionService {
         } else if (intent != null && ACTION_SET_SLEEP_TIMER.equals(intent.getAction())) {
             setSleepTimer(intent.getLongExtra(EXTRA_SLEEP_MINUTES, 0));
         } else if (intent != null && ACTION_START_JAM.equals(intent.getAction())) {
+            if (jamRoom != null && jamRoom.code.equals(intent.getStringExtra(EXTRA_JAM_CODE))
+                    && jamRoom.hostToken.equals(intent.getStringExtra(EXTRA_JAM_TOKEN))) {
+                publishJamPlayback();
+                return super.onStartCommand(intent, flags, startId);
+            }
             jamEntries.clear(); jamControls.clear();
             jamRequesters.clear();
             jamEntryOrder.clear(); jamResolved.clear(); jamCommitCursor = 0;

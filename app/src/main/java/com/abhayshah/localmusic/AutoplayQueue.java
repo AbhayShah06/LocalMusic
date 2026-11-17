@@ -79,13 +79,24 @@ final class AutoplayQueue {
                     if(candidates.size()<8)candidates.addAll(source.songMix(originalSeed,known));
                 }
                 TasteProfile taste=TasteProfile.load(context);Set<String> recentSongs=RadioHistory.recent(context),disliked=DislikedStore.songs(context);
+                boolean familiarMode=DislikedStore.moodActive(context,originalSeed);
+                Set<String> familiar=new HashSet<>();
+                if(familiarMode){
+                    for(Track track:ListeningHistory.recent(context,40))if(track.stableId.startsWith("online:")
+                            &&(taste.score(track)>0||RecordingIdentity.artist(track.artist).equals(RecordingIdentity.artist(originalSeed.artist)))){
+                        candidates.add(track.original());familiar.add(RecordingIdentity.key(track.title,track.artist));
+                    }
+                }
                 Map<String,Double> penalties=DislikedStore.seedPenalties(context,originalSeed);
+                Map<String,Double> related=DislikedStore.relatedPenalties(context,originalSeed);
                 Map<String,Double> scores=new HashMap<>();
-                for(Track track:candidates)scores.put(track.stableId,taste.score(track)+penalties.getOrDefault(RecordingIdentity.artist(track.artist),0d));
+                for(Track track:candidates)scores.put(track.stableId,taste.score(track)+penalties.getOrDefault(RecordingIdentity.artist(track.artist),0d)
+                        +DislikedStore.relatedPenalty(related,track)
+                        +(familiar.contains(RecordingIdentity.key(track.title,track.artist))?4:0));
                 candidates.sort((a,b)->Double.compare(scores.getOrDefault(b.stableId,0d),scores.getOrDefault(a.stableId,0d)));
                 Set<String> picked=new HashSet<>(known);
                 int varietySeed=Objects.hash(originalSeed.stableId,System.currentTimeMillis()/86_400_000L,request);
-                for(Track track:OnlineCatalogSource.diverseMix(candidates,candidates.size(),RecordingIdentity.artist(originalSeed.artist),recentSongs,varietySeed)){
+                for(Track track:OnlineCatalogSource.diverseMix(candidates,candidates.size(),RecordingIdentity.artist(originalSeed.artist),familiarMode?Collections.emptySet():recentSongs,varietySeed)){
                     if(closed||request!=generation)return;
                     String id=Track.originalId(track.stableId),song=RecordingIdentity.key(track.title,track.artist),title=RecordingIdentity.title(track.title,track.artist),seedTitle=RecordingIdentity.title(track.title,originalSeed.artist);
                     if(knownSongs.contains(song)||knownTitles.contains(title)||knownTitles.contains(seedTitle)||unavailable.contains(id)||AvoidedStore.contains(context,track)||BlacklistedStore.contains(context,track)||disliked.contains(BlacklistedStore.key(track.title,track.artist))||taste.suppresses(track)||VersionPolicy.isMusicVideo(track.title)||context.getSharedPreferences("settings",0).getBoolean("avoid_clean",true)&&VersionPolicy.exclude(track.title,originalSeed.title)||!picked.add(id))continue;
