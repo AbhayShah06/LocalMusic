@@ -88,11 +88,8 @@ public final class MainActivity extends Activity {
     private int offset;
     private boolean loading, exhausted;
     private boolean remoteMode;
-    private boolean b2Mode;
     private boolean onlineMode;
     private OfflinePrompt offlinePrompt;
-    private ServerSettings serverSettings;
-    private B2Settings b2Settings;
     private String query = "";
     private String group = "";
     private final Handler ticker = new Handler(Looper.getMainLooper());
@@ -126,8 +123,6 @@ public final class MainActivity extends Activity {
         nowPlayingArtist = findViewById(R.id.nowPlayingArtist);
         permissionPanel = findViewById(R.id.permissionPanel);
         search = findViewById(R.id.search);
-        serverSettings = new ServerSettings(this);
-        b2Settings = new B2Settings(this);
         findViewById(R.id.source).setOnClickListener(v -> chooseSource());
         ListView list = findViewById(R.id.tracks);
         adapter = new LibraryAdapter(this, tracks, this::onLibraryRow, this::onLibraryMenu);
@@ -173,7 +168,7 @@ public final class MainActivity extends Activity {
         search.setOnFocusChangeListener((view,focused)->{if(!focused&&!query.trim().isEmpty())rememberSearch(query);renderSearchHistory();});
         search.setOnEditorActionListener((view,action,event)->{if(action!=android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH)return false;findViewById(R.id.root).requestFocus();android.view.inputmethod.InputMethodManager keyboard=(android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);if(keyboard!=null)keyboard.hideSoftInputFromWindow(search.getWindowToken(),0);return true;});
         renderSearchHistory();
-        onlineMode = true; remoteMode = true; b2Mode = false;
+        onlineMode = true; remoteMode = true;
         permissionPanel.setVisibility(View.GONE); findViewById(R.id.tracks).setVisibility(View.VISIBLE);
         ((TextView)findViewById(R.id.source)).setText("Stream  ▾");
         status.setText("Search for any song, artist, or album");
@@ -292,14 +287,14 @@ public final class MainActivity extends Activity {
 
     private void setGroup(String value) { selectTab(R.id.songs); group = value; query = ""; search.setText(""); resetAndLoad(); }
 
-    private void switchSource(boolean online,boolean remote,boolean backblaze,String label){
+    private void switchSource(boolean online,String label){
         if(!query.trim().isEmpty())rememberSearch(query);
-        onlineMode=online;remoteMode=remote;b2Mode=backblaze;
+        onlineMode=online;remoteMode=online;
         ((TextView)findViewById(R.id.source)).setText(label+"  ▾");
         selectTab(R.id.songs);group="";
-        if(remote){permissionPanel.setVisibility(View.GONE);findViewById(R.id.tracks).setVisibility(View.VISIBLE);}
+        if(online){permissionPanel.setVisibility(View.GONE);findViewById(R.id.tracks).setVisibility(View.VISIBLE);}
         resetAndLoad();
-        if(!remote)refreshPermissionState();
+        if(!online)refreshPermissionState();
     }
 
     private List<String> recentSearches(){
@@ -357,12 +352,12 @@ public final class MainActivity extends Activity {
     private void loadNextPage() {
         if (showingForYou || !libraryPaged || loading || exhausted || !group.isEmpty()) return;
         loading = true;
-        int generation=libraryGeneration; boolean pageOnline=onlineMode,pageB2=b2Mode,pageRemote=remoteMode;
+        int generation=libraryGeneration; boolean pageOnline=onlineMode;
         int pageOffset = offset;
         String pageQuery = query;
         pageSearch=searchIo.submit(() -> {
             List<Track> page;
-            try { page = pageOnline ? onlineSource().page(pageQuery, pageOffset, PAGE_SIZE) : pageB2 ? new B2CatalogClient(b2Settings).page(pageQuery, pageOffset, PAGE_SIZE) : pageRemote ? new OpenSubsonicClient(serverSettings).page(pageQuery, pageOffset, PAGE_SIZE) : new PhoneCatalogSource(this).page(pageQuery, pageOffset, PAGE_SIZE); }
+            try { page = pageOnline ? onlineSource().page(pageQuery, pageOffset, PAGE_SIZE) : new PhoneCatalogSource(this).page(pageQuery, pageOffset, PAGE_SIZE); }
             catch (RuntimeException error) { main.post(() -> { if(generation!=libraryGeneration||isDestroyed())return; loading = false; status.setText("Could not reach this music source. Check its connection settings."); }); return; }
             main.post(() -> {
                 if(generation!=libraryGeneration||isDestroyed())return;
@@ -376,7 +371,7 @@ public final class MainActivity extends Activity {
                 tracks.addAll(page); offset += page.size(); exhausted = page.size() < PAGE_SIZE;
                 adapter.appendTracks(page);
                 if (onlineMode && pageQuery.trim().isEmpty()) status.setText("Search for any song, artist, or album");
-                else status.setText(tracks.size() + (exhausted ? " songs" : "+ songs") + (onlineMode ? " found online" : b2Mode ? " in Backblaze" : remoteMode ? " from Navidrome" : " on this phone"));
+                else status.setText(tracks.size() + (exhausted ? " songs" : "+ songs") + (onlineMode ? " found online" : " on this phone"));
             });
         });
     }
@@ -636,7 +631,7 @@ public final class MainActivity extends Activity {
         explicit.setOnCheckedChangeListener((button, checked) -> prefs.edit().putBoolean("avoid_clean", checked).apply()); content.addView(explicit);
 
         content.addView(settingsHeading("Library"));
-        content.addView(settingsAction("Music source", "Choose online streaming, phone files, Backblaze, or Navidrome", this::chooseSource));
+        content.addView(settingsAction("Music source", "Choose streaming or music on this phone", this::chooseSource));
         content.addView(settingsAction("Import playlists", "Paste YouTube links, Spotify / Apple Music exports, or a song list", this::showImportOptions));
         content.addView(settingsAction("Appearance", "Dark palette accent and home card size", this::showHomeAppearance));
         content.addView(settingsAction("Equalizer", "Presets and five-band controls", this::openEqualizer));
@@ -970,7 +965,7 @@ public final class MainActivity extends Activity {
     }
 
     private void useDownloadedMusic(){
-        onlineMode=false;remoteMode=false;b2Mode=false;query="";search.setText("");searchHandler.removeCallbacksAndMessages(null);
+        onlineMode=false;remoteMode=false;query="";search.setText("");searchHandler.removeCallbacksAndMessages(null);
         ((TextView)findViewById(R.id.source)).setText("This phone  ▾");permissionPanel.setVisibility(View.GONE);findViewById(R.id.tracks).setVisibility(View.VISIBLE);loadDownloads();
     }
 
@@ -1026,8 +1021,6 @@ public final class MainActivity extends Activity {
             if (visible.isEmpty()) throw new IllegalStateException("Search for music first, then start the Jam");
             return visible;
         }
-        if (b2Mode) return new B2CatalogClient(b2Settings).page("", 0, 1200);
-        if (remoteMode) return new OpenSubsonicClient(serverSettings).page("", 0, 1200);
         List<Track> all = new ArrayList<>(); MediaStoreCatalogSource source = new MediaStoreCatalogSource(getContentResolver());
         for (int offset = 0; offset < 1200; offset += 200) { List<Track> page = source.page("", offset, 200); all.addAll(page); if (page.size() < 200) break; }
         return all;
@@ -1632,59 +1625,9 @@ public final class MainActivity extends Activity {
     }
 
     private void chooseSource() {
-        if (BuildConfig.IS_PERSONAL && b2Settings.bundled()) {
-            String[] options = new String[]{"Stream online", "Backblaze library", "This phone"};
-            new AppDialogBuilder(this).setTitle("Music source").setItems(options, (dialog, which) -> {
-                if (which == 0) {
-                    switchSource(true,true,false,"Stream");
-                } else if (which == 1) {
-                    switchSource(false,true,true,"Backblaze");
-                } else {
-                    switchSource(false,false,false,"This phone");
-                }
-            }).show();
-            return;
-        }
-        String[] options = new String[]{"Stream online", "This phone", b2Settings.configured() ? "Backblaze library" : "Set up Backblaze", serverSettings.configured() ? "Navidrome" : "Set up Navidrome", "Backblaze settings", "Navidrome settings"};
-        new AppDialogBuilder(this).setTitle("Music library").setItems(options, (dialog, which) -> {
-            if (which == 0) switchSource(true,true,false,"Stream");
-            else if (which == 1) switchSource(false,false,false,"This phone");
-            else if (which == 2 && b2Settings.configured()) switchSource(false,true,true,"Backblaze");
-            else if (which == 2) configureBackblaze();
-            else if (which == 3 && serverSettings.configured()) switchSource(false,true,false,"Navidrome");
-            else if (which == 3 || which == 5) configureServer();
-            else configureBackblaze();
-        }).show();
-    }
-
-    private void configureBackblaze() {
-        if (!b2Settings.available()) { Toast.makeText(this, "Android secure storage is unavailable. Restart the phone and try again.", Toast.LENGTH_LONG).show(); return; }
-        android.widget.LinearLayout form = new android.widget.LinearLayout(this); form.setOrientation(android.widget.LinearLayout.VERTICAL); int pad = (int)(20 * getResources().getDisplayMetrics().density); form.setPadding(pad, 0, pad, 0);
-        EditText keyId = new EditText(this); keyId.setHint("Application key ID"); keyId.setSingleLine(); keyId.setText(b2Settings.keyId()); form.addView(keyId);
-        EditText applicationKey = new EditText(this); applicationKey.setHint("Application key"); applicationKey.setSingleLine(); applicationKey.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD); form.addView(applicationKey);
-        EditText bucket = new EditText(this); bucket.setHint("Bucket name"); bucket.setSingleLine(); bucket.setText(b2Settings.bucket()); form.addView(bucket);
-        new AppDialogBuilder(this).setTitle("Backblaze music").setMessage("Use a read-only key restricted to this bucket. Credentials are encrypted on this phone and never included in the APK.").setView(form).setNegativeButton("Cancel", null).setPositiveButton("Connect", (d, w) -> {
-            String id = keyId.getText().toString().trim(), secret = applicationKey.getText().toString().trim(), bucketName = bucket.getText().toString().trim();
-            if (id.isEmpty() || secret.isEmpty() || bucketName.isEmpty()) { Toast.makeText(this, "Enter the key ID, application key, and bucket name.", Toast.LENGTH_LONG).show(); return; }
-            b2Settings.save(id, secret, bucketName); status.setText("Connecting to Backblaze…"); io.execute(() -> { boolean ok = new B2CatalogClient(b2Settings).ping(); main.post(() -> { if (ok) { reconnectPlaybackService(); switchSource(false,true,true,"Backblaze"); } else status.setText("Backblaze connection failed. Check the bucket-restricted key and bucket name."); }); });
-        }).show();
-    }
-
-    private void configureServer() {
-        if (!serverSettings.available()) { Toast.makeText(this, "Android secure storage is unavailable. Restart the phone and try again.", Toast.LENGTH_LONG).show(); return; }
-        android.widget.LinearLayout form = new android.widget.LinearLayout(this); form.setOrientation(android.widget.LinearLayout.VERTICAL); int pad = (int)(20 * getResources().getDisplayMetrics().density); form.setPadding(pad, 0, pad, 0);
-        EditText url = new EditText(this); url.setHint("HTTPS server URL"); url.setSingleLine(); url.setText(serverSettings.url()); form.addView(url);
-        EditText username = new EditText(this); username.setHint("Username"); username.setSingleLine(); username.setText(serverSettings.username()); form.addView(username);
-        EditText password = new EditText(this); password.setHint("Password"); password.setSingleLine(); password.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD); form.addView(password);
-        new AppDialogBuilder(this).setTitle("Navidrome / OpenSubsonic").setView(form).setNegativeButton("Cancel", null).setPositiveButton("Connect", (dialog, which) -> {
-            String address = url.getText().toString().trim(); String user = username.getText().toString().trim(); String pass = password.getText().toString();
-            if (!address.startsWith("https://") || user.isEmpty() || pass.isEmpty()) { Toast.makeText(this, "Use an HTTPS address and enter your username and password.", Toast.LENGTH_LONG).show(); return; }
-            serverSettings.save(address, user, pass); status.setText("Connecting to Navidrome…");
-            io.execute(() -> { boolean ok = new OpenSubsonicClient(serverSettings).ping(); main.post(() -> {
-                if (ok) switchSource(false,true,false,"Navidrome");
-                else status.setText("Connection failed. Check the HTTPS address, login, and whether the server is running.");
-            }); });
-        }).show();
+        new AppDialogBuilder(this).setTitle("Music source")
+                .setItems(new String[]{"Stream online", "This phone"},(dialog,which)->
+                        switchSource(which==0,which==0?"Stream":"This phone")).show();
     }
 
     @androidx.media3.common.util.UnstableApi

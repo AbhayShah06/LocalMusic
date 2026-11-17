@@ -1,6 +1,6 @@
 # LocalMusic
 
-A music player for Android. Stream, play your own files, or bring a Navidrome / Backblaze library.
+A music player for Android. Stream music or play files saved on your phone.
 
 - Live queue, lyrics, favorites and playlists
 - Background downloads, offline playback and copies in Music/LocalMusic

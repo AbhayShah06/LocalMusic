@@ -67,7 +67,7 @@ public final class DownloadWorker extends Worker {
     }
     private Track resolve()throws Exception{
         if(source.stableId.startsWith("online:")){OnlineCatalogSource.invalidate(source.stableId);return new OnlineCatalogSource().resolve(source);}
-        if(source.stableId.startsWith("b2:"))return new Track(source.stableId,new B2CatalogClient(new B2Settings(getApplicationContext())).playbackUri(source.stableId.substring(3)),source.title,source.artist,source.album,source.artworkUri);
+        if(source.stableId.startsWith("b2:"))throw new IllegalArgumentException("Backblaze downloads are no longer supported");
         return source;
     }
     private static void validateAudio(File file)throws IOException{

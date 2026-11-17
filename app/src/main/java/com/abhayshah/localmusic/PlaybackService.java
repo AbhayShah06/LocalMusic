@@ -254,12 +254,8 @@ public final class PlaybackService extends MediaSessionService {
                 JSONArray array = new JSONArray(saved);
                 for (int i = 0; i < array.length() && items.size() < 200; i++) {
                     JSONObject item = array.getJSONObject(i); String id = item.getString("id");
-                    if (id.startsWith("b2:")) {
-                        B2Settings settings = new B2Settings(this);
-                        if (!settings.configured()) continue;
-                        Uri uri = new B2CatalogClient(settings).playbackUri(id.substring(3));
-                        items.add(remoteItem(item, id, uri));
-                    } else if (originalOnlineId(id)!=null) {
+                    if (id.startsWith("b2:")) continue;
+                    if (originalOnlineId(id)!=null) {
                         String art=item.optString("artwork");Track track=new Track(id,Uri.EMPTY,item.optString("title"),item.optString("artist"),item.optString("album"),art.isEmpty()?null:Uri.parse(art));
                         items.add(StreamPlayback.item(this,track));
                     } else if (!id.startsWith("local:")) items.add(remoteItem(item, id, Uri.parse(item.getString("uri"))));
@@ -339,7 +335,6 @@ public final class PlaybackService extends MediaSessionService {
             try {
                 Track resolved;
                 if (entry.trackId.startsWith("online:")) resolved = new OnlineCatalogSource().resolve(unresolved);
-                else if (entry.trackId.startsWith("b2:")) resolved = new Track(entry.trackId, new B2CatalogClient(new B2Settings(this)).playbackUri(entry.trackId.substring(3)), entry.title, entry.artist, unresolved.album, unresolved.artworkUri);
                 else if (known != null) resolved = known;
                 else throw new IllegalStateException("Requested song is no longer in the host library");
                 if (jamRoom != requestedRoom || destroyed) return;
