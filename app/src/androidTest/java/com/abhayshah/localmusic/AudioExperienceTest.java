@@ -148,7 +148,7 @@ public class AudioExperienceTest {
             try{
                 FeatureRuntimeTest.main(()->{controller.setMediaItems(Arrays.asList(one.toMediaItem(),two.toMediaItem(),three.toMediaItem()));controller.prepare();controller.play();});
                 FeatureRuntimeTest.await("Audio did not start",()->FeatureRuntimeTest.value(controller::isPlaying),15000);FeatureRuntimeTest.waitForPlayerTitle(one.title);
-                onView(withId(R.id.miniPlayer)).perform(twoTaps());onView(withId(R.id.fullQueue)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(twoTaps());
+                onView(withId(R.id.nowPlaying)).perform(twoTaps());onView(withId(R.id.fullQueue)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(twoTaps());
                 onView(withContentDescription("Close queue")).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());
                 assertEquals(0,(int)FeatureRuntimeTest.value(controller::getCurrentMediaItemIndex));assertEquals(3,(int)FeatureRuntimeTest.value(controller::getMediaItemCount));
                 onView(withId(R.id.fullNext)).inRoot(FeatureRuntimeTest.focusedDialog()).perform(click());FeatureRuntimeTest.await("Next did not advance",()->FeatureRuntimeTest.value(()->controller.getCurrentMediaItemIndex()==1),5000);
