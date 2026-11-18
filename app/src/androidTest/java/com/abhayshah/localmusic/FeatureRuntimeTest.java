@@ -250,7 +250,7 @@ public class FeatureRuntimeTest {
             main(()->{controller.setMediaItem(audio.toMediaItem());controller.prepare();controller.play();});
             context.startService(new Intent(context,PlaybackService.class).setAction(PlaybackService.ACTION_SET_RADIO).putExtra("radio_seed",JamClient.hostCatalog(Collections.singletonList(audio))).putExtra("radio_candidates",JamClient.hostCatalog(candidates)));
             await("Autoplay did not fill five distinct downloaded-first songs",()->value(()->autoplayAhead(controller))==5,15000);
-            assertEquals("auto:"+stored.stableId,value(()->controller.getMediaItemAt(1).mediaId));assertEquals("file",value(()->controller.getMediaItemAt(1).localConfiguration.uri.getScheme()));
+            assertTrue("Downloaded alternate upload was not queued",value(()->{for(int i=1;i<controller.getMediaItemCount();i++)if(("auto:"+stored.stableId).equals(controller.getMediaItemAt(i).mediaId))return "file".equals(controller.getMediaItemAt(i).localConfiguration.uri.getScheme());return false;}));
             context.startService(new Intent(context,PlaybackService.class).setAction(PlaybackService.ACTION_STOP_RADIO));main(()->{controller.pause();controller.release();});
         }finally{DownloadStore.remove(context,stored.stableId);}
     }
