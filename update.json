@@ -1,7 +1,7 @@
 {
-  "versionCode": 38,
-  "versionName": "0.12.21",
-  "notes": "Remove songs from playlists, confirm similar additions, and play five-song genre mixes with ongoing genre radio.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.21/LocalMusic-0.12.21.apk",
-  "sha256": "58FDFD1A41DE1145683EEF5832B65D1D361CB1A3CAB0FB101C5365B625B724DF"
+  "versionCode": 39,
+  "versionName": "0.12.22",
+  "notes": "Jam room reuse, temporary mood feedback, faster browsing, and leaner artwork memory.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.22/LocalMusic-0.12.22.apk",
+  "sha256": "6ADCBC3AE816B4934C6B98A4DBFE6B1B6791317A9CCEE2D17E4FA834DFB76509"
 }
