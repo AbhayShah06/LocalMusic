@@ -65,10 +65,12 @@ final class OnlineCatalogSource implements CatalogSource {
         searchCloud(query.trim(), tracks, limit);
         if(Thread.currentThread().isInterrupted())return Collections.emptyList();
         tracks.removeIf(track -> isUnwantedTitle(track.title, query));
-        // Music-only search can omit an original while returning dozens of covers.
-        // Always merge a bounded general-audio search; count alone is not evidence of a match.
-        search(ServiceList.YouTube, query.trim(), tracks, tracks.size()+Math.min(35,limit), false);
-        tracks.removeIf(track -> isUnwantedTitle(track.title, query));
+        // The server already searches songs and official videos. Avoid waiting for
+        // a second extractor request once it supplied a usable page of results.
+        if (tracks.size() < Math.min(8, limit)) {
+            search(ServiceList.YouTube, query.trim(), tracks, tracks.size()+Math.min(35,limit), false);
+            tracks.removeIf(track -> isUnwantedTitle(track.title, query));
+        }
         if (tracks.size() < Math.min(8, limit)) search(ServiceList.SoundCloud, query.trim(), tracks, limit);
         tracks.sort((left,right)->Integer.compare(SearchPolicy.rank(right.title,right.artist,query),SearchPolicy.rank(left.title,left.artist,query)));
         List<Track> unique = new ArrayList<>(); Set<String> identities = new HashSet<>();

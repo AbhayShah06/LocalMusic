@@ -160,7 +160,7 @@ public final class MainActivity extends Activity {
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                query = s.toString(); if((showingForYou||playlistContent!=null) && !query.trim().isEmpty())selectTab(R.id.songs); searchHandler.removeCallbacksAndMessages(null);
+                query = s.toString(); if(!query.trim().isEmpty()&&(showingForYou||playlistContent!=null||!group.isEmpty())){group="";selectTab(R.id.songs);} searchHandler.removeCallbacksAndMessages(null);
                 renderSearchHistory();
                 searchHandler.postDelayed(MainActivity.this::resetAndLoad, onlineMode ? 350 : 120);
             }
@@ -349,6 +349,7 @@ public final class MainActivity extends Activity {
         if(pageSearch!=null)pageSearch.cancel(true);searchIo.purge();
         libraryGeneration++; libraryPaged=true;
         offset = 0; exhausted = false; loading = false; tracks.clear(); adapter.clear();
+        if(onlineMode&&!query.trim().isEmpty())status.setText("Searching Stream…");
         loadNextPage();
     }
 
@@ -374,6 +375,7 @@ public final class MainActivity extends Activity {
                 tracks.addAll(page); offset += page.size(); exhausted = page.size() < PAGE_SIZE;
                 adapter.appendTracks(page);
                 if (onlineMode && pageQuery.trim().isEmpty()) status.setText("Search for any song, artist, or album");
+                else if(onlineMode&&tracks.isEmpty())status.setText("No Stream results. Try another search or check your connection.");
                 else status.setText(tracks.size() + (exhausted ? " songs" : "+ songs") + (onlineMode ? " found online" : " on this phone"));
             });
         });

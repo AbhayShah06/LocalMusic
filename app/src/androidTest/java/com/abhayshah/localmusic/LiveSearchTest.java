@@ -3,6 +3,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import java.util.*;
+import androidx.test.core.app.ActivityScenario;
+import static androidx.test.espresso.Espresso.onView;
+import static androidx.test.espresso.action.ViewActions.replaceText;
+import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static org.junit.Assert.*;
 @RunWith(AndroidJUnit4.class)
 public class LiveSearchTest {
@@ -17,4 +21,14 @@ public class LiveSearchTest {
     }
     @Test public void khaiDreamsIsDiscoverable(){find("khai dreams ultimately","ultimately","khai dreams");}
     @Test public void hindiAndPunjabiCataloguesAreDiscoverable(){find("Arijit Singh Tum Hi Ho","tum hi ho","arijit");find("Diljit Dosanjh GOAT","g o a t","diljit");}
+    @Test public void streamSearchFromHomeShowsResults()throws Exception{
+        try(ActivityScenario<MainActivity> activity=ActivityScenario.launch(MainActivity.class)){
+            onView(withId(R.id.search)).perform(replaceText("I got a feeling black eyed peas"));
+            FeatureRuntimeTest.await("Stream search did not show songs",()->{
+                java.util.concurrent.atomic.AtomicBoolean found=new java.util.concurrent.atomic.AtomicBoolean();
+                activity.onActivity(a->{android.widget.ListView list=a.findViewById(R.id.tracks);found.set(list.getVisibility()==android.view.View.VISIBLE&&list.getAdapter().getCount()>0);});
+                return found.get();
+            },20000);
+        }
+    }
 }
