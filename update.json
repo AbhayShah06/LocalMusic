@@ -1,7 +1,7 @@
 {
-  "versionCode": 39,
-  "versionName": "0.12.22",
-  "notes": "Jam room reuse, temporary mood feedback, faster browsing, and leaner artwork memory.",
-  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.22/LocalMusic-0.12.22.apk",
-  "sha256": "6ADCBC3AE816B4934C6B98A4DBFE6B1B6791317A9CCEE2D17E4FA834DFB76509"
+  "versionCode": 40,
+  "versionName": "0.12.23",
+  "notes": "Stream searches show results faster and work from the For You and library views.",
+  "apkUrl": "https://github.com/AbhayShah06/LocalMusic/releases/download/v0.12.23/LocalMusic-0.12.23.apk",
+  "sha256": "DBBF44B14DF9E898220459DF8C976A6514762F1FEF13A9D89D1EC900082D7827"
 }
