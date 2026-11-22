@@ -2,6 +2,7 @@ package com.abhayshah.localmusic;
 
 import android.content.ContentResolver;
 import android.content.SharedPreferences;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
@@ -18,6 +19,7 @@ import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
+import androidx.media3.session.SessionResult;
 
 import java.util.ArrayList;
 import java.util.Map;
@@ -50,6 +52,18 @@ public final class PlaybackService extends MediaSessionService {
     private final Set<String> jamSearches = ConcurrentHashMap.newKeySet();
     private volatile boolean destroyed;
     private ExoPlayer player;
+    private final AudioAttributes musicAudioAttributes = new AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build();
+    private AudioManager audioManager;
+    private boolean callPlaybackOverride;
+    private boolean changingCallFocus;
+    private final Runnable checkCallPlayback = new Runnable() {
+        @Override public void run() {
+            if (!callPlaybackOverride || destroyed || player == null) return;
+            if (isCallActive()) stateHandler.postDelayed(this, 2_000);
+            else restoreNormalAudioFocus();
+        }
+    };
     private TrackVolume trackVolume;
     private PlaybackEqualizer equalizer;
     private MediaSession session;
@@ -120,6 +134,11 @@ public final class PlaybackService extends MediaSessionService {
         }
     };
     private final Player.Listener persistenceListener = new Player.Listener() {
+        @Override public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+            if (!changingCallFocus && callPlaybackOverride && !playWhenReady
+                    && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
+                restoreNormalAudioFocus();
+        }
         @Override public void onMediaItemTransition(MediaItem item, int reason) {
             if (waitingForAutoplayReplacement != null && (item == null || !waitingForAutoplayReplacement.mediaId.equals(item.mediaId)))
                 waitingForAutoplayReplacement = null;
@@ -170,18 +189,27 @@ public final class PlaybackService extends MediaSessionService {
     @Override public void onCreate() {
         super.onCreate();
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory().setUserAgent("LocalMusic/0.5");
         DefaultDataSource.Factory upstream = new DefaultDataSource.Factory(this, http);
         player = new ExoPlayer.Builder(this).setMediaSourceFactory(
                 new DefaultMediaSourceFactory(PlaybackCache.dataSourceFactory(this, StreamPlayback.resolving(this,upstream))))
                 .setWakeMode(C.WAKE_MODE_NETWORK).setHandleAudioBecomingNoisy(true).build();
         prefs.edit().putInt("audio_session_id", player.getAudioSessionId()).apply();
-        player.setAudioAttributes(new AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true);
+        player.setAudioAttributes(musicAudioAttributes, true);
         trackVolume = new TrackVolume(player, getSharedPreferences("settings", MODE_PRIVATE));
         equalizer = new PlaybackEqualizer(player, getSharedPreferences("settings", MODE_PRIVATE));
         android.content.Intent openPlayer=new android.content.Intent(this,MainActivity.class).setAction(android.content.Intent.ACTION_MAIN).addCategory(android.content.Intent.CATEGORY_LAUNCHER).setFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK|android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP|android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP).putExtra("show_now_playing",true);
         android.app.PendingIntent sessionActivity=android.app.PendingIntent.getActivity(this,42,openPlayer,android.app.PendingIntent.FLAG_UPDATE_CURRENT|android.app.PendingIntent.FLAG_IMMUTABLE);
-        session = new MediaSession.Builder(this, player).setSessionActivity(sessionActivity).build();
+        session = new MediaSession.Builder(this, player).setSessionActivity(sessionActivity)
+                .setCallback(new MediaSession.Callback() {
+                    @Override public int onPlayerCommandRequest(MediaSession mediaSession,
+                            MediaSession.ControllerInfo controller, int command) {
+                        if (command == Player.COMMAND_PLAY_PAUSE && player != null
+                                && !player.getPlayWhenReady()) allowManualPlaybackDuringCall();
+                        return SessionResult.RESULT_SUCCESS;
+                    }
+                }).build();
         autoplayQueue=new AutoplayQueue(this,player,stateHandler);
         player.addListener(persistenceListener);
         restoreQueue();
@@ -193,7 +221,7 @@ public final class PlaybackService extends MediaSessionService {
         if(intent!=null && PlaybackCollection.ACTION.equals(intent.getAction())){
             try{
                 List<MediaItem> collection=PlaybackCollection.items(this,intent.getStringExtra("tracks"));
-                if(!collection.isEmpty()){autoplayQueue.stop();player.setShuffleModeEnabled(false);player.setRepeatMode(Player.REPEAT_MODE_OFF);int position=Math.max(0,Math.min(collection.size()-1,intent.getIntExtra("position",0)));player.setMediaItems(collection,position,0);player.prepare();player.play();MediaItem first=collection.get(position);MediaMetadata metadata=first.mediaMetadata;String id=Track.originalId(first.mediaId);if(id.startsWith("online:"))autoplayQueue.followCollection(new Track(id,Uri.EMPTY,String.valueOf(metadata.title),String.valueOf(metadata.artist),String.valueOf(metadata.albumTitle)));}
+                if(!collection.isEmpty()){autoplayQueue.stop();player.setShuffleModeEnabled(false);player.setRepeatMode(Player.REPEAT_MODE_OFF);int position=Math.max(0,Math.min(collection.size()-1,intent.getIntExtra("position",0)));player.setMediaItems(collection,position,0);player.prepare();allowManualPlaybackDuringCall();player.play();MediaItem first=collection.get(position);MediaMetadata metadata=first.mediaMetadata;String id=Track.originalId(first.mediaId);if(id.startsWith("online:"))autoplayQueue.followCollection(new Track(id,Uri.EMPTY,String.valueOf(metadata.title),String.valueOf(metadata.artist),String.valueOf(metadata.albumTitle)));}
             }catch(Exception invalid){android.widget.Toast.makeText(this,"Could not open this collection",android.widget.Toast.LENGTH_SHORT).show();}
         } else if(intent!=null && ACTION_SET_RADIO.equals(intent.getAction())){
             autoplayQueue.configure(intent.getStringExtra("radio_seed"),intent.getStringExtra("radio_candidates"),
@@ -232,6 +260,32 @@ public final class PlaybackService extends MediaSessionService {
     }
 
     @Override public MediaSession onGetSession(MediaSession.ControllerInfo controllerInfo) { return session; }
+
+    private boolean isCallActive() {
+        if (audioManager == null) return false;
+        int mode = audioManager.getMode();
+        return mode == AudioManager.MODE_IN_CALL || mode == AudioManager.MODE_IN_COMMUNICATION;
+    }
+
+    /** Only an explicit local Play action may override a call's locked audio focus. */
+    private void allowManualPlaybackDuringCall() {
+        if (player == null || callPlaybackOverride || !isCallActive()) return;
+        callPlaybackOverride = true;
+        changingCallFocus = true;
+        try { player.setAudioAttributes(musicAudioAttributes, false); }
+        finally { changingCallFocus = false; }
+        stateHandler.removeCallbacks(checkCallPlayback);
+        stateHandler.postDelayed(checkCallPlayback, 2_000);
+    }
+
+    private void restoreNormalAudioFocus() {
+        if (!callPlaybackOverride || player == null) return;
+        callPlaybackOverride = false;
+        stateHandler.removeCallbacks(checkCallPlayback);
+        changingCallFocus = true;
+        try { player.setAudioAttributes(musicAudioAttributes, true); }
+        finally { changingCallFocus = false; }
+    }
 
     private void restoreQueue() {
         String saved = prefs.getString("queue", "");
@@ -525,6 +579,7 @@ public final class PlaybackService extends MediaSessionService {
         stateHandler.removeCallbacks(recordCurrentItem);
         stateHandler.removeCallbacks(sleepPause);
         stateHandler.removeCallbacks(jamPoll);
+        stateHandler.removeCallbacks(checkCallPlayback);
         jamRoom = null;
         jamIo.shutdownNow();
         preloadIo.shutdownNow();
